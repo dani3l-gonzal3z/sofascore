@@ -124,3 +124,78 @@ def test_un_partido_sin_jugar_no_marca_guiones():
     assert Event.from_api(MALO).scoreline == "vs"
     assert Event.from_api(BUENO).scoreline == "0 - 4"
     assert "vs" in Event.from_api(MALO).label
+
+
+# ------------------------------- llegar a un partido de hace temporadas
+
+def _rutas_antiguas(calendario_por_pagina, historico):
+    """Calendario paginado + histórico del cruce, como los sirve la API."""
+    rutas = {
+        "/search/all": {"results": [
+            {"type": "event", "entity": MALO},
+            {"type": "team", "entity": {"id": 1, "name": "Real Madrid"}},
+        ]},
+        f"/sport/football/scheduled-events/{FECHA}": {"events": []},
+        "/team/1/events/next/0": {"events": []},
+        f"/event/{MALO['id']}/h2h/events": {"events": historico},
+    }
+    for pagina, eventos in enumerate(calendario_por_pagina):
+        rutas[f"/team/1/events/last/{pagina}"] = {"events": eventos}
+    return rutas
+
+
+def test_retrocede_paginas_del_calendario_para_un_cruce_antiguo():
+    """La página 0 son los últimos ~30 partidos; el bueno está más atrás."""
+    # Páginas llenas hasta llegar al bueno, como las sirve la API de verdad.
+    cliente = _cliente(_rutas_antiguas(
+        calendario_por_pagina=[[MALO], [MALO], [MALO], [BUENO]], historico=[]
+    ))
+    resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    assert resolucion.event.id == 11352550
+    assert not resolucion.warning
+
+
+def test_el_historico_del_cruce_es_la_via_corta():
+    """Sin calendario que valga, una petición al h2h trae la serie entera."""
+    cliente = _cliente(_rutas_antiguas(
+        calendario_por_pagina=[[MALO]], historico=[BUENO]
+    ))
+    resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    assert resolucion.event.id == 11352550
+    assert "histórico h2h" in resolucion.sources
+
+
+def test_no_se_pide_el_historico_si_ya_esta_el_dia_pedido():
+    cliente = _cliente(_rutas(busqueda=[MALO], del_dia=[BUENO]))
+    resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    assert not any("h2h" in url for url in cliente.transport.calls)
+
+
+def test_las_paginas_se_calculan_segun_lo_vieja_que_sea_la_fecha():
+    from sofascore.resolve import _paginas_para
+
+    assert _paginas_para(None) == 1
+    assert _paginas_para("2024-10-26") > _paginas_para("2026-08-01")
+    assert _paginas_para("1990-01-01") == 8          # con tope
+    assert _paginas_para("no es una fecha") == 1
+
+
+def test_deja_de_paginar_cuando_el_calendario_se_acaba():
+    cliente = _cliente(_rutas_antiguas(calendario_por_pagina=[[MALO], []], historico=[]))
+    resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    # Se para en la página vacía: no pide la 2 ni las siguientes.
+    assert not any("events/last/2" in url for url in cliente.transport.calls)
+
+
+def test_el_aviso_dice_que_se_ha_consultado():
+    cliente = _cliente(_rutas_antiguas(calendario_por_pagina=[[MALO]], historico=[]))
+    resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    assert "consultado" in resolucion.warning
+    assert "buscador" in resolucion.warning
+
+
+def test_se_apunta_de_donde_sale_cada_candidato():
+    cliente = _cliente(_rutas(busqueda=[MALO], del_dia=[BUENO]))
+    resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    assert resolucion.sources["buscador"] == 1
+    assert resolucion.sources["partidos del día"] == 1

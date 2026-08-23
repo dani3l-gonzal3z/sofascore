@@ -341,6 +341,16 @@ class SofascoreClient:
         )
         return (datos or {}).get("standings", datos) if isinstance(datos, dict) else datos
 
+    def h2h_events(self, event_id: int) -> list[dict]:
+        """Todos los enfrentamientos históricos entre los dos equipos del partido.
+
+        Es la vía más corta para encontrar un cruce antiguo: el calendario de un
+        equipo solo llega a sus últimos partidos, pero esto devuelve la serie
+        entera, por vieja que sea.
+        """
+        datos = self.get(f"/event/{int(event_id)}/h2h/events", ttl=86400)
+        return (datos or {}).get("events", []) if isinstance(datos, dict) else []
+
     def live_events(self, sport: str | None = None) -> list[dict]:
         """Todo lo que se está jugando ahora mismo en un deporte."""
         deporte = sport or self.settings.sport

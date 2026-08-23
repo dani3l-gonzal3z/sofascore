@@ -100,6 +100,9 @@ class Resolution:
     candidates: list[Candidate] = field(default_factory=list)
     #: Aviso para el usuario cuando la elección merece una explicación.
     warning: str = ""
+    #: Cuántos candidatos ha aportado cada fuente. Para ``--debug``: cuando algo
+    #: no aparece, esto dice qué se llegó a consultar y qué devolvió.
+    sources: dict[str, int] = field(default_factory=dict)
 
     @property
     def event_id(self) -> int:
@@ -156,14 +159,45 @@ def _equipos_de_busqueda(cliente: SofascoreClient, nombre: str, limite: int = 3)
     return equipos
 
 
-def _eventos_de_equipo(cliente: SofascoreClient, team_id: int) -> list[Event]:
+def _eventos_de_equipo(
+    cliente: SofascoreClient, team_id: int, paginas: int = 1
+) -> list[Event]:
+    """Calendario de un equipo. Cada página son ~30 partidos, del más reciente atrás.
+
+    Con ``paginas=1`` solo se ven los últimos partidos; para buscar un cruce de
+    hace temporadas hay que retroceder, que es lo que hace ``paginas`` mayor.
+    """
     eventos: list[Event] = []
-    for cuando in ("last", "next"):
+    for pagina in range(max(1, paginas)):
         try:
-            eventos.extend(Event.from_api(e) for e in cliente.team_events(team_id, when=cuando))
+            tanda = cliente.team_events(team_id, when="last", page=pagina)
         except SofascoreError:
-            continue
+            break
+        if not tanda:
+            break
+        eventos.extend(Event.from_api(e) for e in tanda)
+    try:
+        eventos.extend(Event.from_api(e) for e in cliente.team_events(team_id, when="next"))
+    except SofascoreError:
+        pass
     return eventos
+
+
+def _paginas_para(date: str | None) -> int:
+    """Cuántas páginas de calendario hay que retroceder para llegar a esa fecha.
+
+    Un equipo juega del orden de 50-60 partidos por temporada y cada página trae
+    unos 30, así que dos páginas por año cubren de sobra. Se limita a 8 para no
+    ponerse a pedir sin fin.
+    """
+    if not date:
+        return 1
+    try:
+        pedida = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return 1
+    anos = max(0.0, (datetime.now(timezone.utc) - pedida).days / 365)
+    return min(8, 1 + int(anos * 2 + 0.5))
 
 
 def resolve_event(
@@ -179,6 +213,7 @@ def resolve_event(
     muchas veces. Con ``strict=True`` se lanza :class:`AmbiguousMatch` si hay
     empate en vez de elegir el partido más cercano en el tiempo.
     """
+    fuentes: dict[str, int] = {}
     consulta_texto = str(consulta).strip()
     if not consulta_texto:
         raise MatchNotFound("La consulta está vacía: dime un partido, un id o una URL.")
@@ -194,12 +229,17 @@ def resolve_event(
     equipos = split_teams(consulta_texto)
     candidatos: dict[int, Candidate] = {}
 
-    def registrar(evento: Event, puntos: float, motivo: str) -> None:
+    def registrar(evento: Event, puntos: float, motivo: str, fuente: str = "") -> None:
         if not evento.id:
             return
+        if fuente:
+            fuentes[fuente] = fuentes.get(fuente, 0) + 1
         previo = candidatos.get(evento.id)
         if previo is None or puntos > previo.score:
             candidatos[evento.id] = Candidate(event=evento, score=puntos, reason=motivo)
+
+    def hay_de_la_fecha() -> bool:
+        return bool(date) and any(c.event.date == date for c in candidatos.values())
 
     # 2) Buscador general de Sofascore.
     for evento in _eventos_de_busqueda(cliente, consulta_texto):
@@ -213,7 +253,7 @@ def resolve_event(
             motivo = "resultado del buscador"
             if date:
                 puntos += 0.5 if evento.date == date else -0.35
-        registrar(evento, puntos, motivo)
+        registrar(evento, puntos, motivo, "buscador")
 
     # 3) Si das fecha, los partidos de ese día son la fuente autoritativa: están
     #    todos, por viejo que sea el cruce. Se consulta SIEMPRE, no como último
@@ -230,15 +270,39 @@ def resolve_event(
                 puntos, _ = _puntuar(evento, equipos[0], equipos[1], None)
             else:
                 puntos = parecido(f"{evento.home.name} {evento.away.name}", consulta_texto)
-            registrar(evento, puntos + 0.15, f"partidos del {date}")
+            registrar(evento, puntos + 0.15, f"partidos del {date}", "partidos del día")
 
-    # 4) Si hay dos equipos, mirar su calendario: ahí están sus cruces recientes.
-    if equipos and not any(c.score >= 0.9 for c in candidatos.values()):
+    # 4) Si hay dos equipos, mirar su calendario. Retrocediendo lo que haga falta
+    #    cuando la fecha pedida es antigua: una sola página son los últimos ~30
+    #    partidos y un cruce de hace dos temporadas se queda muy atrás.
+    if equipos and not (hay_de_la_fecha() or any(c.score >= 0.9 for c in candidatos.values())):
         local, visitante = equipos
+        paginas = _paginas_para(date)
         for equipo in _equipos_de_busqueda(cliente, local):
-            for evento in _eventos_de_equipo(cliente, int(equipo["id"])):
+            for evento in _eventos_de_equipo(cliente, int(equipo["id"]), paginas=paginas):
                 puntos, motivo = _puntuar(evento, local, visitante, date)
-                registrar(evento, puntos, f"calendario de {equipo.get('name', local)}: {motivo}")
+                registrar(evento, puntos, f"calendario de {equipo.get('name', local)}: {motivo}",
+                          "calendario")
+            if hay_de_la_fecha():
+                break
+
+    # 5) Y si aún no aparece el día pedido, preguntar por el histórico del cruce:
+    #    teniendo cualquier enfrentamiento entre esos dos equipos, la API
+    #    devuelve la serie completa. Es una petición y llega donde no llega el
+    #    calendario.
+    if date and equipos and candidatos and not hay_de_la_fecha():
+        mejores = sorted(candidatos.values(), key=lambda c: -c.score)[:2]
+        for candidato in mejores:
+            try:
+                historico = cliente.h2h_events(candidato.event.id)
+            except SofascoreError:
+                continue
+            for datos in historico:
+                evento = Event.from_api(datos)
+                puntos, motivo = _puntuar(evento, equipos[0], equipos[1], date)
+                registrar(evento, puntos, f"histórico del cruce: {motivo}", "histórico h2h")
+            if hay_de_la_fecha():
+                break
 
     viables = [c for c in candidatos.values() if c.score >= min_score]
     aviso = ""
@@ -250,8 +314,9 @@ def resolve_event(
         if del_dia:
             viables = del_dia
         else:
+            consultado = ", ".join(f"{k}: {v}" for k, v in fuentes.items()) or "nada"
             aviso = (
-                f"No he encontrado ningún partido el {date}. "
+                f"No he encontrado ningún partido el {date} (consultado — {consultado}). "
                 f"Lo que te doy es de otra fecha; compruébalo."
             )
 
@@ -270,5 +335,6 @@ def resolve_event(
         raise AmbiguousMatch(consulta_texto, [str(c) for c in viables])
 
     return Resolution(
-        event=mejor.event, source=mejor.reason, candidates=viables, warning=aviso
+        event=mejor.event, source=mejor.reason, candidates=viables,
+        warning=aviso, sources=fuentes,
     )
