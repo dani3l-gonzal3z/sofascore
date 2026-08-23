@@ -199,3 +199,18 @@ def test_sections_por_catalogo(capsys):
 def test_match_acepta_parallel(cli_con_cliente, capsys):
     assert cli.main(["match", str(EVENT_ID), "--parallel", "1"]) == 0
     assert "Real Madrid" in capsys.readouterr().out
+
+
+def test_se_puede_ejecutar_como_modulo():
+    """`python -m sofascore` tiene que funcionar aunque el PATH no colabore."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    raiz = Path(__file__).resolve().parents[1]
+    proceso = subprocess.run(
+        [sys.executable, "-m", "sofascore", "--version"],
+        capture_output=True, text=True, cwd=raiz, timeout=60,
+    )
+    assert proceso.returncode == 0, proceso.stderr
+    assert "sofascore-framework" in proceso.stdout

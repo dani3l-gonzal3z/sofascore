@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 174 tests que corren en menos de un segundo con
+- **Probado sin red.** 175 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -47,8 +47,16 @@ pip install -e ".[pandas]"   # además, informe.frames() devuelve DataFrames
 pip install -e ".[dev]"      # además, pytest para los tests
 ```
 
-O sin instalar nada: copia la carpeta `sofascore/` a tu proyecto y usa
-`python -m sofascore.cli ...`.
+Si al instalar te avisa de que `sofascore.exe` ha quedado en una carpeta *que
+no está en el PATH* (habitual en Windows con instalación de usuario), no hace
+falta configurar nada: `python -m sofascore` hace exactamente lo mismo.
+
+```bash
+python -m sofascore match "Real Madrid vs Barcelona" --date 2024-10-26
+```
+
+Y sin instalar nada: copia la carpeta `sofascore/` a tu proyecto y usa
+`python -m sofascore ...` desde el directorio que la contiene.
 
 ## Cómo se nombra un partido
 
@@ -340,7 +348,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 174 tests, sin red
+python -m pytest                  # 175 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```
