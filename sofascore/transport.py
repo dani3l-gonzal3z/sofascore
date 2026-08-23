@@ -112,6 +112,59 @@ class HttpxTransport:
         self._client.close()
 
 
+class CurlTransport:
+    """Transporte que imita el handshake TLS de Chrome (``curl_cffi``).
+
+    Sofascore está detrás de Cloudflare, y Cloudflare no mira solo las
+    cabeceras: mira la **huella del handshake TLS**. Una petición de ``urllib``
+    con cabeceras de Chrome canta muchísimo —el TLS es de Python— y se lleva un
+    403 aunque las cabeceras sean perfectas.
+
+    ``curl_cffi`` habla TLS *como* Chrome, así que la huella cuadra con lo que
+    dicen las cabeceras. Es el mismo camino que toman todas las librerías que
+    hablan con esta API: ``pysofascore`` usa esto mismo, ``soccerdata`` usa
+    ``tls_requests``, y ``ScraperFC`` y ``sofascore-wrapper`` llegan a levantar
+    un navegador entero.
+
+    Es una dependencia **opcional**: ``pip install curl_cffi``. Sin ella el
+    framework sigue funcionando con ``urllib``, que sirve de sobra si pides
+    desde una red que no esté bloqueada.
+    """
+
+    #: Perfil de navegador a imitar. ``chrome`` sigue al último Chrome estable.
+    DEFAULT_IMPERSONATE = "chrome"
+
+    def __init__(self, timeout: float = 15.0, impersonate: str | None = None,
+                 session: Any = None) -> None:
+        self.timeout = timeout
+        self.impersonate = impersonate or self.DEFAULT_IMPERSONATE
+        if session is None:
+            from curl_cffi import requests as curl_requests  # import perezoso
+
+            session = curl_requests.Session(impersonate=self.impersonate, timeout=timeout)
+        self._session = session
+
+    def request(self, method: str, url: str, headers: dict[str, str]) -> Response:
+        # El User-Agent lo pone el perfil imitado: mandar el nuestro lo
+        # contradiría y volvería a delatarnos.
+        limpias = {k: v for k, v in headers.items() if k.lower() != "user-agent"}
+        try:
+            r = self._session.request(method, url, headers=limpias)
+        except Exception as exc:  # noqa: BLE001 - curl_cffi tiene su propia jerarquía
+            raise TransportError(f"No se pudo conectar con {url}: {exc}") from exc
+        return Response(
+            status=r.status_code,
+            url=url,
+            body=r.content,
+            headers={k.lower(): v for k, v in dict(r.headers).items()},
+        )
+
+    def close(self) -> None:
+        cerrar = getattr(self._session, "close", None)
+        if callable(cerrar):
+            cerrar()
+
+
 class CallableTransport:
     """Envuelve cualquier función ``(method, url, headers) -> (status, bytes)``.
 
@@ -188,17 +241,47 @@ class FakeTransport:
         return Response(status=200, url=url, body=json.dumps(payload).encode("utf-8"))
 
 
-def build_transport(kind: str = "auto", timeout: float = 15.0) -> Transport:
-    """Devuelve el transporte pedido: ``urllib``, ``httpx`` o ``auto``."""
-    if kind == "httpx":
-        return HttpxTransport(timeout=timeout)
-    if kind == "urllib":
-        return UrllibTransport(timeout=timeout)
-    try:  # "auto": httpx si está instalado, urllib si no
-        import httpx  # noqa: F401
+#: Orden de preferencia de ``auto``: primero el que más lejos llega.
+AUTO_ORDER = ("curl", "httpx", "urllib")
+
+
+def transport_disponible(kind: str) -> bool:
+    """¿Está instalado lo que hace falta para ese transporte?"""
+    modulos = {"curl": "curl_cffi", "httpx": "httpx", "urllib": None}
+    modulo = modulos.get(kind, "")
+    if modulo is None:
+        return True
+    if not modulo:
+        return False
+    try:
+        __import__(modulo)
     except ImportError:
-        return UrllibTransport(timeout=timeout)
-    return HttpxTransport(timeout=timeout)
+        return False
+    return True
+
+
+def build_transport(kind: str = "auto", timeout: float = 15.0) -> Transport:
+    """Devuelve el transporte pedido: ``curl``, ``httpx``, ``urllib`` o ``auto``.
+
+    ``auto`` coge el mejor de los que estén instalados. ``curl`` va primero
+    porque es el único que atraviesa el anti-bot de Cloudflare: imita el
+    handshake TLS de Chrome, no solo sus cabeceras.
+    """
+    constructores = {
+        "curl": lambda: CurlTransport(timeout=timeout),
+        "httpx": lambda: HttpxTransport(timeout=timeout),
+        "urllib": lambda: UrllibTransport(timeout=timeout),
+    }
+    if kind in constructores:
+        return constructores[kind]()
+    if kind != "auto":
+        raise ValueError(
+            f"Transporte desconocido: '{kind}'. Usa: auto, {', '.join(constructores)}"
+        )
+    for candidato in AUTO_ORDER:
+        if transport_disponible(candidato):
+            return constructores[candidato]()
+    return UrllibTransport(timeout=timeout)
 
 
 __all__ = [
@@ -206,7 +289,10 @@ __all__ = [
     "Transport",
     "UrllibTransport",
     "HttpxTransport",
+    "CurlTransport",
     "CallableTransport",
+    "transport_disponible",
+    "AUTO_ORDER",
     "FakeTransport",
     "build_transport",
 ]

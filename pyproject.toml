@@ -9,11 +9,15 @@ keywords = ["sofascore", "futbol", "football", "stats", "api", "scraping"]
 dependencies = []
 
 [project.optional-dependencies]
+# Muy recomendable: imita el handshake TLS de Chrome. Sofascore está detrás de
+# Cloudflare, que mira esa huella y no solo las cabeceras; sin esto es fácil
+# llevarse un 403. El framework lo detecta y lo usa solo si está instalado.
+curl = ["curl_cffi>=0.7"]
 # Transporte alternativo (conexiones reutilizadas, timeouts finos).
 http = ["httpx>=0.27"]
 # Tablas: informe.frames() devuelve DataFrames en vez de listas de diccionarios.
 pandas = ["pandas>=2.0"]
-dev = ["pytest>=8.0", "pandas>=2.0"]
+dev = ["pytest>=8.0", "pandas>=2.0", "curl_cffi>=0.7"]
 
 [project.scripts]
 sofascore = "sofascore.cli:main"

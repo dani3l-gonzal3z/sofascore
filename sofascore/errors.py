@@ -37,6 +37,34 @@ class RateLimited(HTTPError):
         super().__init__(status, url, body)
 
 
+class Blocked(HTTPError):
+    """403 desde todos los hosts: no es el dato, es el anti-bot.
+
+    Sofascore está detrás de Cloudflare, que mira la huella del handshake TLS y
+    no solo las cabeceras. Una petición de ``urllib`` con cabeceras de Chrome no
+    cuela. La salida es hablar TLS como Chrome, que es lo que hace
+    ``curl_cffi``.
+    """
+
+    def __init__(self, status: int, url: str, body: str = "", transporte: str = "") -> None:
+        self.transporte = transporte
+        consejo = (
+            "Sofascore te está bloqueando (Cloudflare mira la huella TLS, no solo "
+            "las cabeceras). La solución es una línea:\n"
+            "    pip install curl_cffi\n"
+            "El framework lo detecta solo y empieza a usarlo. Si aun así te "
+            "bloquea, prueba desde otra red o con SOFA_RATE_LIMIT más bajo."
+        )
+        if transporte == "CurlTransport":
+            consejo = (
+                "Sofascore te está bloqueando incluso imitando a Chrome. Prueba "
+                "desde otra red, baja SOFA_RATE_LIMIT, o usa un navegador real "
+                "como transporte (mira CallableTransport en el README)."
+            )
+        super().__init__(status, url, body)
+        self.args = (f"HTTP {status} en {url}\n\n{consejo}",)
+
+
 class PlusRequired(SofascoreError):
     """La sección pedida requiere una suscripción Sofascore Plus activa.
 

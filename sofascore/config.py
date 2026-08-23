@@ -69,6 +69,10 @@ class Settings:
     #: Peticiones por segundo como máximo (cortesía con la API pública).
     rate_limit: float = 3.0
     user_agent: str = DEFAULT_USER_AGENT
+    #: Qué transporte usar: ``auto``, ``curl``, ``httpx`` o ``urllib``.
+    #: ``auto`` coge ``curl_cffi`` si está instalado, que es el único que
+    #: atraviesa el anti-bot de Cloudflare.
+    transport: str = "auto"
     #: Idioma preferido para textos (comentarios, nombres de rondas...).
     language: str = "es"
     #: Secciones pedidas a la vez. 1 = de una en una (como antes).
@@ -116,7 +120,7 @@ class Settings:
 
         ajustes = cls()
         for campo in ("base_url", "user_agent", "language", "plus_cookie", "plus_token",
-                      "plus_cookie_file", "sport"):
+                      "plus_cookie_file", "sport", "transport"):
             valor = fuente.get(ENV_PREFIX + campo.upper())
             if valor:
                 setattr(ajustes, campo, valor)
@@ -161,6 +165,7 @@ class Settings:
         """Copia serializable con los secretos ocultos (para logs y ``--debug``)."""
         datos = {
             "base_url": self.base_url,
+            "transport": self.transport,
             "fallback_base_urls": list(self.fallback_base_urls),
             "concurrency": self.concurrency,
             "timeout": self.timeout,

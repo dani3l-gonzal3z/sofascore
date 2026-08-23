@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 175 tests que corren en menos de un segundo con
+- **Probado sin red.** 191 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -43,9 +43,35 @@ print(partido.locked())                       # secciones que requieren Plus
 
 ```bash
 pip install -e .             # instala el comando `sofascore`
+pip install curl_cffi        # muy recomendable: ver abajo
 pip install -e ".[pandas]"   # además, informe.frames() devuelve DataFrames
 pip install -e ".[dev]"      # además, pytest para los tests
 ```
+
+### Por qué `curl_cffi`
+
+Sofascore está detrás de Cloudflare, y **Cloudflare no mira solo las cabeceras:
+mira la huella del handshake TLS**. Una petición de `urllib` con cabeceras de
+Chrome canta —el TLS es de Python— y se lleva un `403` por muy perfectas que
+sean las cabeceras.
+
+`curl_cffi` habla TLS *como* Chrome, así que la huella cuadra con lo que dicen
+las cabeceras. Instalarlo es todo lo que hay que hacer: el framework lo detecta
+solo y empieza a usarlo.
+
+```bash
+pip install curl_cffi
+sofascore doctor        # dice qué transporte usa y si la API contesta
+```
+
+No es un capricho de este proyecto: **ninguna** de las librerías que hablan con
+esta API usa HTTP normal. `pysofascore` usa este mismo `curl_cffi`, `soccerdata`
+usa `tls_requests`, y `ScraperFC` y `sofascore-wrapper` llegan a levantar un
+navegador entero. Sigue siendo opcional —sin ella el framework funciona igual
+desde una red que no esté bloqueada— pero si ves un `403`, es esto.
+
+Con `--transport` (o `SOFA_TRANSPORT`) eliges a mano: `auto`, `curl`, `httpx`
+o `urllib`.
 
 Si al instalar te avisa de que `sofascore.exe` ha quedado en una carpeta *que
 no está en el PATH* (habitual en Windows con instalación de usuario), no hace
@@ -91,6 +117,7 @@ sofascore search <consulta>               # partidos candidatos
 sofascore sections [--kind team]          # catálogo de secciones
 sofascore login [partido]                 # comprueba tus credenciales Plus
 sofascore raw /event/11352550/statistics  # cualquier ruta de la API, tal cual
+sofascore doctor                          # qué transporte usa y si la API contesta
 sofascore cache [--clear]                 # estado de la caché
 ```
 
@@ -107,6 +134,7 @@ Opciones más usadas de `match`:
 | `--stdout-json` | El informe entero en JSON, listo para `jq` |
 | `--offline` / `--no-cache` | Solo caché / ignorar caché |
 | `--parallel N` | Secciones a la vez (`1` las pide de una en una) |
+| `--transport curl` | Forzar transporte (`auto`, `curl`, `httpx`, `urllib`) |
 | `--debug` | Contadores de peticiones y ajustes en uso |
 
 ```bash
@@ -151,6 +179,10 @@ Cada sección termina en uno de estos estados, y lo verás en el resumen:
 | `plus_required` | Hace falta Sofascore Plus y no hay credenciales válidas |
 | `unavailable` | Ese partido o deporte no tiene esa sección |
 | `error` | Fallo de red o de la API |
+
+Y si Cloudflare te corta el paso, el error no es un `HTTP 403` pelado: te dice
+qué instalar (`Blocked`, que hereda de `HTTPError`, así que quien ya capturaba
+`HTTPError` no tiene que cambiar nada).
 
 ## Más allá del partido
 
@@ -311,10 +343,15 @@ que no existan aparecerán como `unavailable` en vez de romper nada. Las que sí
 son de otro deporte (`point_by_point`, `innings`...) se piden solas cuando el
 partido lo es.
 
-### Si algún día te bloquean
+### Si te bloquean
 
-Ya se prueban los dos hosts de la API con cabeceras de navegador. Si aun así te
-responden 403, el transporte es enchufable y no hace falta tocar nada más:
+Lo primero es `pip install curl_cffi` (ver [arriba](#por-qué-curl_cffi)), que
+resuelve el caso normal. El framework se prueba además con los dos hosts de la
+API antes de rendirse, y si aun así te responden 403 te lo dice con la salida
+escrita en el propio error, no con un `HTTP 403` a secas.
+
+Si ni con eso, el transporte es enchufable y no hace falta tocar nada más —aquí
+con `curl_cffi` a mano, pero vale igual `playwright` o un proxy tuyo:
 
 ```python
 from curl_cffi import requests as cr
@@ -348,7 +385,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 175 tests, sin red
+python -m pytest                  # 191 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```

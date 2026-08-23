@@ -214,3 +214,11 @@ def test_se_puede_ejecutar_como_modulo():
     )
     assert proceso.returncode == 0, proceso.stderr
     assert "sofascore-framework" in proceso.stdout
+
+
+def test_doctor_dice_con_que_esta_pidiendo(cli_con_cliente, capsys):
+    assert cli.main(["doctor"]) == 0
+    salida = capsys.readouterr().out
+    assert "Transportes disponibles" in salida
+    assert "curl_cffi" in salida
+    assert "En uso:" in salida

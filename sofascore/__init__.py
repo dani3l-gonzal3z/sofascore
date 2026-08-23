@@ -49,6 +49,7 @@ from .entities import (
 )
 from .errors import (
     AmbiguousMatch,
+    Blocked,
     HTTPError,
     MatchNotFound,
     NotFound,
@@ -267,6 +268,7 @@ __all__ = [
     "HttpxTransport",
     "SofascoreError",
     "HTTPError",
+    "Blocked",
     "NotFound",
     "RateLimited",
     "PlusRequired",

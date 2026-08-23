@@ -43,6 +43,7 @@ def _construir_cliente(args: argparse.Namespace) -> SofascoreClient:
         timeout=getattr(args, "timeout", None),
         offline=True if getattr(args, "offline", False) else None,
         concurrency=getattr(args, "parallel", None),
+        transport=getattr(args, "transport", None),
         cache_dir=Path(args.cache_dir) if getattr(args, "cache_dir", None) else None,
     )
     cache = NullCache() if getattr(args, "no_cache", False) else None
@@ -244,6 +245,44 @@ def cmd_raw(args: argparse.Namespace) -> int:
         cliente.close()
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """Dice con qué está pidiendo y si Sofascore le contesta."""
+    from .transport import AUTO_ORDER, transport_disponible
+
+    _imprimir("Transportes disponibles:")
+    for nombre in AUTO_ORDER:
+        marca = "✓" if transport_disponible(nombre) else "·"
+        extra = {
+            "curl": "curl_cffi — imita el TLS de Chrome, atraviesa el anti-bot",
+            "httpx": "httpx — HTTP/2 y conexiones reutilizadas",
+            "urllib": "biblioteca estándar, siempre está",
+        }[nombre]
+        _imprimir(f"  {marca} {nombre:<8} {extra}")
+
+    cliente = _construir_cliente(args)
+    try:
+        elegido = type(cliente.transport).__name__
+        _imprimir(f"\nEn uso: {elegido}")
+        if elegido == "UrllibTransport":
+            _imprimir("  ⚠  Sofascore suele responder 403 a urllib. `pip install curl_cffi`")
+        _imprimir(f"Credenciales Plus: {cliente.credentials.describe()}")
+
+        _imprimir("\nProbando contra la API...")
+        for base in cliente.settings.base_urls():
+            try:
+                respuesta = cliente.transport.request(
+                    "GET", f"{base}/sport/football/events/live", cliente._headers()
+                )
+                estado = f"HTTP {respuesta.status}"
+                icono = "✓" if respuesta.ok else ("🚫" if respuesta.status in (401, 403) else "✗")
+            except SofascoreError as exc:
+                estado, icono = str(exc), "✗"
+            _imprimir(f"  {icono} {base} — {estado}")
+        return 0
+    finally:
+        cliente.close()
+
+
 def cmd_cache(args: argparse.Namespace) -> int:
     ajustes = Settings.from_env(cache_dir=Path(args.cache_dir) if args.cache_dir else None)
     cache = DiskCache(ajustes.cache_dir)
@@ -275,6 +314,8 @@ def build_parser() -> argparse.ArgumentParser:
     comun.add_argument("--offline", action="store_true", help="Solo caché, sin red.")
     comun.add_argument("--parallel", type=int,
                        help="Secciones que se piden a la vez (1 = de una en una).")
+    comun.add_argument("--transport", choices=["auto", "curl", "httpx", "urllib"],
+                       help="Cómo se hacen las peticiones (por defecto: auto).")
 
     # Opciones comunes a los informes por secciones (partido, equipo, jugador, liga).
     informe = argparse.ArgumentParser(add_help=False)
@@ -351,6 +392,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_raw = sub.add_parser("raw", parents=[comun], help="Pide una ruta cualquiera de la API.")
     p_raw.add_argument("ruta", help="P. ej. /event/11352550/statistics")
     p_raw.set_defaults(func=cmd_raw)
+
+    p_doctor = sub.add_parser("doctor", parents=[comun],
+                              help="Comprueba el transporte y si la API contesta.")
+    p_doctor.set_defaults(func=cmd_doctor)
 
     p_cache = sub.add_parser("cache", help="Estado de la caché.")
     p_cache.add_argument("--clear", action="store_true", help="Vacía la caché.")

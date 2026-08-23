@@ -18,6 +18,7 @@ from .cache import Cache, build_cache
 from .config import Settings
 from .endpoints import PLUS, PUBLIC, Section, get_section
 from .errors import (
+    Blocked,
     HTTPError,
     NotFound,
     OfflineError,
@@ -83,7 +84,9 @@ class SofascoreClient:
         sleep=time.sleep,
     ) -> None:
         self.settings = settings or Settings.from_env()
-        self.transport = transport or build_transport(timeout=self.settings.timeout)
+        self.transport = transport or build_transport(
+            self.settings.transport, timeout=self.settings.timeout
+        )
         self.cache = cache if cache is not None else build_cache(
             self.settings.cache_dir, self.settings.cache_ttl
         )
@@ -193,9 +196,17 @@ class SofascoreClient:
                 es_bloqueo = isinstance(exc, (PlusRequired, TransportError)) or getattr(
                     exc, "status", 0
                 ) in (401, 403)
-                if not es_bloqueo or indice == len(hosts) - 1:
-                    raise
-                bloqueo = exc
+                if indice < len(hosts) - 1 and es_bloqueo:
+                    bloqueo = exc
+                    continue
+                # Último host: si lo que hay es un 403 en datos públicos, no es
+                # el dato lo que falla, es el anti-bot. Merece decirlo.
+                if getattr(exc, "status", 0) in (401, 403) and scope != PLUS:
+                    raise Blocked(
+                        exc.status, exc.url, getattr(exc, "body", ""),
+                        transporte=type(self.transport).__name__,
+                    ) from exc
+                raise
         raise bloqueo or TransportError(f"No se pudo obtener {path}")
 
     def _request_with_retries(self, url: str, scope: str, section_name: str | None) -> Any:
