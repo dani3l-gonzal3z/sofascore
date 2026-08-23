@@ -298,10 +298,17 @@ def test_el_limite_avisa_de_lo_que_se_deja_fuera(monkeypatch, capsys):
     assert "--filter" in salida
 
 
-def test_sin_resultados_lo_dice(monkeypatch, capsys):
+def test_sin_resultados_dice_de_cuantos_venia(monkeypatch, capsys):
+    """Distingue "el filtro no encaja" de "no hay nada en juego"."""
     monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
     assert cli.main(["live", "--filter", "equipo que no juega"]) == 0
-    assert "ningún partido que encaje" in capsys.readouterr().out
+    assert "Ninguno de los 4 partidos encaja" in capsys.readouterr().out
+
+
+def test_sin_nada_en_juego_lo_dice_de_otra_forma(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos([]))
+    assert cli.main(["live"]) == 0
+    assert "No hay ningún partido ahora mismo" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("comando", [

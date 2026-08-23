@@ -49,7 +49,10 @@ def rutas_por_defecto() -> dict:
         "/team/2829/performance": {"events": [{"winner": 1}]},
         "/player/831993": cargar("player"),
         "/player/831993/attribute-overviews": cargar("player_attributes"),
-        "/player/831993/statistics/seasons": {"uniqueTournamentSeasons": []},
+        "/player/831993/statistics/seasons": cargar("player_seasons"),
+        "/player/831993/unique-tournament/8/season/61643/statistics/overall": {
+            "statistics": {"rating": 7.8, "goals": 24, "assists": 11, "appearances": 38}
+        },
         "/player/831993/last-year-summary": {"summary": [{"rating": 7.9}]},
         "/player/831993/transfer-history": {"transferHistory": []},
         "/unique-tournament/8": {"uniqueTournament": {"id": 8, "name": "LaLiga"}},

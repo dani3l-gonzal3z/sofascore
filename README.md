@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 230 tests que corren en menos de un segundo con
+- **Probado sin red.** 242 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -207,9 +207,9 @@ Cada sección termina en uno de estos estados, y lo verás en el resumen:
 | `error` | Fallo de red o de la API |
 
 Un `unavailable` no significa que la ruta esté mal. `tv_channels` solo existe
-en partidos por jugar, y `win_probability` no la tienen todos los deportes ni
-todos los partidos: en un partido terminado de hace dos años, un 404 en esas
-dos es lo normal.
+en partidos por jugar, `win_probability` no la tienen todos los deportes ni
+todos los partidos, y `cuptree` solo existe donde hay eliminatorias: en una
+liga regular devuelve 404 y es lo correcto.
 
 Y si Cloudflare te corta el paso, el error no es un `HTTP 403` pelado: te dice
 qué instalar (`Blocked`, que hereda de `HTTPError`, así que quien ya capturaba
@@ -231,6 +231,7 @@ madrid.get("next_events")
 vini = get_player("Vinicius Junior")
 vini.get("attributes")          # el radar de atributos
 vini.get("transfers")           # historial de traspasos
+vini.get("season_statistics")   # la temporada entera: goles, xG, pases...
 
 liga = get_league("laliga")     # temporada en curso si no dices otra
 liga.get("standings")
@@ -245,6 +246,11 @@ alias que no necesita ni buscar:
 sofascore leagues              # las 37 ligas conocidas con su id
 sofascore league champions     # "premier", "mundial", "libertadores"...
 ```
+
+Las estadísticas de temporada de un jugador necesitan saber *de qué* liga y
+temporada, y eso no lo sabes de antemano. Como el informe ya trae el índice de
+temporadas del jugador, de ahí se saca la más reciente y se piden en una
+segunda tanda, sin que tengas que averiguar ningún id.
 
 `sofascore sections --kind team|player|tournament` lista lo que trae cada uno.
 
@@ -434,7 +440,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 230 tests, sin red
+python -m pytest                  # 242 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```

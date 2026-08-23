@@ -102,3 +102,52 @@ def test_informe_de_equipo_se_serializa(cliente):
     datos = build_team_report(cliente, 2829).to_dict()
     assert datos["tipo"] == "team"
     assert datos["resumen"]["disponibles"]
+
+
+# ---------------- estadísticas de temporada: los ids salen del propio informe
+
+def test_las_estadisticas_de_temporada_se_piden_solas(cliente):
+    """No sabes de antemano la liga ni la temporada: se sacan del índice."""
+    informe = build_player_report(cliente, "Vinicius", sections=["all"])
+    assert informe.sections["season_statistics"].status == "ok"
+    assert informe.get("season_statistics")["statistics"]["goals"] == 24
+    assert informe.meta["contexto"]["tournament_id"] == 8
+    assert informe.meta["contexto"]["season_id"] == 61643
+
+
+def test_se_coge_la_temporada_mas_reciente_de_la_liga_principal(cliente):
+    from sofascore.entities import temporada_mas_reciente
+    from conftest import cargar
+
+    assert temporada_mas_reciente(cargar("player_seasons")) == {
+        "tournament_id": 8, "season_id": 61643,
+    }
+
+
+@pytest.mark.parametrize("indice", [None, {}, [], "vaya", {"uniqueTournamentSeasons": []},
+                                    {"uniqueTournamentSeasons": [{"seasons": []}]},
+                                    {"uniqueTournamentSeasons": [{"uniqueTournament": {}}]}])
+def test_un_indice_con_otra_forma_no_revienta(indice):
+    from sofascore.entities import temporada_mas_reciente
+
+    assert temporada_mas_reciente(indice) == {}
+
+
+def test_sin_indice_la_seccion_sigue_quedando_no_disponible(tmp_path):
+    from conftest import rutas_por_defecto
+
+    rutas = rutas_por_defecto()
+    rutas["/player/831993/statistics/seasons"] = {"uniqueTournamentSeasons": []}
+    cli = SofascoreClient(
+        Settings(cache_dir=tmp_path / "c", rate_limit=0, retries=0),
+        transport=FakeTransport(rutas), cache=MemoryCache(), sleep=lambda _s: None,
+    )
+    informe = build_player_report(cli, 831993, sections=["all"])
+    assert informe.sections["season_statistics"].status == UNAVAILABLE
+
+
+def test_la_segunda_tanda_no_se_lanza_si_no_hace_falta(cliente):
+    """Sin pedir season_statistics, no se deduce nada ni se pide de más."""
+    informe = build_player_report(cliente, "Vinicius", sections=["profile"])
+    assert "season_statistics" not in informe.sections
+    assert not any("statistics/overall" in url for url in cliente.transport.calls)

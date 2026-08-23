@@ -208,10 +208,13 @@ def _filtrar_eventos(
     return eventos
 
 
-def _listar_eventos(eventos: list[Event], limite: int) -> None:
+def _listar_eventos(eventos: list[Event], limite: int, total: int | None = None) -> None:
     """Los agrupa por competición: 150 partidos en una lista plana no se leen."""
     if not eventos:
-        _imprimir("No hay ningún partido que encaje.")
+        if total:
+            _imprimir(f"Ninguno de los {total} partidos encaja con el filtro.")
+        else:
+            _imprimir("No hay ningún partido ahora mismo.")
         return
 
     por_torneo: dict[str, list[Event]] = {}
@@ -241,7 +244,8 @@ def cmd_live(args: argparse.Namespace) -> int:
     cliente = _construir_cliente(args)
     try:
         eventos = [Event.from_api(e) for e in cliente.live_events(args.sport)]
-        _listar_eventos(_filtrar_eventos(eventos, args.filtro, args.league), args.limit)
+        elegidos = _filtrar_eventos(eventos, args.filtro, args.league)
+        _listar_eventos(elegidos, args.limit, total=len(eventos))
         _depuracion(args, cliente)
         return 0
     finally:
@@ -254,7 +258,8 @@ def cmd_today(args: argparse.Namespace) -> int:
         fecha = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         eventos = [Event.from_api(e) for e in cliente.scheduled_events(fecha, args.sport)]
         _imprimir(f"Partidos del {fecha}:")
-        _listar_eventos(_filtrar_eventos(eventos, args.filtro, args.league), args.limit)
+        elegidos = _filtrar_eventos(eventos, args.filtro, args.league)
+        _listar_eventos(elegidos, args.limit, total=len(eventos))
         _depuracion(args, cliente)
         return 0
     finally:

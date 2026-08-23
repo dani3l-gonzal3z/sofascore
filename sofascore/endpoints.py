@@ -252,8 +252,11 @@ TOURNAMENT_SECTIONS: dict[str, Section] = _catalogo([
             "Últimos partidos disputados.", unwrap="events", needs=("season_id",)),
     Section("next_events", "/unique-tournament/{tournament_id}/season/{season_id}/events/next/0",
             "Próximos partidos.", unwrap="events", needs=("season_id",), default=False),
+    # Solo existe donde hay eliminatorias: en una liga regular devuelve 404, y
+    # eso no significa que la ruta esté mal.
     Section("cuptree", "/unique-tournament/{tournament_id}/season/{season_id}/cuptrees",
-            "Cuadro de eliminatorias.", needs=("season_id",), default=False),
+            "Cuadro de eliminatorias (solo en copas).", needs=("season_id",),
+            default=False, experimental=True),
 ])
 
 

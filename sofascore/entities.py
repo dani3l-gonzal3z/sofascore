@@ -133,6 +133,36 @@ def find_entity(
     return candidatos[0][1]
 
 
+def temporada_mas_reciente(indice: Any) -> dict[str, int]:
+    """Del índice de temporadas de un jugador, la competición y temporada más recientes.
+
+    La API devuelve el índice agrupado por competición, y dentro de cada una las
+    temporadas de la más nueva a la más vieja. Se coge la primera de la primera,
+    que es la temporada en curso en su liga principal.
+
+    Se lee con cuidado: si la forma no es la esperada, se devuelve vacío y la
+    sección queda como no disponible, que es mejor que reventar.
+    """
+    if isinstance(indice, dict):
+        grupos = indice.get("uniqueTournamentSeasons") or indice.get("seasons") or []
+    elif isinstance(indice, list):
+        grupos = indice
+    else:
+        return {}
+
+    for grupo in grupos:
+        if not isinstance(grupo, dict):
+            continue
+        torneo = (grupo.get("uniqueTournament") or {}).get("id")
+        temporadas = grupo.get("seasons") or []
+        if not torneo or not temporadas:
+            continue
+        primera = temporadas[0] if isinstance(temporadas[0], dict) else {}
+        if primera.get("id"):
+            return {"tournament_id": int(torneo), "season_id": int(primera["id"])}
+    return {}
+
+
 def build_entity_report(
     cliente: SofascoreClient,
     kind: str,
@@ -140,6 +170,7 @@ def build_entity_report(
     sections: list[str] | None = None,
     include_plus: bool = True,
     concurrency: int | None = None,
+    derivar: Any = None,
     **contexto: Any,
 ) -> EntityReport:
     """Construye el informe de un equipo, jugador o competición.
@@ -147,6 +178,10 @@ def build_entity_report(
     ``contexto`` aporta los ids extra que necesitan algunas secciones
     (``season_id``, ``tournament_id``). Las que los necesiten y no los tengan se
     marcan como no disponibles, con el motivo escrito: nunca revientan.
+
+    ``derivar`` es la escapatoria a ese "no los tengan": una función que, con el
+    informe ya montado, saca esos ids de lo que sí ha llegado. Sirve para pedir
+    en una segunda tanda lo que en la primera no se podía.
     """
     catalogo, clave_id, _ = TIPOS[kind]
     ficha = entity if isinstance(entity, dict) else {"id": int(entity)}
@@ -187,6 +222,20 @@ def build_entity_report(
     for resultado in run_all(tareas, hilos):
         informe.sections[resultado.name] = resultado
 
+    # Segunda tanda: las que faltaban por no tener los ids, si ahora se pueden
+    # deducir de lo que ha llegado.
+    pendientes = [s for s in elegidas if informe.sections[s.name].status == UNAVAILABLE
+                  and any(not ids.get(n) for n in s.needs)]
+    if pendientes and derivar is not None:
+        deducidos = derivar(informe) or {}
+        if deducidos:
+            ids.update(deducidos)
+            informe.meta["contexto"] = {k: v for k, v in ids.items() if k != clave_id}
+            segunda = [(s, lambda sec: cliente.entity_section(sec, **ids))
+                       for s in pendientes if all(ids.get(n) for n in s.needs)]
+            for resultado in run_all(segunda, hilos):
+                informe.sections[resultado.name] = resultado
+
     informe.reordenar([s.name for s in elegidas])
     if not informe.name:
         informe.name = (informe.profile or {}).get("name", "") or str(entity_id)
@@ -199,7 +248,15 @@ def build_team_report(cliente: SofascoreClient, consulta: str | int, **kwargs) -
 
 
 def build_player_report(cliente: SofascoreClient, consulta: str | int, **kwargs) -> EntityReport:
-    """Informe de un jugador, resolviendo el nombre si hace falta."""
+    """Informe de un jugador, resolviendo el nombre si hace falta.
+
+    Sus estadísticas de temporada necesitan saber *de qué* liga y temporada, y
+    eso no lo sabes de antemano. Como el propio informe trae el índice de
+    temporadas del jugador, de ahí se saca la más reciente y se piden solas.
+    """
+    kwargs.setdefault("derivar", lambda informe: temporada_mas_reciente(
+        informe.get("season_index")
+    ))
     return build_entity_report(
         cliente, "player", find_entity(cliente, consulta, "player"), **kwargs
     )
