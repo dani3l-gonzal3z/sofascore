@@ -65,10 +65,10 @@ def test_un_404_no_dispara_el_cambio_de_host():
 
 
 def test_seccion_plus_tambien_prueba_el_otro_host_antes_de_rendirse():
-    transporte = FakeTransport({"/shotmap": 403})
+    transporte = FakeTransport({"/win-probability": 403})
     cliente = _cliente(transporte)
     with pytest.raises(PlusRequired):
-        cliente.section("shotmap", EVENT_ID)
+        cliente.section("win_probability", EVENT_ID)
     assert len(transporte.calls) == 2
 
 

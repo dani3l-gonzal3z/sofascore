@@ -24,7 +24,7 @@ from .cache import DiskCache, NullCache
 from .catalog import LEAGUES
 from .client import SofascoreClient
 from .config import Settings
-from .endpoints import CATALOGS
+from .endpoints import CATALOGS, SECTIONS
 from .entities import build_player_report, build_team_report, build_tournament_report
 from .errors import SofascoreError
 from .export import to_csv_dir, to_json, to_markdown
@@ -232,16 +232,25 @@ def cmd_login(args: argparse.Namespace) -> int:
             _imprimir("Pasa un partido (`sofascore login <id|URL|equipos>`) para comprobarlas "
                       "de verdad contra una sección de pago.")
             return 0
+        # La sonda tiene que ser una sección que de verdad requiera suscripción.
+        # El mapa de tiros no sirve: la API lo da abierto, así que saldría "ok"
+        # tengas cuenta o no, y no diría nada de tus credenciales.
+        sonda = next((n for n, s in SECTIONS.items() if s.requires_plus), None)
+        if sonda is None:
+            _imprimir("No hay ninguna sección de pago en el catálogo con la que probar.")
+            return 0
         resolucion = resolve_event(cliente, args.consulta, date=args.date)
-        informe = build_report(cliente, resolucion.event, sections=["shotmap"], include_plus=True)
-        estado = informe.sections["shotmap"].status
+        informe = build_report(cliente, resolucion.event, sections=[sonda], include_plus=True)
+        estado = informe.sections[sonda].status
+        _imprimir(f"Probando con la sección '{sonda}'...")
         if estado == "ok":
             _imprimir("✓ Las credenciales funcionan: se han recibido datos de pago.")
             return 0
         if estado == "plus_required":
             _imprimir("🔒 Sofascore no ha aceptado las credenciales (faltan o han caducado).")
             return 1
-        _imprimir(f"· Sin conclusión: la sección de prueba está '{estado}' en este partido.")
+        _imprimir(f"· Sin conclusión: '{sonda}' está '{estado}' en este partido. "
+                  "Prueba con otro partido más reciente.")
         return 0
     finally:
         cliente.close()

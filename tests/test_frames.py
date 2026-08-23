@@ -37,12 +37,13 @@ def test_tablas_del_partido(informe):
 def test_las_tablas_vacias_no_aparecen(informe):
     tablas = to_tables(informe)
     assert all(filas for filas in tablas.values())
-    assert "tiros" not in tablas  # sin Plus no hay mapa de tiros
+    # Sin posiciones medias en las respuestas de ejemplo, esa tabla no sale.
+    assert "posiciones_medias" not in tablas
 
 
 def test_incluir_vacias_las_devuelve_igual(informe):
     tablas = to_tables(informe, incluir_vacias=True)
-    assert "tiros" in tablas and tablas["tiros"] == []
+    assert "posiciones_medias" in tablas and tablas["posiciones_medias"] == []
 
 
 def test_metodo_tables_del_informe(informe):

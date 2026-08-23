@@ -69,11 +69,11 @@ def test_match_avisa_de_las_secciones_de_pago(monkeypatch, ajustes, capsys):
     from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
-    rutas[f"/event/{EVENT_ID}/shotmap"] = 403
+    rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
     cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
                               cache=MemoryCache(), sleep=lambda _s: None)
     monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
-    assert cli.main(["match", str(EVENT_ID)]) == 0
+    assert cli.main(["match", str(EVENT_ID), "--sections", "win_probability"]) == 0
     salida = capsys.readouterr().out
     assert "Requieren Sofascore Plus" in salida
     assert "SOFA_PLUS_COOKIE" in salida
@@ -110,7 +110,7 @@ def test_login_detecta_credenciales_rechazadas(monkeypatch, ajustes, capsys):
     from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
-    rutas[f"/event/{EVENT_ID}/shotmap"] = 401
+    rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 401
     ajustes.plus_cookie = "sesion=caducada"
     cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
                               cache=MemoryCache(), sleep=lambda _s: None)

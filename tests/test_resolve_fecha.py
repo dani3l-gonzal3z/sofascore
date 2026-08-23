@@ -199,3 +199,20 @@ def test_se_apunta_de_donde_sale_cada_candidato():
     resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
     assert resolucion.sources["buscador"] == 1
     assert resolucion.sources["partidos del día"] == 1
+
+
+def test_una_fuente_consultada_y_vacia_se_distingue_de_una_no_consultada():
+    """Un 0 dice "pregunté y no había"; que falte la clave, "ni pregunté"."""
+    cliente = _cliente(_rutas(busqueda=[], del_dia=[BUENO]))
+    resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    assert resolucion.sources["buscador"] == 0          # consultado, sin resultados
+    assert resolucion.sources["partidos del día"] == 1  # aquí estaba
+    assert "histórico h2h" not in resolucion.sources    # no hizo falta
+
+
+def test_una_fuente_que_falla_se_marca_como_tal():
+    rutas = _rutas(busqueda=[MALO], del_dia=[BUENO])
+    rutas[f"/sport/football/scheduled-events/{FECHA}"] = 500
+    cliente = _cliente(rutas)
+    resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    assert "partidos del día (error)" in resolucion.sources

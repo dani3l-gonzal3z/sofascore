@@ -242,6 +242,7 @@ def resolve_event(
         return bool(date) and any(c.event.date == date for c in candidatos.values())
 
     # 2) Buscador general de Sofascore.
+    fuentes.setdefault("buscador", 0)
     for evento in _eventos_de_busqueda(cliente, consulta_texto):
         if equipos:
             puntos, motivo = _puntuar(evento, equipos[0], equipos[1], date)
@@ -260,9 +261,13 @@ def resolve_event(
     #    recurso —el buscador devuelve encantado el cruce de otro año o de otra
     #    competición, y con un nombre perfecto se cuela por delante del bueno.
     if date:
+        # Se apunta el intento aunque no traiga nada: un 0 aquí dice "se
+        # preguntó y vino vacío", que no es lo mismo que no haber preguntado.
+        fuentes.setdefault("partidos del día", 0)
         try:
             programados = cliente.scheduled_events(date)
         except SofascoreError:
+            fuentes["partidos del día (error)"] = fuentes.pop("partidos del día", 0)
             programados = []
         for datos in programados:
             evento = Event.from_api(datos)
@@ -278,6 +283,7 @@ def resolve_event(
     if equipos and not (hay_de_la_fecha() or any(c.score >= 0.9 for c in candidatos.values())):
         local, visitante = equipos
         paginas = _paginas_para(date)
+        fuentes.setdefault("calendario", 0)
         for equipo in _equipos_de_busqueda(cliente, local):
             for evento in _eventos_de_equipo(cliente, int(equipo["id"]), paginas=paginas):
                 puntos, motivo = _puntuar(evento, local, visitante, date)
@@ -292,6 +298,7 @@ def resolve_event(
     #    calendario.
     if date and equipos and candidatos and not hay_de_la_fecha():
         mejores = sorted(candidatos.values(), key=lambda c: -c.score)[:2]
+        fuentes.setdefault("histórico h2h", 0)
         for candidato in mejores:
             try:
                 historico = cliente.h2h_events(candidato.event.id)

@@ -126,10 +126,10 @@ def test_el_bloqueo_sigue_siendo_un_httperror():
 
 
 def test_una_seccion_de_pago_sigue_diciendo_plus_no_bloqueo():
-    """Un 403 en shotmap es el muro de pago, no Cloudflare: no confundirlos."""
-    cliente = _cliente(FakeTransport({"/shotmap": 403}))
+    """Un 403 en una sección de pago es el muro, no Cloudflare: no confundirlos."""
+    cliente = _cliente(FakeTransport({"/win-probability": 403}))
     with pytest.raises(PlusRequired):
-        cliente.section("shotmap", 1)
+        cliente.section("win_probability", 1)
 
 
 def test_un_404_no_se_convierte_en_bloqueo():

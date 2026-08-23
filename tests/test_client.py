@@ -46,10 +46,10 @@ def test_404_es_notfound():
 
 
 def test_403_en_seccion_plus_es_plusrequired():
-    cli = _cliente({f"/event/{EVENT_ID}/shotmap": 403})
+    cli = _cliente({f"/event/{EVENT_ID}/graph/win-probability": 403})
     with pytest.raises(PlusRequired) as error:
-        cli.section("shotmap", EVENT_ID)
-    assert "shotmap" in str(error.value)
+        cli.section("win_probability", EVENT_ID)
+    assert "win_probability" in str(error.value)
 
 
 def test_403_en_seccion_publica_es_httperror():

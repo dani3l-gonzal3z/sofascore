@@ -68,11 +68,11 @@ def test_las_secciones_bloqueadas_se_ven_en_el_markdown(cliente, tmp_path):
     from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
-    rutas[f"/event/{EVENT_ID}/shotmap"] = 403
+    rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
     cli = SofascoreClient(
         Settings(rate_limit=0, cache_ttl=0), transport=FakeTransport(rutas),
         cache=MemoryCache(), sleep=lambda _s: None,
     )
-    texto = to_markdown(build_report(cli, EVENT_ID))
-    assert "🔒 `shotmap`" in texto
+    texto = to_markdown(build_report(cli, EVENT_ID, sections=["win_probability"]))
+    assert "🔒 `win_probability`" in texto
     assert "Sofascore Plus" in texto

@@ -124,19 +124,31 @@ SECTIONS: dict[str, Section] = _catalogo([
             "Clasificación de la competición en esa jornada.",
             derived=True, default=False),
 
-    # --- Habitualmente detrás de Sofascore Plus ---
+    # --- Datos avanzados ---
+    #
+    # Ojo con estos: la web los enseña bajo el reclamo de Sofascore Plus, pero
+    # la API los sirve **abiertos**. Lo hemos comprobado pidiéndolos sin
+    # credenciales (llegan con un 200), y coincide con que ScraperFC los baje de
+    # forma anónima. Marcarlos como `plus` era un error: hacía que `--no-plus`
+    # se saltara datos que están ahí para todo el mundo.
     Section("shotmap", "/event/{event_id}/shotmap",
-            "Mapa de tiros con xG por disparo.", scope=PLUS, unwrap="shotmap"),
+            "Mapa de tiros con xG por disparo.", unwrap="shotmap"),
     Section("average_positions", "/event/{event_id}/average-positions",
-            "Posición media de cada jugador sobre el campo.", scope=PLUS),
+            "Posición media de cada jugador sobre el campo."),
     Section("team_heatmap", "/event/{event_id}/heatmap/{team_id}",
-            "Mapa de calor de todo el equipo (uno por equipo).", scope=PLUS,
+            "Mapa de calor de todo el equipo (uno por equipo).",
             derived=True, default=False),
     Section("player_statistics", "/event/{event_id}/player/{player_id}/statistics",
-            "Estadísticas avanzadas jugador a jugador.", scope=PLUS,
+            "Estadísticas avanzadas jugador a jugador.",
             derived=True, default=False),
     Section("heatmaps", "/event/{event_id}/player/{player_id}/heatmap",
-            "Mapa de calor de cada jugador.", scope=PLUS, derived=True, default=False),
+            "Mapa de calor de cada jugador.", derived=True, default=False),
+
+    # --- Sin confirmar: puede que sí requieran suscripción ---
+    #
+    # Estas no las hemos visto llegar todavía. Se dejan marcadas como `plus`
+    # porque es la suposición prudente: si resulta que son abiertas, saldrán
+    # `ok` igual —el ámbito es una pista, la respuesta manda— y se corrige.
     Section("win_probability", "/event/{event_id}/graph/win-probability",
             "Probabilidad de victoria minuto a minuto.", scope=PLUS,
             unwrap="graphPoints", experimental=True, default=False),

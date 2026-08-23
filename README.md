@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 206 tests que corren en menos de un segundo con
+- **Probado sin red.** 210 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -178,9 +178,14 @@ Bajo demanda (`--sections` o `--all`): `votes`, `h2h_events`, `team_streaks`,
 `odds`, `odds_featured`, `winning_odds`, `highlights`, `comments`,
 `tv_channels`, `standings`.
 
-Y las que Sofascore suele reservar a Plus: `shotmap` (xG por disparo),
-`average_positions`, `team_heatmap`, `player_statistics`, `heatmaps`,
-`win_probability`, `ai_insights`.
+Y las avanzadas: `shotmap` (xG por disparo), `average_positions`,
+`team_heatmap`, `player_statistics`, `heatmaps`. **La web las enseña bajo el
+reclamo de Sofascore Plus, pero la API las sirve abiertas** —comprobado
+pidiéndolas sin credenciales— así que las tienes igual.
+
+Solo dos siguen marcadas como de pago, y por prudencia más que por certeza:
+`win_probability` y `ai_insights`. Si resulta que también son abiertas, saldrán
+`ok` igual: el ámbito es una pista, la respuesta de la API es la que manda.
 
 Hay además secciones que solo existen en su deporte y que se piden solas cuando
 toca: `point_by_point` y `tennis_power` (tenis), `innings` (críquet),
@@ -281,11 +286,17 @@ partido.suggest("expectedGoal")  # ['expectedGoals'] — la errata típica
 
 ## Sofascore Plus
 
+**Antes de nada, un aviso honesto:** casi todo lo que la web enseña detrás del
+reclamo de Plus —mapa de tiros, xG por disparo, posiciones medias, mapas de
+calor, estadísticas por jugador— **la API lo sirve abierto**. Lo comprobamos
+pidiéndolo sin ninguna credencial. Así que probablemente no necesites nada de
+esta sección.
+
 **El framework no rompe ni esquiva ningún muro de pago.** Si tienes la
-suscripción, tu navegador ya recibe esos datos porque tu sesión está
-autenticada; aquí simplemente reutilizas *tu* sesión para pedir lo mismo desde
-Python. Sin credenciales, esas secciones salen como `plus_required` y el
-informe sigue con todo lo público.
+suscripción y alguna sección sí la exige, tu navegador ya recibe esos datos
+porque tu sesión está autenticada; aquí simplemente reutilizas *tu* sesión para
+pedir lo mismo desde Python. Sin credenciales, esas secciones salen como
+`plus_required` y el informe sigue con todo lo demás.
 
 Copia `.env.example` a `.env` y rellena **una** de las tres opciones:
 
@@ -298,9 +309,13 @@ SOFA_PLUS_COOKIE_FILE=     # o un JSON de cookies exportado del navegador
 Comprueba que funcionan:
 
 ```bash
-sofascore login 11352550
+sofascore login 12437616
+# Probando con la sección 'win_probability'...
 # ✓ Las credenciales funcionan: se han recibido datos de pago.
 ```
+
+La sonda es una sección que de verdad requiera suscripción: probar con el mapa
+de tiros no diría nada, porque sale `ok` tengas cuenta o no.
 
 Son credenciales personales: no las compartas ni las subas a ningún repositorio
 (`.env` está en `.gitignore`). Caducan, así que si un día `login` dice que no
@@ -401,7 +416,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 206 tests, sin red
+python -m pytest                  # 210 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```
