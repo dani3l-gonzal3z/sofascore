@@ -116,7 +116,46 @@ def test_login_detecta_credenciales_rechazadas(monkeypatch, ajustes, capsys):
                               cache=MemoryCache(), sleep=lambda _s: None)
     monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
     assert cli.main(["login", str(EVENT_ID)]) == 1
-    assert "no ha aceptado" in capsys.readouterr().out
+    assert "ha rechazado" in capsys.readouterr().out
+
+
+def test_login_sigue_probando_si_una_sonda_no_existe(monkeypatch, ajustes, capsys):
+    """win_probability da 404 en muchos partidos: eso no dice nada de tu cuenta."""
+    from sofascore.cache import MemoryCache
+    from sofascore.client import SofascoreClient
+    from sofascore.transport import FakeTransport
+    from conftest import rutas_por_defecto
+
+    rutas = rutas_por_defecto()
+    rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 404      # no existe aquí
+    rutas[f"/event/{EVENT_ID}/ai-insights/es"] = {"insights": ["algo"]}
+    ajustes.plus_cookie = "sesion=mia"
+    cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
+                              cache=MemoryCache(), sleep=lambda _s: None)
+    monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
+    assert cli.main(["login", str(EVENT_ID)]) == 0
+    salida = capsys.readouterr().out
+    assert "funcionan" in salida
+    assert "ai_insights" in salida
+
+
+def test_login_lo_dice_cuando_ninguna_sonda_existe(monkeypatch, ajustes, capsys):
+    from sofascore.cache import MemoryCache
+    from sofascore.client import SofascoreClient
+    from sofascore.transport import FakeTransport
+    from conftest import rutas_por_defecto
+
+    rutas = rutas_por_defecto()
+    rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 404
+    rutas[f"/event/{EVENT_ID}/ai-insights/es"] = 404
+    ajustes.plus_cookie = "sesion=mia"
+    cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
+                              cache=MemoryCache(), sleep=lambda _s: None)
+    monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
+    assert cli.main(["login", str(EVENT_ID)]) == 0
+    salida = capsys.readouterr().out
+    assert "Sin conclusión" in salida
+    assert "sofascore live" in salida
 
 
 def test_errores_salen_por_stderr(cli_con_cliente, capsys):

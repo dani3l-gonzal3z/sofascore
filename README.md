@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 242 tests que corren en menos de un segundo con
+- **Probado sin red.** 245 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -334,12 +334,23 @@ Comprueba que funcionan:
 
 ```bash
 sofascore login 12437616
-# Probando con la sección 'win_probability'...
-# ✓ Las credenciales funcionan: se han recibido datos de pago.
+# Partido de prueba: Real Madrid 0 - 4 FC Barcelona (LaLiga, 2024-10-26)
+# ✓ Las credenciales funcionan: 'ai_insights' ha traído datos de pago.
 ```
 
-La sonda es una sección que de verdad requiera suscripción: probar con el mapa
-de tiros no diría nada, porque sale `ok` tengas cuenta o no.
+Las sondas son secciones que de verdad requieran suscripción —probar con el
+mapa de tiros no diría nada, porque sale `ok` tengas cuenta o no— y se prueban
+todas hasta que una responda algo concluyente: varias no existen en todos los
+partidos, y un 404 no dice nada de tus credenciales.
+
+Cómo sacar la cookie de tu navegador, en un minuto:
+
+1. Entra en `sofascore.com` con tu sesión de Plus iniciada.
+2. Abre las herramientas de desarrollador (`F12`) → pestaña **Red/Network**.
+3. Recarga la página y pincha en cualquier petición a `api.sofascore.com`.
+4. En **Cabeceras de solicitud** busca `Cookie:` y copia **todo** el valor.
+5. Pégalo en `.env` detrás de `SOFA_PLUS_COOKIE=`, en una sola línea y sin
+   comillas.
 
 Son credenciales personales: no las compartas ni las subas a ningún repositorio
 (`.env` está en `.gitignore`). Caducan, así que si un día `login` dice que no
@@ -440,7 +451,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 242 tests, sin red
+python -m pytest                  # 245 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```

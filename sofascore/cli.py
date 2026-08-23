@@ -299,22 +299,35 @@ def cmd_login(args: argparse.Namespace) -> int:
         # La sonda tiene que ser una sección que de verdad requiera suscripción.
         # El mapa de tiros no sirve: la API lo da abierto, así que saldría "ok"
         # tengas cuenta o no, y no diría nada de tus credenciales.
-        sonda = next((n for n, s in SECTIONS.items() if s.requires_plus), None)
-        if sonda is None:
+        sondas = [n for n, s in SECTIONS.items() if s.requires_plus]
+        if not sondas:
             _imprimir("No hay ninguna sección de pago en el catálogo con la que probar.")
             return 0
+
         resolucion = resolve_event(cliente, args.consulta, date=args.date)
-        informe = build_report(cliente, resolucion.event, sections=[sonda], include_plus=True)
-        estado = informe.sections[sonda].status
-        _imprimir(f"Probando con la sección '{sonda}'...")
-        if estado == "ok":
-            _imprimir("✓ Las credenciales funcionan: se han recibido datos de pago.")
-            return 0
-        if estado == "plus_required":
-            _imprimir("🔒 Sofascore no ha aceptado las credenciales (faltan o han caducado).")
-            return 1
-        _imprimir(f"· Sin conclusión: '{sonda}' está '{estado}' en este partido. "
-                  "Prueba con otro partido más reciente.")
+        _imprimir(f"Partido de prueba: {resolucion.event.label}\n")
+
+        # Se prueban todas hasta que una responda algo concluyente: varias de
+        # ellas no existen en todos los partidos, y un 404 no dice nada de tus
+        # credenciales.
+        sin_conclusion = []
+        for sonda in sondas:
+            informe = build_report(
+                cliente, resolucion.event, sections=[sonda], include_plus=True
+            )
+            estado = informe.sections[sonda].status
+            if estado == "ok":
+                _imprimir(f"✓ Las credenciales funcionan: '{sonda}' ha traído datos de pago.")
+                return 0
+            if estado == "plus_required":
+                _imprimir(f"🔒 Sofascore ha rechazado las credenciales en '{sonda}' "
+                          "(faltan o han caducado).")
+                return 1
+            sin_conclusion.append(f"{sonda} ({estado})")
+
+        _imprimir("· Sin conclusión: ninguna sección de pago existe en este partido — "
+                  + ", ".join(sin_conclusion) + ".")
+        _imprimir("  Prueba con un partido reciente o en juego: `sofascore live` te da ids.")
         return 0
     finally:
         cliente.close()
