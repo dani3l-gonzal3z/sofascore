@@ -38,6 +38,7 @@ def rutas_por_defecto() -> dict:
         f"/event/{EVENT_ID}/h2h": {"teamDuel": {"homeWins": 5, "awayWins": 4, "draws": 1}},
         f"/event/{EVENT_ID}/pregame-form": {"homeTeam": {"position": 1, "form": ["W", "W", "D"]}},
         f"/event/{EVENT_ID}/average-positions": {"home": [], "away": []},
+        "/event/OR/h2h/events": cargar("team_events"),
         f"/event/{EVENT_ID}": cargar("event"),
         "/search/all": cargar("search"),
         "/team/2829/events/last/0": cargar("team_events"),

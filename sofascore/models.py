@@ -125,6 +125,8 @@ class Event:
 
     id: int
     slug: str = ""
+    #: Código corto del partido (``xNbsDNb``). Algunas rutas lo piden en vez del id.
+    custom_id: str = ""
     home: Team = field(default_factory=Team)
     away: Team = field(default_factory=Team)
     home_score: Score = field(default_factory=Score)
@@ -152,6 +154,7 @@ class Event:
         return cls(
             id=int(datos.get("id", 0)),
             slug=datos.get("slug", ""),
+            custom_id=datos.get("customId", "") or "",
             home=Team.from_api(datos.get("homeTeam")),
             away=Team.from_api(datos.get("awayTeam")),
             home_score=Score.from_api(datos.get("homeScore")),

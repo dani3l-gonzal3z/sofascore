@@ -124,3 +124,28 @@ def test_resumen_legible(cliente):
     resumen = build_report(cliente, EVENT_ID).summary()
     assert "Real Madrid" in resumen
     assert "statistics" in resumen
+
+
+def test_el_historico_del_cruce_usa_el_codigo_del_partido():
+    """La ruta /h2h/events pide el customId; con el id numérico da 404."""
+    espia = FakeTransport(rutas_por_defecto())
+    cli = SofascoreClient(
+        Settings(rate_limit=0, cache_ttl=0), transport=espia,
+        cache=MemoryCache(), sleep=lambda _s: None,
+    )
+    informe = build_report(cli, EVENT_ID, sections=["h2h_events"])
+    assert informe.sections["h2h_events"].status == OK
+    assert any("/event/OR/h2h/events" in url for url in espia.calls)
+
+
+def test_sin_codigo_la_seccion_queda_no_disponible_sin_pedir_nada():
+    rutas = rutas_por_defecto()
+    rutas[f"/event/{EVENT_ID}"] = {"event": {"id": EVENT_ID}}   # sin customId
+    espia = FakeTransport(rutas)
+    cli = SofascoreClient(
+        Settings(rate_limit=0, cache_ttl=0), transport=espia,
+        cache=MemoryCache(), sleep=lambda _s: None,
+    )
+    informe = build_report(cli, EVENT_ID, sections=["h2h_events"])
+    assert informe.sections["h2h_events"].status == UNAVAILABLE
+    assert not any("h2h/events" in url for url in espia.calls)

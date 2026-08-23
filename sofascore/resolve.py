@@ -301,7 +301,7 @@ def resolve_event(
         fuentes.setdefault("histórico h2h", 0)
         for candidato in mejores:
             try:
-                historico = cliente.h2h_events(candidato.event.id)
+                historico = cliente.h2h_events(candidato.event)
             except SofascoreError:
                 continue
             for datos in historico:

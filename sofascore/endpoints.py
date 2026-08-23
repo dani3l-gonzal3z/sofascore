@@ -100,8 +100,12 @@ SECTIONS: dict[str, Section] = _catalogo([
             unwrap="vote", default=False),
     Section("h2h", "/event/{event_id}/h2h", "Balance histórico entre los dos equipos.",
             unwrap="teamDuel"),
-    Section("h2h_events", "/event/{event_id}/h2h/events",
-            "Partidos anteriores entre ambos.", unwrap="events", default=False),
+    # Esta ruta pide el `customId` del partido (xNbsDNb), no el id numérico:
+    # con el id devuelve 404. Por eso es derivada, para que quien la construya
+    # saque el código del evento.
+    Section("h2h_events", "/event/{custom_id}/h2h/events",
+            "Partidos anteriores entre ambos.", unwrap="events", default=False,
+            derived=True, needs=("custom_id",)),
     Section("pregame_form", "/event/{event_id}/pregame-form",
             "Forma y posición en la tabla antes del partido."),
     Section("team_streaks", "/event/{event_id}/team-streaks",
@@ -118,8 +122,10 @@ SECTIONS: dict[str, Section] = _catalogo([
             "Vídeos y resúmenes enlazados.", unwrap="highlights", default=False),
     Section("comments", "/event/{event_id}/comments",
             "Narración textual del partido.", unwrap="comments", default=False),
+    # Solo tiene sentido en partidos por jugar: en uno terminado devuelve 404.
     Section("tv_channels", "/tv/event/{event_id}/country-channels",
-            "Dónde se emite el partido, por país.", default=False),
+            "Dónde se emite el partido, por país.", default=False,
+            experimental=True),
     Section("standings", "/event/{event_id}/standings",
             "Clasificación de la competición en esa jornada.",
             derived=True, default=False),
@@ -149,6 +155,8 @@ SECTIONS: dict[str, Section] = _catalogo([
     # Estas no las hemos visto llegar todavía. Se dejan marcadas como `plus`
     # porque es la suposición prudente: si resulta que son abiertas, saldrán
     # `ok` igual —el ámbito es una pista, la respuesta manda— y se corrige.
+    # La ruta es correcta, pero no todos los partidos ni deportes la tienen:
+    # un 404 aquí es normal y no significa que haya cambiado nada.
     Section("win_probability", "/event/{event_id}/graph/win-probability",
             "Probabilidad de victoria minuto a minuto.", scope=PLUS,
             unwrap="graphPoints", experimental=True, default=False),

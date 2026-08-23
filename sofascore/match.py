@@ -176,9 +176,14 @@ class MatchReport(BaseReport):
 
 
 def _fetch_simple(cliente: SofascoreClient, seccion: Section, evento: Event, ttl: int) -> Any:
-    extra = {}
+    """Rellena los huecos que la ruta pida además del id y la pide."""
+    extra: dict[str, Any] = {}
     if "language" in seccion.needs:
         extra["language"] = cliente.settings.language
+    if "custom_id" in seccion.needs:
+        if not evento.custom_id:
+            raise NotFound(404, seccion.name, "El partido no trae customId.")
+        extra["custom_id"] = evento.custom_id
     return cliente.section(seccion, evento.id, ttl=ttl, **extra)
 
 

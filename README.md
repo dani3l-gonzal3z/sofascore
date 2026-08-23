@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 210 tests que corren en menos de un segundo con
+- **Probado sin red.** 214 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -104,8 +104,10 @@ parando en cuanto aparece:
 3. el calendario de los equipos, **retrocediendo páginas** según lo antigua que
    sea la fecha (una página son ~30 partidos: un cruce de hace dos temporadas
    queda muy atrás);
-4. el histórico del enfrentamiento (`/event/{id}/h2h/events`), que devuelve la
-   serie completa entre esos dos equipos por vieja que sea.
+4. el histórico del enfrentamiento (`/event/{customId}/h2h/events`), que
+   devuelve la serie completa entre esos dos equipos por vieja que sea. Esa
+   ruta pide el **código** del partido (`xNbsDNb`), no el id numérico: con el
+   id responde 404.
 
 Si aun así ese día no hubo nada que encaje, te lo dice —y con `--debug` te
 enseña qué aportó cada vía— antes de darte lo que haya encontrado.
@@ -200,6 +202,11 @@ Cada sección termina en uno de estos estados, y lo verás en el resumen:
 | `plus_required` | Hace falta Sofascore Plus y no hay credenciales válidas |
 | `unavailable` | Ese partido o deporte no tiene esa sección |
 | `error` | Fallo de red o de la API |
+
+Un `unavailable` no significa que la ruta esté mal. `tv_channels` solo existe
+en partidos por jugar, y `win_probability` no la tienen todos los deportes ni
+todos los partidos: en un partido terminado de hace dos años, un 404 en esas
+dos es lo normal.
 
 Y si Cloudflare te corta el paso, el error no es un `HTTP 403` pelado: te dice
 qué instalar (`Blocked`, que hereda de `HTTPError`, así que quien ya capturaba
@@ -416,7 +423,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 210 tests, sin red
+python -m pytest                  # 214 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```

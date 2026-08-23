@@ -108,7 +108,11 @@ def cmd_match(args: argparse.Namespace) -> int:
             _imprimir(f"CSV escritos: {', '.join(str(c) for c in creados) or 'ninguno'}")
 
         if args.debug:
-            _imprimir(f"\nCandidatos por fuente: {resolucion.sources or 'ninguna'}")
+            procedencia = (
+                resolucion.sources if resolucion.sources
+                else f"no hizo falta buscar ({resolucion.source})"
+            )
+            _imprimir(f"\nCandidatos por fuente: {procedencia}")
             _imprimir(f"Peticiones: {cliente.stats.as_dict()}")
             _imprimir(f"Ajustes: {cliente.settings.redacted()}")
         if informe.locked() and not args.quiet:

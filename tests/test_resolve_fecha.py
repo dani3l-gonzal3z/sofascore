@@ -25,9 +25,11 @@ CUANDO_BUENO = 1729944000
 CUANDO_MALO = 1791460800
 
 
-def _evento(id_, local, visitante, torneo, cuando, marcador=(0, 4)):
+def _evento(id_, local, visitante, torneo, cuando, marcador=(0, 4), codigo=None):
     return {
         "id": id_,
+        # El código corto del partido: /h2h/events lo pide en vez del id.
+        "customId": codigo or f"c{id_}",
         "slug": f"{local.lower().replace(' ', '-')}-{visitante.lower().replace(' ', '-')}",
         "startTimestamp": cuando,
         "tournament": {"name": torneo, "uniqueTournament": {"id": 8},
@@ -137,7 +139,7 @@ def _rutas_antiguas(calendario_por_pagina, historico):
         ]},
         f"/sport/football/scheduled-events/{FECHA}": {"events": []},
         "/team/1/events/next/0": {"events": []},
-        f"/event/{MALO['id']}/h2h/events": {"events": historico},
+        f"/event/{MALO['customId']}/h2h/events": {"events": historico},
     }
     for pagina, eventos in enumerate(calendario_por_pagina):
         rutas[f"/team/1/events/last/{pagina}"] = {"events": eventos}
@@ -163,6 +165,25 @@ def test_el_historico_del_cruce_es_la_via_corta():
     resolucion = resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
     assert resolucion.event.id == 11352550
     assert "histórico h2h" in resolucion.sources
+
+
+def test_el_historico_se_pide_por_codigo_y_no_por_id():
+    """La API devuelve 404 si le das el id numérico: quiere el customId."""
+    cliente = _cliente(_rutas_antiguas(calendario_por_pagina=[[MALO]], historico=[BUENO]))
+    resolve_event(cliente, "Real Madrid vs Barcelona", date=FECHA)
+    pedidas = [u for u in cliente.transport.calls if "h2h/events" in u]
+    assert pedidas
+    assert all(MALO["customId"] in u for u in pedidas)
+    assert not any(f"/event/{MALO['id']}/h2h" in u for u in pedidas)
+
+
+def test_un_partido_sin_codigo_no_puede_pedir_el_historico():
+    from sofascore.errors import NotFound
+    from sofascore.models import Event
+
+    cliente = _cliente({})
+    with pytest.raises(NotFound):
+        cliente.h2h_events(Event.from_api({"id": 1}))
 
 
 def test_no_se_pide_el_historico_si_ya_esta_el_dia_pedido():
