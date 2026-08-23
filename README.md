@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 218 tests que corren en menos de un segundo con
+- **Probado sin red.** 230 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -128,7 +128,7 @@ sofascore match <consulta> [opciones]     # informe completo de un partido
 sofascore team "Real Madrid"              # plantilla, calendario, forma, traspasos
 sofascore player "Vinicius Junior"        # ficha, atributos, temporadas
 sofascore league laliga                   # clasificación, jornadas, goleadores
-sofascore live                            # lo que se está jugando ahora mismo
+sofascore live [--league laliga]          # lo que se está jugando ahora mismo
 sofascore today [--date AAAA-MM-DD]       # todos los partidos de un día
 sofascore leagues [filtro]                # ligas conocidas con su id
 sofascore search <consulta>               # partidos candidatos
@@ -153,6 +153,9 @@ Opciones más usadas de `match`:
 | `--offline` / `--no-cache` | Solo caché / ignorar caché |
 | `--parallel N` | Secciones a la vez (`1` las pide de una en una) |
 | `--transport curl` | Forzar transporte (`auto`, `curl`, `httpx`, `urllib`) |
+
+`--debug`, `--offline`, `--no-cache`, `--parallel` y `--transport` valen en
+**todos** los comandos, no solo en `match`.
 | `--debug` | Contadores de peticiones y ajustes en uso |
 
 ```bash
@@ -248,9 +251,17 @@ sofascore league champions     # "premier", "mundial", "libertadores"...
 ## Qué se juega ahora
 
 ```bash
-sofascore live                       # en directo
-sofascore today --date 2024-10-26    # todos los partidos de ese día
+sofascore live                          # en directo, agrupado por competición
+sofascore live --league laliga          # solo una competición
+sofascore live --filter "Arsenal"       # por equipo o competición
+sofascore today --date 2024-10-26       # todos los partidos de ese día
 ```
+
+Un `live` sin filtrar son 150 partidos entre amistosos, ligas juveniles y
+femeninas de medio mundo, así que salen **agrupados por competición** y te dice
+cuántos se ha dejado fuera. `--league` usa el catálogo de ligas conocidas (y
+filtra por id, que es exacto); `--filter` busca texto libre en equipos y
+competición.
 
 ```python
 from sofascore import live_matches, matches_on
@@ -423,7 +434,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 218 tests, sin red
+python -m pytest                  # 230 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```

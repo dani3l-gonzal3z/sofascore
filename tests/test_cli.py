@@ -222,3 +222,95 @@ def test_doctor_dice_con_que_esta_pidiendo(cli_con_cliente, capsys):
     assert "Transportes disponibles" in salida
     assert "curl_cffi" in salida
     assert "En uso:" in salida
+
+
+# ------------------------------------------------ listados: filtrar y agrupar
+
+def _cliente_con_directos(eventos):
+    from sofascore.cache import MemoryCache
+    from sofascore.client import SofascoreClient
+    from sofascore.config import Settings
+    from sofascore.transport import FakeTransport
+
+    return SofascoreClient(
+        Settings(rate_limit=0),
+        transport=FakeTransport({"/sport/football/events/live": {"events": eventos}}),
+        cache=MemoryCache(), sleep=lambda _s: None,
+    )
+
+
+def _ev(id_, local, visitante, torneo, torneo_id=None):
+    return {
+        "id": id_, "startTimestamp": 1787000000,
+        "tournament": {"name": torneo,
+                       "uniqueTournament": {"id": torneo_id} if torneo_id else {},
+                       "category": {"sport": {"slug": "football"}}},
+        "status": {"code": 6, "type": "inprogress", "description": "1st half"},
+        "homeTeam": {"id": 1, "name": local}, "awayTeam": {"id": 2, "name": visitante},
+        "homeScore": {"current": 1}, "awayScore": {"current": 0},
+    }
+
+
+DIRECTOS = [
+    _ev(1, "SSD Rovato", "AC Sant'Angelo", "Club Friendly Games"),
+    _ev(3, "Real Madrid", "Getafe", "LaLiga", 8),
+    _ev(4, "Girona", "Osasuna", "LaLiga", 8),
+    _ev(6, "Arsenal", "Chelsea", "Premier League", 17),
+]
+
+
+def test_live_agrupa_por_competicion(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+    assert cli.main(["live"]) == 0
+    salida = capsys.readouterr().out
+    assert "LaLiga" in salida and "Premier League" in salida
+    # Los dos de LaLiga van seguidos, bajo su epígrafe.
+    assert salida.index("Real Madrid") > salida.index("LaLiga")
+    assert "4 partido(s) en 3 competición(es)" in salida
+
+
+def test_live_filtra_por_liga_conocida(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+    assert cli.main(["live", "--league", "laliga"]) == 0
+    salida = capsys.readouterr().out
+    assert "Real Madrid" in salida and "Girona" in salida
+    assert "Arsenal" not in salida
+
+
+def test_live_filtra_por_texto_libre(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+    assert cli.main(["live", "--filter", "arsenal"]) == 0
+    salida = capsys.readouterr().out
+    assert "Arsenal" in salida and "Real Madrid" not in salida
+
+
+def test_una_liga_desconocida_se_busca_como_texto(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+    assert cli.main(["live", "--league", "Club Friendly"]) == 0
+    assert "SSD Rovato" in capsys.readouterr().out
+
+
+def test_el_limite_avisa_de_lo_que_se_deja_fuera(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+    assert cli.main(["live", "--limit", "2"]) == 0
+    salida = capsys.readouterr().out
+    assert "se enseñan 2" in salida
+    assert "--filter" in salida
+
+
+def test_sin_resultados_lo_dice(monkeypatch, capsys):
+    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+    assert cli.main(["live", "--filter", "equipo que no juega"]) == 0
+    assert "ningún partido que encaje" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("comando", [
+    ["team", "Real Madrid"], ["player", "Vinicius"], ["league", "laliga"],
+    ["match", str(EVENT_ID)], ["live"], ["today", "--date", "2024-10-26"],
+])
+def test_debug_funciona_en_todos_los_comandos(cli_con_cliente, capsys, comando):
+    """Estaba solo en `match`: los demás fallaban con 'unrecognized arguments'."""
+    assert cli.main([*comando, "--debug"]) == 0
+    salida = capsys.readouterr().out
+    assert "Peticiones:" in salida
+    assert "Transporte:" in salida

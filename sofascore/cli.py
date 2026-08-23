@@ -21,7 +21,7 @@ from pathlib import Path
 
 from . import __version__
 from .cache import DiskCache, NullCache
-from .catalog import LEAGUES
+from .catalog import LEAGUES, find_league
 from .client import SofascoreClient
 from .config import Settings
 from .endpoints import CATALOGS, SECTIONS
@@ -30,7 +30,7 @@ from .errors import SofascoreError
 from .export import to_csv_dir, to_json, to_markdown
 from .match import build_report
 from .models import Event
-from .resolve import resolve_event
+from .resolve import normalizar, resolve_event
 
 
 # --------------------------------------------------------------------- utilidades
@@ -52,6 +52,17 @@ def _construir_cliente(args: argparse.Namespace) -> SofascoreClient:
 
 def _imprimir(texto: str = "") -> None:
     print(texto, flush=True)
+
+
+def _depuracion(args: argparse.Namespace, cliente: SofascoreClient, extra: str = "") -> None:
+    """El bloque de --debug, igual en todos los comandos."""
+    if not getattr(args, "debug", False):
+        return
+    if extra:
+        _imprimir(f"\n{extra}")
+    _imprimir(f"Peticiones: {cliente.stats.as_dict()}")
+    _imprimir(f"Transporte: {type(cliente.transport).__name__}")
+    _imprimir(f"Ajustes: {cliente.settings.redacted()}")
 
 
 # ------------------------------------------------------------------------ comandos
@@ -107,14 +118,11 @@ def cmd_match(args: argparse.Namespace) -> int:
             creados = to_csv_dir(informe, args.csv)
             _imprimir(f"CSV escritos: {', '.join(str(c) for c in creados) or 'ninguno'}")
 
-        if args.debug:
-            procedencia = (
-                resolucion.sources if resolucion.sources
-                else f"no hizo falta buscar ({resolucion.source})"
-            )
-            _imprimir(f"\nCandidatos por fuente: {procedencia}")
-            _imprimir(f"Peticiones: {cliente.stats.as_dict()}")
-            _imprimir(f"Ajustes: {cliente.settings.redacted()}")
+        procedencia = (
+            resolucion.sources if resolucion.sources
+            else f"no hizo falta buscar ({resolucion.source})"
+        )
+        _depuracion(args, cliente, f"Candidatos por fuente: {procedencia}")
         if informe.locked() and not args.quiet:
             _imprimir(f"\n🔒 Requieren Sofascore Plus: {', '.join(informe.locked())}")
             _imprimir("   Configura SOFA_PLUS_COOKIE con tu propia sesión para incluirlas.")
@@ -158,6 +166,7 @@ def _informe_entidad(args: argparse.Namespace, constructor, **extra) -> int:
             _imprimir(f"\nJSON escrito en {args.json}")
         if informe.locked():
             _imprimir(f"\n🔒 Requieren Sofascore Plus: {', '.join(informe.locked())}")
+        _depuracion(args, cliente)
         return 0
     finally:
         cliente.close()
@@ -175,20 +184,65 @@ def cmd_league(args: argparse.Namespace) -> int:
     return _informe_entidad(args, build_tournament_report, season_id=args.season)
 
 
+def _filtrar_eventos(
+    eventos: list[Event], texto: str | None = None, liga: str | None = None
+) -> list[Event]:
+    """Deja solo los partidos que interesan.
+
+    ``liga`` se resuelve contra el catálogo de ligas conocidas y filtra por id de
+    competición, que es exacto. Si el nombre no está en el catálogo se trata como
+    texto libre, que también busca en los nombres de los equipos.
+    """
+    if liga:
+        identificador = find_league(liga)
+        if identificador:
+            eventos = [e for e in eventos if e.unique_tournament_id == identificador]
+        else:
+            texto = texto or liga
+    if texto:
+        buscado = normalizar(texto)
+        eventos = [
+            e for e in eventos
+            if buscado in normalizar(f"{e.home} {e.away} {e.tournament}")
+        ]
+    return eventos
+
+
 def _listar_eventos(eventos: list[Event], limite: int) -> None:
+    """Los agrupa por competición: 150 partidos en una lista plana no se leen."""
     if not eventos:
-        _imprimir("No hay nada.")
+        _imprimir("No hay ningún partido que encaje.")
         return
-    _imprimir(f"{len(eventos)} partido(s):\n")
-    for evento in eventos[:limite]:
-        _imprimir(f"  {evento.label}")
-        _imprimir(f"      id={evento.id} · {evento.status_description or evento.status_type}")
+
+    por_torneo: dict[str, list[Event]] = {}
+    for evento in eventos:
+        por_torneo.setdefault(evento.tournament or "Sin competición", []).append(evento)
+
+    mostrados = 0
+    for torneo in sorted(por_torneo):
+        if mostrados >= limite:
+            break
+        _imprimir(f"\n{torneo}")
+        for evento in por_torneo[torneo]:
+            if mostrados >= limite:
+                break
+            estado = evento.status_description or evento.status_type
+            _imprimir(f"  {evento.label.split(' (')[0]:<45} {estado:<12} id={evento.id}")
+            mostrados += 1
+
+    restantes = len(eventos) - mostrados
+    resumen = f"\n{len(eventos)} partido(s) en {len(por_torneo)} competición(es)"
+    if restantes > 0:
+        resumen += f"; se enseñan {mostrados} (sube --limit o afina con --filter)"
+    _imprimir(resumen + ".")
 
 
 def cmd_live(args: argparse.Namespace) -> int:
     cliente = _construir_cliente(args)
     try:
-        _listar_eventos([Event.from_api(e) for e in cliente.live_events(args.sport)], args.limit)
+        eventos = [Event.from_api(e) for e in cliente.live_events(args.sport)]
+        _listar_eventos(_filtrar_eventos(eventos, args.filtro, args.league), args.limit)
+        _depuracion(args, cliente)
         return 0
     finally:
         cliente.close()
@@ -199,8 +253,9 @@ def cmd_today(args: argparse.Namespace) -> int:
     try:
         fecha = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         eventos = [Event.from_api(e) for e in cliente.scheduled_events(fecha, args.sport)]
-        _imprimir(f"Partidos del {fecha}:\n")
-        _listar_eventos(eventos, args.limit)
+        _imprimir(f"Partidos del {fecha}:")
+        _listar_eventos(_filtrar_eventos(eventos, args.filtro, args.league), args.limit)
+        _depuracion(args, cliente)
         return 0
     finally:
         cliente.close()
@@ -341,6 +396,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Secciones que se piden a la vez (1 = de una en una).")
     comun.add_argument("--transport", choices=["auto", "curl", "httpx", "urllib"],
                        help="Cómo se hacen las peticiones (por defecto: auto).")
+    comun.add_argument("--debug", action="store_true",
+                       help="Muestra contadores de peticiones y ajustes en uso.")
 
     # Opciones comunes a los informes por secciones (partido, equipo, jugador, liga).
     informe = argparse.ArgumentParser(add_help=False)
@@ -364,7 +421,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_match.add_argument("--strict", action="store_true",
                          help="Falla si la consulta es ambigua en vez de elegir.")
     p_match.add_argument("--quiet", action="store_true", help="Sin adornos por pantalla.")
-    p_match.add_argument("--debug", action="store_true", help="Muestra contadores y ajustes.")
     p_match.set_defaults(func=cmd_match)
 
     p_search = sub.add_parser("search", parents=[comun], help="Busca partidos candidatos.")
@@ -390,13 +446,20 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Id de temporada (por defecto, la que está en curso).")
     p_league.set_defaults(func=cmd_league)
 
-    p_live = sub.add_parser("live", parents=[comun], help="Partidos que se juegan ahora mismo.")
-    p_live.add_argument("--limit", type=int, default=30)
+    # Filtros comunes a los listados: sin ellos, "live" son 150 partidos de
+    # amistosos y ligas juveniles y no encuentras el que buscas.
+    listado = argparse.ArgumentParser(add_help=False)
+    listado.add_argument("--league", help="Solo esta competición ('laliga', 'premier'...).")
+    listado.add_argument("--filter", dest="filtro",
+                         help="Solo los que mencionen este texto (equipo o competición).")
+    listado.add_argument("--limit", type=int, default=30, help="Cuántos enseñar.")
+
+    p_live = sub.add_parser("live", parents=[comun, listado],
+                            help="Partidos que se juegan ahora mismo.")
     p_live.set_defaults(func=cmd_live)
 
-    p_today = sub.add_parser("today", parents=[comun], help="Partidos de un día.")
+    p_today = sub.add_parser("today", parents=[comun, listado], help="Partidos de un día.")
     p_today.add_argument("--date", help="AAAA-MM-DD (por defecto, hoy).")
-    p_today.add_argument("--limit", type=int, default=50)
     p_today.set_defaults(func=cmd_today)
 
     p_leagues = sub.add_parser("leagues", help="Ligas conocidas con su id.")
