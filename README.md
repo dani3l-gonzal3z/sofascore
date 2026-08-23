@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 191 tests que corren en menos de un segundo con
+- **Probado sin red.** 199 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -95,9 +95,14 @@ Las cuatro formas valen, elige la que te resulte más cómoda:
 | URL de Sofascore | `https://www.sofascore.com/.../#id:11352550` |
 | Id del evento | `11352550` |
 
-Si dos equipos se han cruzado muchas veces, el framework elige el partido más
-cercano en el tiempo y te avisa de cuántos candidatos había. Con `--strict`
-falla en vez de elegir; con `sofascore search` los ves todos:
+**La fecha es una condición, no una sugerencia.** Si dices `--date`, se
+consultan todos los partidos de ese día y no se elige nada de otro día. Si ese
+día no hubo nada que encaje, te lo dice antes de darte lo que haya encontrado.
+
+Si dos equipos se cruzan el mismo día en competiciones distintas —un
+Barcelona-Madrid de LaLiga y otro de la Liga F, por ejemplo— eliges tú: el
+resumen enseña los otros candidatos con su competición. Con `--strict` falla en
+vez de elegir; con `sofascore search` los ves todos:
 
 ```bash
 sofascore search "Betis Sevilla"
@@ -385,7 +390,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 191 tests, sin red
+python -m pytest                  # 199 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```

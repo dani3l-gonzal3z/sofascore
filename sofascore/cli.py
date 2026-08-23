@@ -63,9 +63,20 @@ def cmd_match(args: argparse.Namespace) -> int:
         if not args.quiet:
             _imprimir(f"Partido: {resolucion.event.label}")
             _imprimir(f"         id={resolucion.event.id} · {resolucion.event.url}")
-            if len(resolucion.candidates) > 1 and not args.date:
-                _imprimir(f"         (otros {len(resolucion.candidates) - 1} candidatos; "
-                          f"usa --date para afinar)")
+            if resolucion.warning:
+                _imprimir(f"    ⚠    {resolucion.warning}")
+            otros = resolucion.candidates[1:]
+            if otros:
+                # Con --date puesto, decir "usa --date" no ayuda a nadie: se
+                # enseñan los otros candidatos, que es lo que deja elegir.
+                plural = "otro candidato" if len(otros) == 1 else f"otros {len(otros)} candidatos"
+                _imprimir(f"         ({plural}:)")
+                for candidato in otros[:3]:
+                    _imprimir(f"           · {candidato.event.label} "
+                              f"id={candidato.event.id}")
+                if len(otros) > 3:
+                    _imprimir(f"           · ...y {len(otros) - 3} más "
+                              f"(`sofascore search` los lista todos)")
             _imprimir()
 
         secciones = ["all"] if args.all else (args.sections.split(",") if args.sections else None)

@@ -98,6 +98,8 @@ class Resolution:
     event: Event
     source: str
     candidates: list[Candidate] = field(default_factory=list)
+    #: Aviso para el usuario cuando la elección merece una explicación.
+    warning: str = ""
 
     @property
     def event_id(self) -> int:
@@ -213,16 +215,11 @@ def resolve_event(
                 puntos += 0.5 if evento.date == date else -0.35
         registrar(evento, puntos, motivo)
 
-    # 3) Si hay dos equipos, mirar su calendario: ahí están todos los cruces.
-    if equipos and not any(c.score >= 0.9 for c in candidatos.values()):
-        local, visitante = equipos
-        for equipo in _equipos_de_busqueda(cliente, local):
-            for evento in _eventos_de_equipo(cliente, int(equipo["id"])):
-                puntos, motivo = _puntuar(evento, local, visitante, date)
-                registrar(evento, puntos, f"calendario de {equipo.get('name', local)}: {motivo}")
-
-    # 4) Última bala: si hay fecha, repasar todos los partidos de ese día.
-    if date and not any(c.score >= min_score for c in candidatos.values()):
+    # 3) Si das fecha, los partidos de ese día son la fuente autoritativa: están
+    #    todos, por viejo que sea el cruce. Se consulta SIEMPRE, no como último
+    #    recurso —el buscador devuelve encantado el cruce de otro año o de otra
+    #    competición, y con un nombre perfecto se cuela por delante del bueno.
+    if date:
         try:
             programados = cliente.scheduled_events(date)
         except SofascoreError:
@@ -235,7 +232,29 @@ def resolve_event(
                 puntos = parecido(f"{evento.home.name} {evento.away.name}", consulta_texto)
             registrar(evento, puntos + 0.15, f"partidos del {date}")
 
+    # 4) Si hay dos equipos, mirar su calendario: ahí están sus cruces recientes.
+    if equipos and not any(c.score >= 0.9 for c in candidatos.values()):
+        local, visitante = equipos
+        for equipo in _equipos_de_busqueda(cliente, local):
+            for evento in _eventos_de_equipo(cliente, int(equipo["id"])):
+                puntos, motivo = _puntuar(evento, local, visitante, date)
+                registrar(evento, puntos, f"calendario de {equipo.get('name', local)}: {motivo}")
+
     viables = [c for c in candidatos.values() if c.score >= min_score]
+    aviso = ""
+
+    # 5) La fecha es una condición, no una sugerencia: si has dicho un día y hay
+    #    algo ese día, no se elige nada de otro día. Y si no hay nada, se dice.
+    if date and viables:
+        del_dia = [c for c in viables if c.event.date == date]
+        if del_dia:
+            viables = del_dia
+        else:
+            aviso = (
+                f"No he encontrado ningún partido el {date}. "
+                f"Lo que te doy es de otra fecha; compruébalo."
+            )
+
     if not viables:
         raise MatchNotFound(
             f"No he encontrado ningún partido para '{consulta_texto}'"
@@ -250,4 +269,6 @@ def resolve_event(
     if strict and len(viables) > 1 and abs(viables[1].score - mejor.score) < 0.01:
         raise AmbiguousMatch(consulta_texto, [str(c) for c in viables])
 
-    return Resolution(event=mejor.event, source=mejor.reason, candidates=viables)
+    return Resolution(
+        event=mejor.event, source=mejor.reason, candidates=viables, warning=aviso
+    )

@@ -206,6 +206,9 @@ class Event:
 
     @property
     def scoreline(self) -> str:
+        """``2 - 1`` si se ha jugado; ``vs`` si todavía no hay marcador."""
+        if self.home_score.current is None and self.away_score.current is None:
+            return "vs"
         return f"{self.home_score} - {self.away_score}"
 
     @property
