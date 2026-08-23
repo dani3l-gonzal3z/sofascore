@@ -132,3 +132,70 @@ def test_cache_informa_del_estado(tmp_path, capsys):
     assert "1 respuestas en caché" in capsys.readouterr().out
     assert cli.main(["cache", "--clear", "--cache-dir", str(tmp_path)]) == 0
     assert "Borrados 1" in capsys.readouterr().out
+
+
+# --------------------------------------------- comandos de equipo, jugador y liga
+
+def test_team_imprime_el_informe(cli_con_cliente, capsys):
+    assert cli.main(["team", "Real Madrid"]) == 0
+    salida = capsys.readouterr().out
+    assert "equipo: Real Madrid" in salida
+    assert "players" in salida
+
+
+def test_player_imprime_el_informe(cli_con_cliente, capsys):
+    assert cli.main(["player", "Vinicius"]) == 0
+    assert "attributes" in capsys.readouterr().out
+
+
+def test_league_usa_la_temporada_en_curso(cli_con_cliente, capsys):
+    assert cli.main(["league", "laliga"]) == 0
+    assert "standings" in capsys.readouterr().out
+
+
+def test_league_imprime_una_seccion_suelta(cli_con_cliente, capsys):
+    assert cli.main(["league", "laliga", "--print", "standings"]) == 0
+    assert "Barcelona" in capsys.readouterr().out
+
+
+def test_team_escribe_json(cli_con_cliente, tmp_path, capsys):
+    destino = tmp_path / "equipo.json"
+    assert cli.main(["team", "2829", "--json", str(destino)]) == 0
+    datos = json.loads(destino.read_text(encoding="utf-8"))
+    assert datos["tipo"] == "team"
+    assert datos["id"] == 2829
+
+
+def test_live_lista_los_partidos_en_juego(cli_con_cliente, capsys):
+    assert cli.main(["live"]) == 0
+    assert "partido(s)" in capsys.readouterr().out
+
+
+def test_today_admite_fecha(cli_con_cliente, capsys):
+    assert cli.main(["today", "--date", "2024-10-26"]) == 0
+    assert "Partidos del 2024-10-26" in capsys.readouterr().out
+
+
+def test_leagues_lista_el_catalogo(capsys):
+    assert cli.main(["leagues"]) == 0
+    salida = capsys.readouterr().out
+    assert "Spain La Liga" in salida and "UEFA Champions League" in salida
+
+
+def test_leagues_filtra(capsys):
+    assert cli.main(["leagues", "england"]) == 0
+    salida = capsys.readouterr().out
+    assert "England Premier League" in salida
+    assert "Spain La Liga" not in salida
+
+
+def test_sections_por_catalogo(capsys):
+    assert cli.main(["sections", "--kind", "tournament"]) == 0
+    salida = capsys.readouterr().out
+    assert "standings" in salida and "top_players" in salida
+    assert "shotmap" not in salida
+
+
+def test_match_acepta_parallel(cli_con_cliente, capsys):
+    assert cli.main(["match", str(EVENT_ID), "--parallel", "1"]) == 0
+    assert "Real Madrid" in capsys.readouterr().out

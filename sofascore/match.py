@@ -3,6 +3,10 @@
 :func:`build_report` recorre el catálogo de secciones, pide cada una y anota
 qué se ha podido traer y qué no. Una sección que falla **no** tumba el informe:
 queda marcada (``plus_required``, ``unavailable``, ``error``) y el resto sigue.
+
+Las secciones se piden en paralelo (``Settings.concurrency``), salvo las que
+dependen de otra: el mapa de calor por jugador necesita antes las alineaciones,
+así que va en una segunda tanda.
 """
 
 from __future__ import annotations
@@ -10,86 +14,30 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable
 
+from .catalog import suggest_stat
 from .client import SofascoreClient
 from .endpoints import Section, get_section, resolve_sections
-from .errors import HTTPError, NotFound, PlusRequired, SofascoreError
+from .errors import NotFound, PlusRequired, SofascoreError
 from .models import Event, Player
-
-#: Estados posibles de una sección del informe.
-OK = "ok"
-EMPTY = "empty"
-PLUS_REQUIRED = "plus_required"
-UNAVAILABLE = "unavailable"
-ERROR = "error"
-
-
-@dataclass
-class SectionResult:
-    """Qué ha pasado con una sección concreta."""
-
-    name: str
-    scope: str
-    status: str
-    data: Any = None
-    error: str = ""
-    endpoint: str = ""
-    description: str = ""
-
-    @property
-    def ok(self) -> bool:
-        return self.status == OK
-
-    def to_dict(self, include_data: bool = True) -> dict:
-        salida = {
-            "seccion": self.name,
-            "ambito": self.scope,
-            "estado": self.status,
-            "endpoint": self.endpoint,
-            "descripcion": self.description,
-        }
-        if self.error:
-            salida["error"] = self.error
-        if include_data:
-            salida["datos"] = self.data
-        return salida
+#: Los estados viven en :mod:`sofascore.report`; se reexportan aquí porque es
+#: donde los busca todo el mundo (``from sofascore.match import OK``).
+from .report import (
+    EMPTY,
+    ERROR,
+    OK,
+    PLUS_REQUIRED,
+    UNAVAILABLE,
+    BaseReport,
+    SectionResult,
+    run_all,
+)
 
 
 @dataclass
-class MatchReport:
+class MatchReport(BaseReport):
     """Todos los datos de un partido, sección a sección."""
 
-    event: Event
-    sections: dict[str, SectionResult] = field(default_factory=dict)
-    meta: dict = field(default_factory=dict)
-
-    # --- Acceso ---
-
-    def __getitem__(self, nombre: str) -> Any:
-        return self.sections[nombre].data
-
-    def __contains__(self, nombre: str) -> bool:
-        return nombre in self.sections and self.sections[nombre].ok
-
-    def get(self, nombre: str, default: Any = None) -> Any:
-        """Datos de una sección, o ``default`` si no está disponible."""
-        resultado = self.sections.get(nombre)
-        return resultado.data if resultado and resultado.ok else default
-
-    def available(self) -> list[str]:
-        """Secciones que sí traen datos."""
-        return [n for n, r in self.sections.items() if r.ok]
-
-    def empty(self) -> list[str]:
-        """Secciones que existen pero no tienen contenido (partido sin jugar, etc.)."""
-        return [n for n, r in self.sections.items() if r.status == EMPTY]
-
-    def locked(self) -> list[str]:
-        """Secciones que necesitan Sofascore Plus y no se han podido traer."""
-        return [n for n, r in self.sections.items() if r.status == PLUS_REQUIRED]
-
-    def failed(self) -> list[str]:
-        """Secciones que han fallado por error o por no existir en este partido."""
-        return [n for n, r in self.sections.items() if r.status in (ERROR, UNAVAILABLE)]
+    event: Event = field(default_factory=lambda: Event(id=0))
 
     # --- Datos derivados cómodos ---
 
@@ -103,16 +51,55 @@ class MatchReport:
                 jugadores.append(Player.from_api(entrada, team_id=equipo.id))
         return jugadores
 
+    def incidents(self, tipo: str | None = None) -> list[dict]:
+        """Cronología del partido, opcionalmente filtrada por tipo de incidencia."""
+        incidencias = [i for i in (self.get("incidents") or []) if isinstance(i, dict)]
+        if tipo:
+            incidencias = [i for i in incidencias if i.get("incidentType") == tipo]
+        return sorted(incidencias, key=lambda i: (i.get("time") or 0, i.get("addedTime") or 0))
+
     def goals(self) -> list[dict]:
         """Incidencias de tipo gol, en orden cronológico."""
-        incidencias = self.get("incidents") or []
-        goles = [i for i in incidencias if i.get("incidentType") == "goal"]
-        return sorted(goles, key=lambda i: (i.get("time") or 0, i.get("addedTime") or 0))
+        return self.incidents("goal")
+
+    def cards(self) -> list[dict]:
+        """Tarjetas mostradas, en orden cronológico."""
+        return self.incidents("card")
+
+    def substitutions(self) -> list[dict]:
+        """Cambios, en orden cronológico."""
+        return self.incidents("substitution")
+
+    def shots(self) -> list[dict]:
+        """Disparos del mapa de tiros (requiere que ``shotmap`` esté disponible)."""
+        return [s for s in (self.get("shotmap") or []) if isinstance(s, dict)]
+
+    def ratings(self) -> list[dict]:
+        """Valoración de Sofascore por jugador, de mayor a menor."""
+        salida = []
+        for jugador in self.players():
+            nota = (jugador.raw.get("statistics") or {}).get("rating")
+            if nota is None:
+                continue
+            salida.append({
+                "jugador": jugador.name,
+                "jugador_id": jugador.id,
+                "equipo_id": jugador.team_id,
+                "posicion": jugador.position,
+                "suplente": jugador.substitute,
+                "rating": float(nota),
+            })
+        return sorted(salida, key=lambda f: -f["rating"])
 
     def statistic(self, clave: str, periodo: str = "ALL") -> dict | None:
-        """Busca una estadística concreta (``ballPossession``, ``expectedGoals``...)."""
+        """Busca una estadística concreta (``ballPossession``, ``expectedGoals``...).
+
+        Devuelve ``None`` si no está. Para saber *por qué* no está —error de
+        dedo o dato que este partido no trae— usa :meth:`statistic_keys` o
+        :meth:`suggest`.
+        """
         for bloque in self.get("statistics") or []:
-            if bloque.get("period") != periodo:
+            if periodo and bloque.get("period") != periodo:
                 continue
             for grupo in bloque.get("groups", []) or []:
                 for item in grupo.get("statisticsItems", []) or []:
@@ -120,47 +107,107 @@ class MatchReport:
                         return item
         return None
 
+    def statistic_keys(self, periodo: str = "ALL") -> list[str]:
+        """Todas las claves de estadística que este partido sí trae."""
+        claves = []
+        for bloque in self.get("statistics") or []:
+            if periodo and bloque.get("period") != periodo:
+                continue
+            for grupo in bloque.get("groups", []) or []:
+                for item in grupo.get("statisticsItems", []) or []:
+                    if item.get("key"):
+                        claves.append(item["key"])
+        return sorted(set(claves))
+
+    def suggest(self, clave: str) -> list[str]:
+        """Claves parecidas a la que has escrito, mirando primero este partido."""
+        presentes = self.statistic_keys()
+        from difflib import get_close_matches
+
+        cercanas = get_close_matches(clave, presentes, n=3, cutoff=0.6)
+        return cercanas or suggest_stat(clave)
+
+    def statistics_table(self, periodo: str = "ALL") -> list[dict]:
+        """Las estadísticas en filas planas: grupo, clave, local, visitante."""
+        filas = []
+        for bloque in self.get("statistics") or []:
+            if periodo and bloque.get("period") != periodo:
+                continue
+            for grupo in bloque.get("groups", []) or []:
+                for item in grupo.get("statisticsItems", []) or []:
+                    filas.append({
+                        "periodo": bloque.get("period"),
+                        "grupo": grupo.get("groupName"),
+                        "clave": item.get("key"),
+                        "nombre": item.get("name"),
+                        "local": item.get("home"),
+                        "visitante": item.get("away"),
+                    })
+        return filas
+
     # --- Serialización ---
 
     def to_dict(self, include_data: bool = True) -> dict:
         return {
             "partido": self.event.to_dict(),
             "meta": self.meta,
-            "resumen": {
-                "disponibles": self.available(),
-                "vacias": self.empty(),
-                "requieren_plus": self.locked(),
-                "fallidas": self.failed(),
-            },
+            "resumen": self.resumen_estados(),
             "secciones": {
                 nombre: resultado.to_dict(include_data=include_data)
                 for nombre, resultado in self.sections.items()
             },
         }
 
+    def frames(self):
+        """Las tablas del partido como ``DataFrame`` (necesita ``pandas``)."""
+        from .frames import to_frames
+
+        return to_frames(self)
+
+    def tables(self) -> dict[str, list[dict]]:
+        """Lo mismo que :meth:`frames`, pero en listas de diccionarios."""
+        from .frames import to_tables
+
+        return to_tables(self)
+
     def summary(self) -> str:
         """Resumen de una línea por sección, para imprimir en el terminal."""
-        iconos = {OK: "✓", EMPTY: "·", PLUS_REQUIRED: "🔒", UNAVAILABLE: "–", ERROR: "✗"}
-        lineas = [self.event.label, self.event.url, ""]
-        for nombre, resultado in self.sections.items():
-            icono = iconos.get(resultado.status, "?")
-            detalle = f" — {resultado.error}" if resultado.error else ""
-            lineas.append(f" {icono} {nombre:<20} {resultado.status}{detalle}")
-        return "\n".join(lineas)
-
-
-def _vacio(datos: Any) -> bool:
-    return datos is None or (isinstance(datos, (list, dict, str)) and len(datos) == 0)
+        return "\n".join([self.event.label, self.event.url, "", *self.lineas_estado()])
 
 
 def _fetch_simple(cliente: SofascoreClient, seccion: Section, evento: Event, ttl: int) -> Any:
-    return cliente.section(seccion, evento.id, ttl=ttl)
+    extra = {}
+    if "language" in seccion.needs:
+        extra["language"] = cliente.settings.language
+    return cliente.section(seccion, evento.id, ttl=ttl, **extra)
 
 
 def _fetch_standings(cliente: SofascoreClient, seccion: Section, evento: Event, ttl: int) -> Any:
     if not (evento.unique_tournament_id and evento.season_id):
         raise NotFound(404, "standings", "El partido no trae competición/temporada.")
     return cliente.standings(evento.unique_tournament_id, evento.season_id)
+
+
+def _fetch_por_equipo(cliente: SofascoreClient, seccion: Section, evento: Event, ttl: int) -> Any:
+    """Secciones que se piden una vez por equipo (mapa de calor del equipo)."""
+    salida: dict[str, Any] = {}
+    errores = 0
+    for lado, equipo in (("home", evento.home), ("away", evento.away)):
+        if not equipo.id:
+            continue
+        try:
+            salida[lado] = {
+                "equipo": equipo.name,
+                "equipo_id": equipo.id,
+                "datos": cliente.section(seccion, evento.id, ttl=ttl, team_id=equipo.id),
+            }
+        except PlusRequired:
+            raise
+        except SofascoreError:
+            errores += 1
+    if not salida and errores:
+        raise NotFound(404, seccion.name, "Ningún equipo tiene esos datos.")
+    return salida
 
 
 def _fetch_por_jugador(
@@ -192,28 +239,38 @@ def _fetch_por_jugador(
     return interno
 
 
+def _en_paralelo(tareas: list[tuple[Section, Callable]], cliente, evento, ttl, hilos: int):
+    """Adapta las funciones de este módulo a la firma que espera ``run_all``."""
+    adaptadas = [(s, lambda sec, f=f: f(cliente, sec, evento, ttl)) for s, f in tareas]
+    return run_all(adaptadas, hilos)
+
+
 def build_report(
     cliente: SofascoreClient,
     event_or_id: Event | int,
     sections: list[str] | None = None,
     include_plus: bool = True,
     max_players: int = 40,
+    concurrency: int | None = None,
 ) -> MatchReport:
     """Construye el informe completo de un partido.
 
     ``sections`` acepta nombres del catálogo o ``["all"]``. Con
     ``include_plus=False`` ni se intentan las secciones de pago.
+    ``concurrency`` cuántas secciones se piden a la vez (por defecto, la de los
+    ajustes; ``1`` las pide de una en una).
     """
     evento = event_or_id if isinstance(event_or_id, Event) else cliente.event(int(event_or_id))
-    elegidas = resolve_sections(sections, include_plus=include_plus)
+    elegidas = resolve_sections(sections, include_plus=include_plus, sport=evento.sport)
     ttl = cliente.ttl_for_event(evento)
+    hilos = cliente.settings.concurrency if concurrency is None else concurrency
 
     informe = MatchReport(
         event=evento,
         meta={
             "secciones_pedidas": [s.name for s in elegidas],
             "credenciales_plus": cliente.has_plus,
-            "deporte": cliente.settings.sport,
+            "deporte": evento.sport or cliente.settings.sport,
         },
     )
     informe.sections["event"] = SectionResult(
@@ -225,61 +282,62 @@ def build_report(
         description="Datos del partido: marcador, estado, sede, árbitro.",
     )
 
-    # Las secciones por jugador necesitan las alineaciones: se piden antes.
-    if any(s.name in {"player_statistics", "heatmaps"} for s in elegidas):
-        elegidas = [s for s in elegidas if s.name != "lineups"]
-        elegidas.insert(1, get_section("lineups"))
+    #: Secciones que necesitan las alineaciones ya traídas.
+    POR_JUGADOR = {"player_statistics", "heatmaps"}
+    pendientes = [s for s in elegidas if s.name != "event"]
+    if any(s.name in POR_JUGADOR for s in pendientes):
+        # Las alineaciones dejan de ser una sección más: son un requisito previo.
+        pendientes = [s for s in pendientes if s.name != "lineups"]
+        primera_tanda = [get_section("lineups")] + [
+            s for s in pendientes if s.name not in POR_JUGADOR
+        ]
+    else:
+        primera_tanda = [s for s in pendientes if s.name not in POR_JUGADOR]
 
-    for seccion in elegidas:
-        if seccion.name == "event":
-            continue
-
-        if seccion.requires_plus and not include_plus:
-            continue
-
+    def resolver(seccion: Section) -> Callable:
         if seccion.name == "standings":
-            traer = _fetch_standings
-        elif seccion.name == "player_statistics":
-            traer = _fetch_por_jugador(
-                lambda c, e, p: c.player_statistics(e, p), informe.players(), max_players
-            )
-        elif seccion.name == "heatmaps":
-            traer = _fetch_por_jugador(
-                lambda c, e, p: c.player_heatmap(e, p), informe.players(), max_players
-            )
-        else:
-            traer = _fetch_simple
+            return _fetch_standings
+        if seccion.name == "team_heatmap":
+            return _fetch_por_equipo
+        return _fetch_simple
 
-        resultado = SectionResult(
-            name=seccion.name,
-            scope=seccion.scope,
-            status=OK,
-            endpoint=seccion.path,
-            description=seccion.description,
-        )
-        try:
-            datos = traer(cliente, seccion, evento, ttl)
-            resultado.data = datos
-            resultado.status = EMPTY if _vacio(datos) else OK
-        except PlusRequired as exc:
-            resultado.status = PLUS_REQUIRED
-            resultado.error = str(exc)
-        except NotFound as exc:
-            resultado.status = UNAVAILABLE
-            resultado.error = f"No disponible para este partido ({exc.status})."
-        except HTTPError as exc:
-            resultado.status = ERROR
-            resultado.error = str(exc)
-        except SofascoreError as exc:
-            resultado.status = ERROR
-            resultado.error = str(exc)
+    tareas = [(s, resolver(s)) for s in primera_tanda]
+    for resultado in _en_paralelo(tareas, cliente, evento, ttl, hilos):
+        informe.sections[resultado.name] = resultado
 
-        informe.sections[seccion.name] = resultado
+    # Segunda tanda: lo que depende de las alineaciones.
+    segunda = [s for s in pendientes if s.name in POR_JUGADOR]
+    if segunda:
+        jugadores = informe.players()
+        metodos = {
+            "player_statistics": lambda c, e, p: c.player_statistics(e, p),
+            "heatmaps": lambda c, e, p: c.player_heatmap(e, p),
+        }
+        tareas = [
+            (s, _fetch_por_jugador(metodos[s.name], jugadores, max_players)) for s in segunda
+        ]
+        for resultado in _en_paralelo(tareas, cliente, evento, ttl, hilos):
+            informe.sections[resultado.name] = resultado
 
-    if seccion_plus_bloqueada := informe.locked():
+    # El paralelismo desordena: se recolocan como se pidieron.
+    informe.reordenar([s.name for s in elegidas])
+
+    if bloqueadas := informe.locked():
         informe.meta["nota_plus"] = (
             "Estas secciones son de Sofascore Plus: "
-            + ", ".join(seccion_plus_bloqueada)
+            + ", ".join(bloqueadas)
             + ". Configura SOFA_PLUS_COOKIE con tu propia sesión para incluirlas."
         )
     return informe
+
+
+__all__ = [
+    "OK",
+    "EMPTY",
+    "PLUS_REQUIRED",
+    "UNAVAILABLE",
+    "ERROR",
+    "SectionResult",
+    "MatchReport",
+    "build_report",
+]

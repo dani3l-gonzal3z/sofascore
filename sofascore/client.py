@@ -7,8 +7,9 @@ que *agrega* los datos de un partido vive en :mod:`sofascore.match`.
 
 from __future__ import annotations
 
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlencode
 
@@ -38,13 +39,25 @@ BROWSER_HEADERS = {
 
 @dataclass
 class Stats:
-    """Contadores de la sesión: útiles para ``--debug`` y para tests."""
+    """Contadores de la sesión: útiles para ``--debug`` y para tests.
+
+    Se tocan desde varios hilos cuando el informe se pide en paralelo, así que
+    los incrementos van bajo un cerrojo.
+    """
 
     requests: int = 0
     cache_hits: int = 0
     retries: int = 0
     errors: int = 0
     waited: float = 0.0
+    host_switches: int = 0
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def bump(self, **cuantos: float) -> None:
+        """Suma a varios contadores de una vez, de forma atómica."""
+        with self._lock:
+            for nombre, cuanto in cuantos.items():
+                setattr(self, nombre, getattr(self, nombre) + cuanto)
 
     def as_dict(self) -> dict:
         return {
@@ -53,6 +66,7 @@ class Stats:
             "reintentos": self.retries,
             "errores": self.errors,
             "espera_s": round(self.waited, 2),
+            "cambios_de_host": self.host_switches,
         }
 
 
@@ -100,8 +114,8 @@ class SofascoreClient:
 
     # --- Petición ---
 
-    def _url(self, path: str, params: dict | None = None) -> str:
-        url = f"{self.settings.base_url.rstrip('/')}/{path.lstrip('/')}"
+    def _url(self, base: str, path: str, params: dict | None = None) -> str:
+        url = f"{base.rstrip('/')}/{path.lstrip('/')}"
         if params:
             limpios = {k: v for k, v in params.items() if v is not None}
             if limpios:
@@ -130,53 +144,85 @@ class SofascoreClient:
 
         ``ttl`` sobreescribe el tiempo de caché; ``scope`` decide si un 401/403
         se traduce a :class:`PlusRequired` (sección de pago) o a un HTTPError.
+
+        La caché se indexa por *ruta*, no por host: si una respuesta llegó por
+        el host alternativo, el siguiente arranque la reutiliza igual.
         """
-        url = self._url(path, params)
         ttl = self.settings.cache_ttl if ttl is None else ttl
-        clave = f"{'auth' if self.has_plus else 'anon'}|{url}"
+        ruta = self._url("", path, params)
+        clave = f"{'auth' if self.has_plus else 'anon'}|{ruta}"
 
         en_cache = self.cache.get(clave, ttl)
         if en_cache is not None:
-            self.stats.cache_hits += 1
+            self.stats.bump(cache_hits=1)
             return en_cache
 
         if self.settings.offline:
             raise OfflineError(
-                f"Modo offline y sin copia en caché de {url}. "
+                f"Modo offline y sin copia en caché de {ruta}. "
                 "Desactiva SOFA_OFFLINE o precalienta la caché."
             )
 
-        datos = self._request_with_retries(url, scope=scope, section_name=section_name)
+        datos = self._request_all_hosts(path, params, scope=scope, section_name=section_name)
         self.cache.set(clave, datos)
         return datos
+
+    def _request_all_hosts(
+        self,
+        path: str,
+        params: dict | None,
+        scope: str,
+        section_name: str | None,
+    ) -> Any:
+        """Intenta la petición en cada host conocido hasta que uno responda.
+
+        La misma API vive en ``api.sofascore.com`` y en ``www.sofascore.com``.
+        Cuando el primero contesta con un bloqueo (401/403) o no hay forma de
+        conectarse, se prueba el siguiente antes de darse por vencido: es un
+        bloqueo del borde, no una respuesta sobre el dato pedido.
+        """
+        hosts = self.settings.base_urls()
+        bloqueo: Exception | None = None
+        for indice, base in enumerate(hosts):
+            if indice:
+                self.stats.bump(host_switches=1)
+            url = self._url(base, path, params)
+            try:
+                return self._request_with_retries(url, scope=scope, section_name=section_name)
+            except (PlusRequired, HTTPError, TransportError) as exc:
+                es_bloqueo = isinstance(exc, (PlusRequired, TransportError)) or getattr(
+                    exc, "status", 0
+                ) in (401, 403)
+                if not es_bloqueo or indice == len(hosts) - 1:
+                    raise
+                bloqueo = exc
+        raise bloqueo or TransportError(f"No se pudo obtener {path}")
 
     def _request_with_retries(self, url: str, scope: str, section_name: str | None) -> Any:
         ultimo_error: Exception | None = None
         for intento in range(self.settings.retries + 1):
             if intento:
-                self.stats.retries += 1
                 espera = self.settings.backoff ** intento
-                self.stats.waited += espera
+                self.stats.bump(retries=1, waited=espera)
                 self._sleep(espera)
 
-            self.stats.waited += self.limiter.wait()
+            self.stats.bump(waited=self.limiter.wait(), requests=1)
             try:
-                self.stats.requests += 1
                 respuesta = self.transport.request("GET", url, self._headers())
             except TransportError as exc:
                 ultimo_error = exc
-                self.stats.errors += 1
+                self.stats.bump(errors=1)
                 continue
 
             if respuesta.ok:
                 return respuesta.json()
 
+            self.stats.bump(errors=1)
+
             if respuesta.status == 404:
-                self.stats.errors += 1
                 raise NotFound(404, url, respuesta.text()[:200])
 
             if respuesta.status in (401, 403):
-                self.stats.errors += 1
                 if scope == PLUS:
                     detalle = (
                         "Tus credenciales no han sido aceptadas (¿caducadas?)."
@@ -187,21 +233,18 @@ class SofascoreClient:
                 raise HTTPError(respuesta.status, url, respuesta.text()[:200])
 
             if respuesta.status == 429:
-                self.stats.errors += 1
                 cabecera = respuesta.headers.get("retry-after")
                 espera = float(cabecera) if cabecera and cabecera.isdigit() else None
                 ultimo_error = RateLimited(429, url, respuesta.text()[:200], retry_after=espera)
                 if espera:
-                    self.stats.waited += espera
+                    self.stats.bump(waited=espera)
                     self._sleep(espera)
                 continue
 
             if 500 <= respuesta.status < 600:
-                self.stats.errors += 1
                 ultimo_error = HTTPError(respuesta.status, url, respuesta.text()[:200])
                 continue
 
-            self.stats.errors += 1
             raise HTTPError(respuesta.status, url, respuesta.text()[:200])
 
         raise ultimo_error or TransportError(f"No se pudo obtener {url}")
@@ -286,3 +329,87 @@ class SofascoreClient:
             ttl=3600,
         )
         return (datos or {}).get("standings", datos) if isinstance(datos, dict) else datos
+
+    def live_events(self, sport: str | None = None) -> list[dict]:
+        """Todo lo que se está jugando ahora mismo en un deporte."""
+        deporte = sport or self.settings.sport
+        datos = self.get(f"/sport/{deporte}/events/live", ttl=30)
+        return (datos or {}).get("events", []) if isinstance(datos, dict) else []
+
+    def entity_section(
+        self,
+        section: Section,
+        ttl: int | None = None,
+        **ids,
+    ) -> Any:
+        """Pide una sección de un equipo, jugador o competición.
+
+        ``ids`` rellena los huecos de la ruta (``team_id``, ``player_id``,
+        ``tournament_id``, ``season_id``...).
+        """
+        datos = self.get(
+            section.path.format(**ids),
+            ttl=ttl,
+            scope=section.scope,
+            section_name=section.name,
+        )
+        if section.unwrap and isinstance(datos, dict):
+            return datos.get(section.unwrap)
+        return datos
+
+    def team(self, team_id: int) -> dict:
+        """Ficha de un equipo."""
+        datos = self.get(f"/team/{int(team_id)}", ttl=3600)
+        return (datos or {}).get("team", datos or {}) if isinstance(datos, dict) else {}
+
+    def player(self, player_id: int) -> dict:
+        """Ficha de un jugador."""
+        datos = self.get(f"/player/{int(player_id)}", ttl=3600)
+        return (datos or {}).get("player", datos or {}) if isinstance(datos, dict) else {}
+
+    def tournament(self, tournament_id: int) -> dict:
+        """Ficha de una competición."""
+        datos = self.get(f"/unique-tournament/{int(tournament_id)}", ttl=86400)
+        if isinstance(datos, dict):
+            return datos.get("uniqueTournament", datos)
+        return {}
+
+    def seasons(self, tournament_id: int) -> list[dict]:
+        """Temporadas de una competición, de la más reciente a la más antigua."""
+        datos = self.get(f"/unique-tournament/{int(tournament_id)}/seasons", ttl=86400)
+        return (datos or {}).get("seasons", []) if isinstance(datos, dict) else []
+
+    def latest_season_id(self, tournament_id: int) -> int | None:
+        """Id de la temporada en curso (la primera que devuelve la API)."""
+        temporadas = self.seasons(tournament_id)
+        return temporadas[0].get("id") if temporadas else None
+
+    def player_season_statistics(
+        self, player_id: int, tournament_id: int, season_id: int
+    ) -> Any:
+        """Estadísticas completas de un jugador en una liga y temporada."""
+        return self.get(
+            f"/player/{int(player_id)}/unique-tournament/{int(tournament_id)}"
+            f"/season/{int(season_id)}/statistics/overall",
+            ttl=3600,
+        )
+
+    def team_season_statistics(self, team_id: int, tournament_id: int, season_id: int) -> Any:
+        """Estadísticas completas de un equipo en una liga y temporada."""
+        return self.get(
+            f"/team/{int(team_id)}/unique-tournament/{int(tournament_id)}"
+            f"/season/{int(season_id)}/statistics/overall",
+            ttl=3600,
+        )
+
+    def image_url(self, kind: str, entity_id: int) -> str:
+        """URL del escudo/foto: ``kind`` es ``team``, ``player`` o ``tournament``."""
+        base = self.settings.base_url.rstrip("/")
+        rutas = {
+            "team": f"{base}/team/{int(entity_id)}/image",
+            "player": f"{base}/player/{int(entity_id)}/image",
+            "tournament": f"{base}/unique-tournament/{int(entity_id)}/image",
+        }
+        if kind not in rutas:
+            raise ValueError(f"Tipo de imagen desconocido: '{kind}'. Usa: {', '.join(rutas)}")
+        return rutas[kind]

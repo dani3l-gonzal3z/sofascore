@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from .catalog import status_label
+
 
 def _get(dato: Any, *claves: str, default: Any = None) -> Any:
     """Acceso anidado tolerante: ``_get(d, "venue", "stadium", "name")``."""
@@ -129,6 +131,8 @@ class Event:
     away_score: Score = field(default_factory=Score)
     status_type: str = ""
     status_description: str = ""
+    status_code: int | None = None
+    sport: str = ""
     start_timestamp: int | None = None
     tournament: str = ""
     unique_tournament_id: int | None = None
@@ -153,7 +157,12 @@ class Event:
             home_score=Score.from_api(datos.get("homeScore")),
             away_score=Score.from_api(datos.get("awayScore")),
             status_type=_get(datos, "status", "type", default="") or "",
-            status_description=_get(datos, "status", "description", default="") or "",
+            status_description=(
+                _get(datos, "status", "description", default="")
+                or status_label(_get(datos, "status", "code"))
+            ),
+            status_code=_get(datos, "status", "code"),
+            sport=_get(datos, "tournament", "category", "sport", "slug", default="") or "",
             start_timestamp=datos.get("startTimestamp"),
             tournament=_get(datos, "tournament", "name", default="") or "",
             unique_tournament_id=_get(datos, "tournament", "uniqueTournament", "id"),
@@ -186,6 +195,10 @@ class Event:
     @property
     def is_finished(self) -> bool:
         return self.status_type == "finished"
+
+    @property
+    def is_scheduled(self) -> bool:
+        return self.status_type == "notstarted"
 
     @property
     def is_live(self) -> bool:
@@ -221,7 +234,9 @@ class Event:
             "round": self.round,
             "date": self.date,
             "kickoff_utc": self.kickoff.isoformat() if self.kickoff else None,
+            "sport": self.sport,
             "status": self.status_description or self.status_type,
+            "status_code": self.status_code,
             "home": {"id": self.home.id, "name": self.home.name, "score": self.home_score.current},
             "away": {"id": self.away.id, "name": self.away.name, "score": self.away_score.current},
             "winner": self.winner(),

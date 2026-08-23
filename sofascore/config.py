@@ -13,8 +13,18 @@ from pathlib import Path
 ENV_PREFIX = "SOFA_"
 
 DEFAULT_BASE_URL = "https://api.sofascore.com/api/v1"
+
+#: La misma API se sirve desde dos hosts. Cuando uno responde 403 (su
+#: anti-bot), el otro suele contestar: todas las librerías públicas que hablan
+#: con Sofascore usan uno u otro indistintamente. Se prueban en orden.
+DEFAULT_FALLBACK_BASE_URLS = ("https://www.sofascore.com/api/v1",)
+
+#: Sofascore rechaza a quien no parece un navegador. No es evasión: es la misma
+#: petición que hace su web pública. Si prefieres identificarte de otra forma,
+#: pon SOFA_USER_AGENT en tu ``.env``.
 DEFAULT_USER_AGENT = (
-    "sofascore-framework/0.1 (+uso personal; https://github.com/dani3l-gonzal3z/b2f-)"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
 
@@ -51,6 +61,8 @@ class Settings:
 
     # --- Red ---
     base_url: str = DEFAULT_BASE_URL
+    #: Hosts alternativos a los que reintentar cuando el principal bloquea.
+    fallback_base_urls: tuple[str, ...] = DEFAULT_FALLBACK_BASE_URLS
     timeout: float = 15.0
     retries: int = 3
     backoff: float = 1.5
@@ -59,6 +71,8 @@ class Settings:
     user_agent: str = DEFAULT_USER_AGENT
     #: Idioma preferido para textos (comentarios, nombres de rondas...).
     language: str = "es"
+    #: Secciones pedidas a la vez. 1 = de una en una (como antes).
+    concurrency: int = 4
 
     # --- Caché en disco ---
     cache_dir: Path = Path(".sofascore-cache")
@@ -110,7 +124,7 @@ class Settings:
             valor = fuente.get(ENV_PREFIX + campo.upper())
             if valor:
                 setattr(ajustes, campo, float(valor))
-        for campo in ("retries", "cache_ttl", "cache_ttl_finished"):
+        for campo in ("retries", "cache_ttl", "cache_ttl_finished", "concurrency"):
             valor = fuente.get(ENV_PREFIX + campo.upper())
             if valor:
                 setattr(ajustes, campo, int(valor))
@@ -118,12 +132,26 @@ class Settings:
             ajustes.offline = _as_bool(fuente[ENV_PREFIX + "OFFLINE"])
         if fuente.get(ENV_PREFIX + "CACHE_DIR"):
             ajustes.cache_dir = Path(fuente[ENV_PREFIX + "CACHE_DIR"])
+        if fuente.get(ENV_PREFIX + "FALLBACK_BASE_URLS") is not None:
+            crudo = fuente[ENV_PREFIX + "FALLBACK_BASE_URLS"]
+            ajustes.fallback_base_urls = tuple(
+                u.strip() for u in crudo.split(",") if u.strip()
+            )
 
         if overrides:
             ajustes = replace(ajustes, **{k: v for k, v in overrides.items() if v is not None})
         return ajustes
 
     # --- Utilidades ---
+
+    def base_urls(self) -> list[str]:
+        """El host principal seguido de los alternativos, sin repetidos."""
+        vistos: list[str] = []
+        for url in (self.base_url, *self.fallback_base_urls):
+            limpia = (url or "").rstrip("/")
+            if limpia and limpia not in vistos:
+                vistos.append(limpia)
+        return vistos
 
     def has_plus_credentials(self) -> bool:
         """¿Hay credenciales propias configuradas para las secciones Plus?"""
@@ -133,6 +161,8 @@ class Settings:
         """Copia serializable con los secretos ocultos (para logs y ``--debug``)."""
         datos = {
             "base_url": self.base_url,
+            "fallback_base_urls": list(self.fallback_base_urls),
+            "concurrency": self.concurrency,
             "timeout": self.timeout,
             "retries": self.retries,
             "rate_limit": self.rate_limit,

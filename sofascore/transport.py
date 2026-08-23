@@ -112,6 +112,40 @@ class HttpxTransport:
         self._client.close()
 
 
+class CallableTransport:
+    """Envuelve cualquier función ``(method, url, headers) -> (status, bytes)``.
+
+    Es la puerta de atrás para los casos duros: si algún día Sofascore te
+    responde 403 desde los dos hosts, aquí puedes enchufar lo que sea que sí
+    pase —``curl_cffi`` imitando a Chrome, una sesión de ``playwright``, un
+    proxy tuyo— sin tocar nada más del framework::
+
+        from curl_cffi import requests as cr
+
+        sesion = cr.Session(impersonate="chrome")
+        transporte = CallableTransport(
+            lambda m, url, h: (sesion.request(m, url, headers=h).status_code,
+                               sesion.request(m, url, headers=h).content)
+        )
+        cliente = SofascoreClient(transport=transporte)
+
+    Esas librerías son dependencias opcionales tuyas: el framework sigue sin
+    necesitar ninguna.
+    """
+
+    def __init__(self, fn) -> None:
+        self._fn = fn
+
+    def request(self, method: str, url: str, headers: dict[str, str]) -> Response:
+        try:
+            estado, cuerpo = self._fn(method, url, headers)
+        except Exception as exc:  # noqa: BLE001 - lo que falle ahí es cosa del transporte
+            raise TransportError(f"No se pudo conectar con {url}: {exc}") from exc
+        if isinstance(cuerpo, str):
+            cuerpo = cuerpo.encode("utf-8")
+        return Response(status=int(estado), url=url, body=cuerpo or b"")
+
+
 class FakeTransport:
     """Transporte de mentira para tests y demos sin red.
 
@@ -172,6 +206,7 @@ __all__ = [
     "Transport",
     "UrllibTransport",
     "HttpxTransport",
+    "CallableTransport",
     "FakeTransport",
     "build_transport",
 ]

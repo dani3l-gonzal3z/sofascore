@@ -11,7 +11,9 @@ dependencies = []
 [project.optional-dependencies]
 # Transporte alternativo (conexiones reutilizadas, timeouts finos).
 http = ["httpx>=0.27"]
-dev = ["pytest>=8.0"]
+# Tablas: informe.frames() devuelve DataFrames en vez de listas de diccionarios.
+pandas = ["pandas>=2.0"]
+dev = ["pytest>=8.0", "pandas>=2.0"]
 
 [project.scripts]
 sofascore = "sofascore.cli:main"

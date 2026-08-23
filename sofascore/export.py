@@ -197,11 +197,54 @@ def _filas_tiros(informe: MatchReport) -> list[dict]:
     ]
 
 
+def _filas_partido(informe: MatchReport) -> list[dict]:
+    """Una sola fila con la cabecera del partido: para juntar muchos partidos."""
+    cabecera = informe.event.to_dict()
+    local = cabecera.pop("home", {})
+    visitante = cabecera.pop("away", {})
+    for lado, datos in (("local", local), ("visitante", visitante)):
+        for campo, valor in (datos or {}).items():
+            cabecera[f"{lado}_{campo}"] = valor
+    return [cabecera]
+
+
+def _filas_momento(informe: MatchReport) -> list[dict]:
+    return [
+        {"minuto": p.get("minute", ""), "valor": p.get("value", "")}
+        for p in informe.get("momentum") or []
+        if isinstance(p, dict)
+    ]
+
+
+def _filas_posiciones(informe: MatchReport) -> list[dict]:
+    filas = []
+    for lado in ("home", "away"):
+        for entrada in (informe.get("average_positions") or {}).get(lado, []) or []:
+            jugador = entrada.get("player") or {}
+            filas.append({
+                "equipo": "local" if lado == "home" else "visitante",
+                "jugador_id": jugador.get("id", ""),
+                "jugador": jugador.get("name", ""),
+                "x": entrada.get("averageX", ""),
+                "y": entrada.get("averageY", ""),
+                "toques": entrada.get("pointsCount", ""),
+            })
+    return filas
+
+
+def _filas_valoraciones(informe: MatchReport) -> list[dict]:
+    return informe.ratings()
+
+
 TABLAS = {
+    "partido": _filas_partido,
     "estadisticas": _filas_estadisticas,
     "incidencias": _filas_incidencias,
     "alineaciones": _filas_alineaciones,
     "tiros": _filas_tiros,
+    "valoraciones": _filas_valoraciones,
+    "momento": _filas_momento,
+    "posiciones_medias": _filas_posiciones,
 }
 
 

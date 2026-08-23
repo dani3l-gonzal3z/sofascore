@@ -42,6 +42,23 @@ def rutas_por_defecto() -> dict:
         "/search/all": cargar("search"),
         "/team/2829/events/last/0": cargar("team_events"),
         "/team/2829/events/next/0": {"events": []},
+        # --- equipos, jugadores y competiciones ---
+        "/team/2829": cargar("team"),
+        "/team/2829/players": cargar("team_players"),
+        "/team/2829/performance": {"events": [{"winner": 1}]},
+        "/player/831993": cargar("player"),
+        "/player/831993/attribute-overviews": cargar("player_attributes"),
+        "/player/831993/statistics/seasons": {"uniqueTournamentSeasons": []},
+        "/player/831993/last-year-summary": {"summary": [{"rating": 7.9}]},
+        "/player/831993/transfer-history": {"transferHistory": []},
+        "/unique-tournament/8": {"uniqueTournament": {"id": 8, "name": "LaLiga"}},
+        "/unique-tournament/8/seasons": cargar("seasons"),
+        "/unique-tournament/8/season/61643/standings/total": cargar("standings"),
+        "/unique-tournament/8/season/61643/rounds": {"rounds": [{"round": 12}]},
+        "/unique-tournament/8/season/61643/top-players/overall": {"topPlayers": {}},
+        "/unique-tournament/8/season/61643/events/last/0": cargar("team_events"),
+        "/sport/football/events/live": cargar("team_events"),
+        "/sport/football/scheduled-events/2024-10-26": cargar("team_events"),
     }
 
 

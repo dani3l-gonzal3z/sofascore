@@ -16,16 +16,20 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
 from .cache import DiskCache, NullCache
+from .catalog import LEAGUES
 from .client import SofascoreClient
 from .config import Settings
-from .endpoints import SECTIONS
+from .endpoints import CATALOGS
+from .entities import build_player_report, build_team_report, build_tournament_report
 from .errors import SofascoreError
 from .export import to_csv_dir, to_json, to_markdown
 from .match import build_report
+from .models import Event
 from .resolve import resolve_event
 
 
@@ -38,6 +42,7 @@ def _construir_cliente(args: argparse.Namespace) -> SofascoreClient:
         rate_limit=getattr(args, "rate", None),
         timeout=getattr(args, "timeout", None),
         offline=True if getattr(args, "offline", False) else None,
+        concurrency=getattr(args, "parallel", None),
         cache_dir=Path(args.cache_dir) if getattr(args, "cache_dir", None) else None,
     )
     cache = NullCache() if getattr(args, "no_cache", False) else None
@@ -115,9 +120,90 @@ def cmd_search(args: argparse.Namespace) -> int:
         cliente.close()
 
 
+def _informe_entidad(args: argparse.Namespace, constructor, **extra) -> int:
+    cliente = _construir_cliente(args)
+    try:
+        secciones = ["all"] if args.all else (args.sections.split(",") if args.sections else None)
+        informe = constructor(cliente, args.consulta, sections=secciones, **extra)
+        informe.meta["peticiones"] = cliente.stats.as_dict()
+        if args.print_section:
+            _imprimir(json.dumps(informe.get(args.print_section), ensure_ascii=False,
+                                 indent=2, default=str))
+        elif args.stdout_json:
+            _imprimir(json.dumps(informe.to_dict(), ensure_ascii=False, indent=2, default=str))
+        else:
+            _imprimir(informe.summary())
+        if args.json:
+            Path(args.json).write_text(
+                json.dumps(informe.to_dict(), ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+            _imprimir(f"\nJSON escrito en {args.json}")
+        if informe.locked():
+            _imprimir(f"\n🔒 Requieren Sofascore Plus: {', '.join(informe.locked())}")
+        return 0
+    finally:
+        cliente.close()
+
+
+def cmd_team(args: argparse.Namespace) -> int:
+    return _informe_entidad(args, build_team_report)
+
+
+def cmd_player(args: argparse.Namespace) -> int:
+    return _informe_entidad(args, build_player_report)
+
+
+def cmd_league(args: argparse.Namespace) -> int:
+    return _informe_entidad(args, build_tournament_report, season_id=args.season)
+
+
+def _listar_eventos(eventos: list[Event], limite: int) -> None:
+    if not eventos:
+        _imprimir("No hay nada.")
+        return
+    _imprimir(f"{len(eventos)} partido(s):\n")
+    for evento in eventos[:limite]:
+        _imprimir(f"  {evento.label}")
+        _imprimir(f"      id={evento.id} · {evento.status_description or evento.status_type}")
+
+
+def cmd_live(args: argparse.Namespace) -> int:
+    cliente = _construir_cliente(args)
+    try:
+        _listar_eventos([Event.from_api(e) for e in cliente.live_events(args.sport)], args.limit)
+        return 0
+    finally:
+        cliente.close()
+
+
+def cmd_today(args: argparse.Namespace) -> int:
+    cliente = _construir_cliente(args)
+    try:
+        fecha = args.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        eventos = [Event.from_api(e) for e in cliente.scheduled_events(fecha, args.sport)]
+        _imprimir(f"Partidos del {fecha}:\n")
+        _listar_eventos(eventos, args.limit)
+        return 0
+    finally:
+        cliente.close()
+
+
+def cmd_leagues(args: argparse.Namespace) -> int:
+    filtro = (args.filtro or "").lower()
+    encontradas = {k: v for k, v in LEAGUES.items() if filtro in k.lower()}
+    _imprimir(f"{'ID':>7}  LIGA")
+    for nombre, identificador in sorted(encontradas.items()):
+        _imprimir(f"{identificador:>7}  {nombre}")
+    _imprimir(f"\n{len(encontradas)} liga(s). Úsalas con: sofascore league \"<nombre>\"")
+    return 0
+
+
 def cmd_sections(args: argparse.Namespace) -> int:
+    catalogo = CATALOGS[args.kind]
+    _imprimir(f"Secciones de '{args.kind}':\n")
     _imprimir(f"{'SECCIÓN':<20} {'ÁMBITO':<8} {'POR DEFECTO':<12} DESCRIPCIÓN")
-    for seccion in SECTIONS.values():
+    for seccion in catalogo.values():
         marca = "sí" if seccion.default else "no"
         etiqueta = "plus" if seccion.requires_plus else "público"
         _imprimir(f"{seccion.name:<20} {etiqueta:<8} {marca:<12} {seccion.description}")
@@ -187,22 +273,28 @@ def build_parser() -> argparse.ArgumentParser:
     comun.add_argument("--cache-dir", help="Carpeta de la caché.")
     comun.add_argument("--no-cache", action="store_true", help="Ignora la caché.")
     comun.add_argument("--offline", action="store_true", help="Solo caché, sin red.")
+    comun.add_argument("--parallel", type=int,
+                       help="Secciones que se piden a la vez (1 = de una en una).")
+
+    # Opciones comunes a los informes por secciones (partido, equipo, jugador, liga).
+    informe = argparse.ArgumentParser(add_help=False)
+    informe.add_argument("--sections", help="Secciones separadas por comas.")
+    informe.add_argument("--all", action="store_true", help="Pide todas las secciones.")
+    informe.add_argument("--json", help="Guarda el informe completo en este fichero.")
+    informe.add_argument("--stdout-json", action="store_true", help="Vuelca el JSON por pantalla.")
+    informe.add_argument("--print", dest="print_section", help="Imprime solo esa sección.")
 
     sub = parser.add_subparsers(dest="comando", required=True)
 
-    p_match = sub.add_parser("match", parents=[comun], help="Informe completo de un partido.")
+    p_match = sub.add_parser("match", parents=[comun, informe],
+                             help="Informe completo de un partido.")
     p_match.add_argument("consulta", help="Id, URL o 'Equipo A vs Equipo B'.")
     p_match.add_argument("--date", help="Fecha del partido (AAAA-MM-DD) para desempatar.")
-    p_match.add_argument("--sections", help="Secciones separadas por comas.")
-    p_match.add_argument("--all", action="store_true", help="Pide todas las secciones.")
     p_match.add_argument("--no-plus", action="store_true", help="No intentes las de pago.")
     p_match.add_argument("--players", type=int, default=40,
                          help="Máximo de jugadores para las secciones por jugador.")
-    p_match.add_argument("--json", help="Guarda el informe completo en este fichero.")
     p_match.add_argument("--markdown", help="Guarda un informe legible en este fichero.")
     p_match.add_argument("--csv", help="Escribe los CSV en esta carpeta.")
-    p_match.add_argument("--stdout-json", action="store_true", help="Vuelca el JSON por pantalla.")
-    p_match.add_argument("--print", dest="print_section", help="Imprime solo esa sección.")
     p_match.add_argument("--strict", action="store_true",
                          help="Falla si la consulta es ambigua en vez de elegir.")
     p_match.add_argument("--quiet", action="store_true", help="Sin adornos por pantalla.")
@@ -215,7 +307,39 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--limit", type=int, default=10)
     p_search.set_defaults(func=cmd_search)
 
+    p_team = sub.add_parser("team", parents=[comun, informe],
+                            help="Informe de un equipo: plantilla, calendario, forma.")
+    p_team.add_argument("consulta", help="Nombre o id del equipo.")
+    p_team.set_defaults(func=cmd_team)
+
+    p_player = sub.add_parser("player", parents=[comun, informe],
+                              help="Informe de un jugador: ficha, atributos, temporadas.")
+    p_player.add_argument("consulta", help="Nombre o id del jugador.")
+    p_player.set_defaults(func=cmd_player)
+
+    p_league = sub.add_parser("league", parents=[comun, informe],
+                              help="Informe de una competición: tabla, jornadas, goleadores.")
+    p_league.add_argument("consulta", help="Nombre, alias ('laliga') o id de la competición.")
+    p_league.add_argument("--season", type=int,
+                          help="Id de temporada (por defecto, la que está en curso).")
+    p_league.set_defaults(func=cmd_league)
+
+    p_live = sub.add_parser("live", parents=[comun], help="Partidos que se juegan ahora mismo.")
+    p_live.add_argument("--limit", type=int, default=30)
+    p_live.set_defaults(func=cmd_live)
+
+    p_today = sub.add_parser("today", parents=[comun], help="Partidos de un día.")
+    p_today.add_argument("--date", help="AAAA-MM-DD (por defecto, hoy).")
+    p_today.add_argument("--limit", type=int, default=50)
+    p_today.set_defaults(func=cmd_today)
+
+    p_leagues = sub.add_parser("leagues", help="Ligas conocidas con su id.")
+    p_leagues.add_argument("filtro", nargs="?", help="Filtra por nombre.")
+    p_leagues.set_defaults(func=cmd_leagues)
+
     p_sections = sub.add_parser("sections", help="Lista las secciones del catálogo.")
+    p_sections.add_argument("--kind", default="match", choices=sorted(CATALOGS),
+                            help="De qué catálogo (match, team, player, tournament).")
     p_sections.set_defaults(func=cmd_sections)
 
     p_login = sub.add_parser("login", parents=[comun],

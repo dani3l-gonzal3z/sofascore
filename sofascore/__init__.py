@@ -19,9 +19,34 @@ from __future__ import annotations
 
 from .auth import Credentials
 from .cache import DiskCache, MemoryCache, NullCache
+from .catalog import (
+    KNOWN_STAT_KEYS,
+    LEAGUES,
+    MATCH_STAT_KEYS,
+    PLAYER_STAT_KEYS,
+    find_league,
+    status_label,
+    suggest_stat,
+)
 from .client import SofascoreClient
 from .config import Settings
-from .endpoints import ALL_SECTIONS, DEFAULT_SECTIONS, SECTIONS, Section
+from .endpoints import (
+    ALL_SECTIONS,
+    DEFAULT_SECTIONS,
+    PLAYER_SECTIONS,
+    SECTIONS,
+    TEAM_SECTIONS,
+    TOURNAMENT_SECTIONS,
+    Section,
+)
+from .entities import (
+    EntityReport,
+    build_entity_report,
+    build_player_report,
+    build_team_report,
+    build_tournament_report,
+    find_entity,
+)
 from .errors import (
     AmbiguousMatch,
     HTTPError,
@@ -33,8 +58,10 @@ from .errors import (
     SofascoreError,
     TransportError,
 )
-from .match import MatchReport, SectionResult, build_report
+from .frames import flatten, to_frames, to_tables
+from .match import MatchReport, build_report
 from .models import Event, Player, Score, Team
+from .report import SectionResult
 from .resolve import Candidate, Resolution, resolve_event
 from .transport import FakeTransport, HttpxTransport, UrllibTransport
 
@@ -102,9 +129,98 @@ def search_matches(
             cliente.close()
 
 
+def _con_cliente(client, settings, overrides, trabajo):
+    """Ejecuta ``trabajo(cliente)`` creando y cerrando el cliente si hace falta."""
+    propio = client is None
+    cliente = client or build_client(settings, **overrides)
+    try:
+        return trabajo(cliente)
+    finally:
+        if propio:
+            cliente.close()
+
+
+def get_team(
+    query: str | int,
+    sections: list[str] | None = None,
+    client: SofascoreClient | None = None,
+    settings: Settings | None = None,
+    **overrides,
+) -> EntityReport:
+    """Informe de un equipo: plantilla, calendario, forma, traspasos..."""
+    return _con_cliente(
+        client, settings, overrides,
+        lambda c: build_team_report(c, query, sections=sections),
+    )
+
+
+def get_player(
+    query: str | int,
+    sections: list[str] | None = None,
+    client: SofascoreClient | None = None,
+    settings: Settings | None = None,
+    **overrides,
+) -> EntityReport:
+    """Informe de un jugador: ficha, atributos, temporadas, traspasos..."""
+    return _con_cliente(
+        client, settings, overrides,
+        lambda c: build_player_report(c, query, sections=sections),
+    )
+
+
+def get_league(
+    query: str | int,
+    season_id: int | None = None,
+    sections: list[str] | None = None,
+    client: SofascoreClient | None = None,
+    settings: Settings | None = None,
+    **overrides,
+) -> EntityReport:
+    """Informe de una competición: clasificación, jornadas, goleadores...
+
+    Sin ``season_id`` se usa la temporada en curso.
+    """
+    return _con_cliente(
+        client, settings, overrides,
+        lambda c: build_tournament_report(c, query, season_id=season_id, sections=sections),
+    )
+
+
+def live_matches(
+    sport: str | None = None,
+    client: SofascoreClient | None = None,
+    settings: Settings | None = None,
+    **overrides,
+) -> list[Event]:
+    """Los partidos que se están jugando ahora mismo."""
+    return _con_cliente(
+        client, settings, overrides,
+        lambda c: [Event.from_api(e) for e in c.live_events(sport)],
+    )
+
+
+def matches_on(
+    date: str,
+    sport: str | None = None,
+    client: SofascoreClient | None = None,
+    settings: Settings | None = None,
+    **overrides,
+) -> list[Event]:
+    """Todos los partidos de un día (``AAAA-MM-DD``)."""
+    return _con_cliente(
+        client, settings, overrides,
+        lambda c: [Event.from_api(e) for e in c.scheduled_events(date, sport)],
+    )
+
+
 __all__ = [
     "__version__",
     "get_match",
+    "get_team",
+    "get_player",
+    "get_league",
+    "live_matches",
+    "matches_on",
     "search_matches",
     "build_client",
     "SofascoreClient",
@@ -120,10 +236,29 @@ __all__ = [
     "Candidate",
     "Resolution",
     "resolve_event",
+    "EntityReport",
+    "build_entity_report",
+    "build_team_report",
+    "build_player_report",
+    "build_tournament_report",
+    "find_entity",
     "Section",
     "SECTIONS",
+    "TEAM_SECTIONS",
+    "PLAYER_SECTIONS",
+    "TOURNAMENT_SECTIONS",
     "DEFAULT_SECTIONS",
     "ALL_SECTIONS",
+    "LEAGUES",
+    "find_league",
+    "status_label",
+    "suggest_stat",
+    "KNOWN_STAT_KEYS",
+    "MATCH_STAT_KEYS",
+    "PLAYER_STAT_KEYS",
+    "to_frames",
+    "to_tables",
+    "flatten",
     "DiskCache",
     "MemoryCache",
     "NullCache",

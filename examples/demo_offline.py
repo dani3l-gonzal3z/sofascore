@@ -50,6 +50,19 @@ def main() -> int:
     print(informe.summary())
     print("\n" + "=" * 70 + "\n")
     print(to_markdown(informe))
+
+    print("\n" + "=" * 70 + "\n")
+    print("Las mismas cosas, ya en forma de tabla:\n")
+    for nombre, filas in informe.tables().items():
+        print(f"  {nombre:<18} {len(filas):>3} fila(s)  {list(filas[0])[:5]}")
+
+    print("\nY tres atajos de los que se usan a diario:\n")
+    print("  goles:", [f"{g['time']}' {(g.get('player') or {}).get('name', '')}"
+                       for g in informe.goals()])
+    mejores = informe.ratings()[:3]
+    print("  mejor valorados:", [f"{f['jugador']} {f['rating']}" for f in mejores])
+    posesion = informe.statistic("ballPossession")
+    print("  posesión:", f"{posesion['home']} - {posesion['away']}" if posesion else "n/d")
     return 0
 
 

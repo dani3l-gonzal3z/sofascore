@@ -89,7 +89,7 @@ def test_error_de_red_tambien_reintenta():
             self.n += 1
             raise TransportError("sin DNS")
 
-    ajustes = Settings(rate_limit=0, retries=1, backoff=0)
+    ajustes = Settings(rate_limit=0, retries=1, backoff=0, fallback_base_urls=())
     roto = Roto()
     cli = SofascoreClient(ajustes, transport=roto, cache=MemoryCache(), sleep=lambda _s: None)
     with pytest.raises(TransportError):
@@ -153,3 +153,36 @@ def test_partido_terminado_se_cachea_mas_tiempo(cliente):
     assert cliente.ttl_for_event(evento) == cliente.settings.cache_ttl_finished
     evento.status_type = "inprogress"
     assert cliente.ttl_for_event(evento) == cliente.settings.cache_ttl
+
+
+def test_transporte_a_medida():
+    """La puerta de atrás: cualquier función puede hacer de transporte."""
+    from sofascore.transport import CallableTransport
+
+    llamadas = []
+
+    def hablar(method, url, headers):
+        llamadas.append((method, url))
+        return 200, b'{"event": {"id": 42}}'
+
+    cli = SofascoreClient(
+        Settings(rate_limit=0), transport=CallableTransport(hablar), cache=MemoryCache()
+    )
+    assert cli.event(42).id == 42
+    assert llamadas[0][0] == "GET"
+
+
+def test_transporte_a_medida_traduce_los_fallos():
+    from sofascore.transport import CallableTransport
+
+    def roto(method, url, headers):
+        raise RuntimeError("se cayó")
+
+    cli = SofascoreClient(
+        Settings(rate_limit=0, retries=0, fallback_base_urls=()),
+        transport=CallableTransport(roto),
+        cache=MemoryCache(),
+        sleep=lambda _s: None,
+    )
+    with pytest.raises(TransportError):
+        cli.event(1)
