@@ -1,0 +1,99 @@
+{
+  "confirmed": true,
+  "home": {
+    "formation": "4-3-3",
+    "players": [
+      {
+        "player": {
+          "id": 794075,
+          "name": "Thibaut Courtois",
+          "shortName": "T. Courtois",
+          "position": "G",
+          "jerseyNumber": "1"
+        },
+        "shirtNumber": 1,
+        "position": "G",
+        "substitute": false,
+        "statistics": {
+          "minutesPlayed": 90,
+          "rating": 6.4,
+          "saves": 3
+        }
+      },
+      {
+        "player": {
+          "id": 839956,
+          "name": "Vinícius Júnior",
+          "shortName": "Vinícius Jr.",
+          "position": "F",
+          "jerseyNumber": "7"
+        },
+        "shirtNumber": 7,
+        "position": "F",
+        "substitute": false,
+        "statistics": {
+          "minutesPlayed": 90,
+          "rating": 6.9,
+          "expectedGoals": 0.41
+        }
+      },
+      {
+        "player": {
+          "id": 1005111,
+          "name": "Endrick",
+          "shortName": "Endrick",
+          "position": "F",
+          "jerseyNumber": "16"
+        },
+        "shirtNumber": 16,
+        "position": "F",
+        "substitute": true,
+        "statistics": {
+          "minutesPlayed": 12,
+          "rating": 6.1
+        }
+      }
+    ],
+    "missingPlayers": []
+  },
+  "away": {
+    "formation": "4-2-3-1",
+    "players": [
+      {
+        "player": {
+          "id": 1136170,
+          "name": "Lamine Yamal",
+          "shortName": "L. Yamal",
+          "position": "F",
+          "jerseyNumber": "19"
+        },
+        "shirtNumber": 19,
+        "position": "F",
+        "substitute": false,
+        "statistics": {
+          "minutesPlayed": 90,
+          "rating": 8.2,
+          "goals": 1
+        }
+      },
+      {
+        "player": {
+          "id": 1006286,
+          "name": "Robert Lewandowski",
+          "shortName": "R. Lewandowski",
+          "position": "F",
+          "jerseyNumber": "9"
+        },
+        "shirtNumber": 9,
+        "position": "F",
+        "substitute": false,
+        "statistics": {
+          "minutesPlayed": 90,
+          "rating": 8.8,
+          "goals": 2
+        }
+      }
+    ],
+    "missingPlayers": []
+  }
+}

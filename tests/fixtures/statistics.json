@@ -1,0 +1,64 @@
+{
+  "statistics": [
+    {
+      "period": "ALL",
+      "groups": [
+        {
+          "groupName": "Match overview",
+          "statisticsItems": [
+            {
+              "key": "ballPossession",
+              "name": "Posesión",
+              "home": "56%",
+              "away": "44%",
+              "homeValue": 56,
+              "awayValue": 44,
+              "compareCode": 1,
+              "statisticsType": "positive"
+            },
+            {
+              "key": "expectedGoals",
+              "name": "Goles esperados (xG)",
+              "home": "1.24",
+              "away": "2.87",
+              "homeValue": 1.24,
+              "awayValue": 2.87,
+              "compareCode": 2,
+              "statisticsType": "positive"
+            },
+            {
+              "key": "totalShotsOnGoal",
+              "name": "Tiros totales",
+              "home": "12",
+              "away": "16",
+              "homeValue": 12,
+              "awayValue": 16,
+              "compareCode": 2,
+              "statisticsType": "positive"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "period": "1ST",
+      "groups": [
+        {
+          "groupName": "Match overview",
+          "statisticsItems": [
+            {
+              "key": "ballPossession",
+              "name": "Posesión",
+              "home": "58%",
+              "away": "42%",
+              "homeValue": 58,
+              "awayValue": 42,
+              "compareCode": 1,
+              "statisticsType": "positive"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

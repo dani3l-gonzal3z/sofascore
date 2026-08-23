@@ -1,0 +1,17 @@
+{
+  "graphPoints": [
+    {
+      "minute": 1,
+      "value": 12
+    },
+    {
+      "minute": 2,
+      "value": -30
+    },
+    {
+      "minute": 3,
+      "value": 45
+    }
+  ],
+  "periodTime": 45
+}

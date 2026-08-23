@@ -1,0 +1,29 @@
+{
+  "shotmap": [
+    {
+      "player": {
+        "id": 1006286,
+        "name": "Robert Lewandowski"
+      },
+      "isHome": false,
+      "time": 54,
+      "shotType": "goal",
+      "situation": "assisted",
+      "bodyPart": "right-foot",
+      "xg": 0.34,
+      "xgot": 0.71
+    },
+    {
+      "player": {
+        "id": 839956,
+        "name": "Vinícius Júnior"
+      },
+      "isHome": true,
+      "time": 30,
+      "shotType": "save",
+      "situation": "regular",
+      "bodyPart": "left-foot",
+      "xg": 0.11
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "incidents": [
+    {
+      "time": 90,
+      "incidentType": "period",
+      "text": "FT",
+      "homeScore": 0,
+      "awayScore": 4
+    },
+    {
+      "time": 54,
+      "incidentType": "goal",
+      "incidentClass": "regular",
+      "isHome": false,
+      "homeScore": 0,
+      "awayScore": 1,
+      "player": {
+        "id": 1006286,
+        "name": "Robert Lewandowski"
+      }
+    },
+    {
+      "time": 56,
+      "incidentType": "goal",
+      "incidentClass": "regular",
+      "isHome": false,
+      "homeScore": 0,
+      "awayScore": 2,
+      "player": {
+        "id": 1006286,
+        "name": "Robert Lewandowski"
+      }
+    },
+    {
+      "time": 77,
+      "incidentType": "goal",
+      "incidentClass": "regular",
+      "isHome": false,
+      "homeScore": 0,
+      "awayScore": 3,
+      "player": {
+        "id": 1136170,
+        "name": "Lamine Yamal"
+      }
+    },
+    {
+      "time": 84,
+      "incidentType": "card",
+      "incidentClass": "yellow",
+      "isHome": true,
+      "player": {
+        "id": 839956,
+        "name": "Vinícius Júnior"
+      }
+    }
+  ]
+}

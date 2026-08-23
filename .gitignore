@@ -1,0 +1,18 @@
+# Caché de respuestas de la API
+.sofascore-cache/
+
+# Secretos locales
+.env
+
+# Salidas de ejemplo
+salidas/
+*.json.out
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+.venv/
