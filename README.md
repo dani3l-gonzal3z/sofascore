@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 214 tests que corren en menos de un segundo con
+- **Probado sin red.** 218 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -423,7 +423,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 214 tests, sin red
+python -m pytest                  # 218 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```

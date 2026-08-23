@@ -42,18 +42,23 @@ def _tabla_estadisticas(informe: MatchReport) -> list[str]:
 
 
 def _cronologia(informe: MatchReport) -> list[str]:
-    incidencias = informe.get("incidents") or []
-    if not incidencias:
+    if not informe.get("incidents"):
         return []
     lineas = ["### Cronología\n"]
-    for incidencia in sorted(incidencias, key=lambda i: (i.get("time") or 0)):
+    for incidencia in informe.incidents():
         tipo = incidencia.get("incidentType", "")
         if tipo in {"period", "injuryTime"}:
             continue
         minuto = incidencia.get("time")
         anadido = incidencia.get("addedTime")
         reloj = f"{minuto}'" + (f"+{anadido}" if anadido else "") if minuto is not None else "—"
-        jugador = (incidencia.get("player") or {}).get("name", "")
+        jugador = _nombre(incidencia, "player", "playerIn")
+        sale = _nombre(incidencia, "playerOut")
+        if sale:
+            jugador = f"{jugador} ← {sale}" if jugador else f"sale {sale}"
+        asistencia = _nombre(incidencia, "assist1")
+        if asistencia:
+            jugador = f"{jugador} (asist. {asistencia})"
         detalle = incidencia.get("incidentClass") or incidencia.get("text") or ""
         marcador = ""
         if incidencia.get("homeScore") is not None:
@@ -148,7 +153,23 @@ def _filas_estadisticas(informe: MatchReport) -> list[dict]:
     return filas
 
 
+def _nombre(incidencia: dict, *claves: str) -> str:
+    """Primer nombre de jugador que aparezca en esas claves de la incidencia.
+
+    La API mete al jugador en una clave distinta según el tipo de incidencia
+    (``player`` en un gol o una tarjeta, entrante y saliente en un cambio), así
+    que se prueban varias y se coge la que haya.
+    """
+    for clave in claves:
+        valor = incidencia.get(clave)
+        if isinstance(valor, dict) and valor.get("name"):
+            return valor["name"]
+    return ""
+
+
 def _filas_incidencias(informe: MatchReport) -> list[dict]:
+    # En orden: la API las devuelve del final al principio, y una cronología
+    # que va hacia atrás no es una cronología.
     return [
         {
             "minuto": i.get("time", ""),
@@ -156,11 +177,13 @@ def _filas_incidencias(informe: MatchReport) -> list[dict]:
             "tipo": i.get("incidentType", ""),
             "clase": i.get("incidentClass", ""),
             "equipo": "" if i.get("isHome") is None else ("local" if i["isHome"] else "visitante"),
-            "jugador": (i.get("player") or {}).get("name", ""),
+            "jugador": _nombre(i, "player", "playerIn"),
+            "jugador_sale": _nombre(i, "playerOut"),
+            "asistencia": _nombre(i, "assist1"),
             "marcador_local": i.get("homeScore", ""),
             "marcador_visitante": i.get("awayScore", ""),
         }
-        for i in informe.get("incidents") or []
+        for i in informe.incidents()
     ]
 
 
