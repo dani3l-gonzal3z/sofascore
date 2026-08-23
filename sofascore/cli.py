@@ -21,6 +21,7 @@ from pathlib import Path
 
 from . import __version__
 from .cache import DiskCache, NullCache
+from .auth import cookie_desde_navegador
 from .catalog import LEAGUES, find_league
 from .client import SofascoreClient
 from .config import Settings
@@ -333,6 +334,54 @@ def cmd_login(args: argparse.Namespace) -> int:
         cliente.close()
 
 
+def _guardar_en_dotenv(clave: str, valor: str, ruta: str = ".env") -> str:
+    """Escribe ``clave=valor`` en el ``.env``, respetando lo que ya hubiera."""
+    fichero = Path(ruta)
+    lineas = fichero.read_text(encoding="utf-8").splitlines() if fichero.is_file() else []
+    salida, sustituida = [], False
+    for linea in lineas:
+        if linea.strip().startswith(f"{clave}="):
+            salida.append(f"{clave}={valor}")
+            sustituida = True
+        else:
+            salida.append(linea)
+    if not sustituida:
+        salida.append(f"{clave}={valor}")
+    fichero.write_text("\n".join(salida) + "\n", encoding="utf-8")
+    return "actualizada" if sustituida else "añadida"
+
+
+def cmd_cookie(args: argparse.Namespace) -> int:
+    """Saca la cookie de lo que copies del navegador y la deja lista."""
+    if args.file:
+        texto = Path(args.file).read_text(encoding="utf-8", errors="replace")
+    else:
+        _imprimir("Pega aquí lo copiado del navegador y termina con Ctrl+Z y Enter")
+        _imprimir("(en Linux/Mac, Ctrl+D):\n")
+        texto = sys.stdin.read()
+
+    cookie = cookie_desde_navegador(texto)
+    if not cookie:
+        _imprimir("\nNo he encontrado ninguna cookie en lo que has pegado.")
+        _imprimir("Vale cualquiera de estas tres cosas:")
+        _imprimir("  · botón derecho sobre una petición → Copiar como cURL")
+        _imprimir("  · botón derecho sobre una petición → Copiar como PowerShell")
+        _imprimir("  · lo que devuelva document.cookie en la consola")
+        return 1
+
+    trozos = [t for t in cookie.split(";") if t.strip()]
+    _imprimir(f"\n✓ Cookie encontrada: {len(trozos)} valores, {len(cookie)} caracteres.")
+
+    if args.save:
+        estado = _guardar_en_dotenv("SOFA_PLUS_COOKIE", cookie, args.env)
+        _imprimir(f"  Línea SOFA_PLUS_COOKIE {estado} en {args.env}.")
+        _imprimir("\nCompruébalo con: sofascore login <id de un partido reciente>")
+    else:
+        _imprimir("\nPega esta línea en tu .env (o repite con --save y te la escribo yo):\n")
+        _imprimir(f"SOFA_PLUS_COOKIE={cookie}")
+    return 0
+
+
 def cmd_raw(args: argparse.Namespace) -> int:
     cliente = _construir_cliente(args)
     try:
@@ -498,6 +547,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_raw = sub.add_parser("raw", parents=[comun], help="Pide una ruta cualquiera de la API.")
     p_raw.add_argument("ruta", help="P. ej. /event/11352550/statistics")
     p_raw.set_defaults(func=cmd_raw)
+
+    p_cookie = sub.add_parser(
+        "cookie",
+        help="Saca tu cookie de Sofascore de lo que copies del navegador.",
+        description="Pega lo que te dé el navegador al copiar una petición "
+                    "(cURL o PowerShell) y te deja la línea para el .env.",
+    )
+    p_cookie.add_argument("--file", help="Leerlo de un fichero en vez de pegarlo.")
+    p_cookie.add_argument("--save", action="store_true", help="Escribirla en el .env.")
+    p_cookie.add_argument("--env", default=".env", help="Ruta del .env (por defecto: .env).")
+    p_cookie.set_defaults(func=cmd_cookie)
 
     p_doctor = sub.add_parser("doctor", parents=[comun],
                               help="Comprueba el transporte y si la API contesta.")

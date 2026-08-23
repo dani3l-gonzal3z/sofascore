@@ -19,6 +19,7 @@ repositorio (``.env`` está en ``.gitignore``) y solo valen para tu propio uso.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -46,6 +47,55 @@ def _cookies_desde_fichero(ruta: str | Path) -> str:
     else:
         raise ValueError("Formato de cookies no reconocido (esperaba lista o diccionario).")
     return "; ".join(f"{nombre}={valor}" for nombre, valor in pares if valor)
+
+
+#: Patrones donde el navegador deja la cookie al copiar una petición.
+_PATRONES_COOKIE = [
+    # curl (bash y cmd):  -H 'cookie: a=1; b=2'   /   -H "Cookie: a=1; b=2"
+    re.compile(r"""-H\s+(['"])\s*cookie\s*:\s*(?P<valor>.*?)\1""", re.I | re.S),
+    # curl con -b:  -b 'a=1; b=2'
+    re.compile(r"""-b\s+(['"])(?P<valor>.*?)\1""", re.I | re.S),
+]
+
+#: PowerShell ("Copy as PowerShell") las añade una a una.
+_PATRON_POWERSHELL = re.compile(
+    r'New-Object\s+System\.Net\.Cookie\s*\(\s*'
+    r'"(?P<nombre>[^"]+)"\s*,\s*"(?P<valor>[^"]*)"',
+    re.I,
+)
+
+
+def cookie_desde_navegador(texto: str) -> str:
+    """Saca la cabecera ``Cookie`` de lo que copies del navegador.
+
+    Buscar la cookie a mano entre cientos de peticiones es un suplicio, así que
+    esto acepta lo que el navegador te da de un clic —botón derecho sobre
+    cualquier petición → *Copiar como cURL* o *Copiar como PowerShell*— y
+    también el resultado de ``document.cookie`` pegado tal cual.
+
+    Devuelve la cadena lista para ``SOFA_PLUS_COOKIE``, o vacío si no la
+    encuentra.
+    """
+    texto = (texto or "").strip()
+    if not texto:
+        return ""
+
+    for patron in _PATRONES_COOKIE:
+        encontrado = patron.search(texto)
+        if encontrado:
+            valor = encontrado.group("valor")
+            # cmd de Windows parte las líneas con ^ y escapa las comillas.
+            valor = valor.replace("^", "").replace('\\"', '"')
+            return " ".join(valor.split())
+
+    pares = _PATRON_POWERSHELL.findall(texto)
+    if pares:
+        return "; ".join(f"{nombre}={valor}" for nombre, valor in pares)
+
+    # ¿Es ya una cookie pegada a pelo (lo que devuelve document.cookie)?
+    if "=" in texto and "\n" not in texto.strip():
+        return " ".join(texto.split())
+    return ""
 
 
 @dataclass
