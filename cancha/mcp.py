@@ -22,7 +22,7 @@ y el cliente se configura apuntando a ese comando. En Claude Desktop, dentro de
       }
     }
 
-A partir de ahí el modelo ve las 14 herramientas de :mod:`sofascore.tools` y
+A partir de ahí el modelo ve las 14 herramientas de :mod:`cancha.tools` y
 puede ir tirando del hilo él solo.
 """
 

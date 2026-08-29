@@ -1,11 +1,11 @@
 """Línea de comandos del framework.
 
-    sofascore match "Real Madrid vs Barcelona" --date 2024-10-26
-    sofascore match https://www.sofascore.com/.../#id:11352550 --all --json partido.json
-    sofascore search "Betis Sevilla"
-    sofascore sections
-    sofascore login
-    sofascore raw /event/11352550/statistics
+    cancha match "Real Madrid vs Barcelona" --date 2024-10-26
+    cancha match https://www.sofascore.com/.../#id:11352550 --all --json partido.json
+    cancha search "Betis Sevilla"
+    cancha sections
+    cancha login
+    cancha raw /event/11352550/statistics
 
 Sin argumentos de red no hace nada raro: todo sale por pantalla y solo escribe
 ficheros si se lo pides con ``--json``, ``--markdown`` o ``--csv``.
@@ -87,7 +87,7 @@ def cmd_match(args: argparse.Namespace) -> int:
                               f"id={candidato.event.id}")
                 if len(otros) > 3:
                     _imprimir(f"           · ...y {len(otros) - 3} más "
-                              f"(`sofascore search` los lista todos)")
+                              f"(`cancha search` los lista todos)")
             _imprimir()
 
         secciones = ["all"] if args.all else (args.sections.split(",") if args.sections else None)
@@ -272,7 +272,7 @@ def cmd_leagues(args: argparse.Namespace) -> int:
     _imprimir(f"{'ID':>7}  LIGA")
     for nombre, identificador in sorted(encontradas.items()):
         _imprimir(f"{identificador:>7}  {nombre}")
-    _imprimir(f"\n{len(encontradas)} liga(s). Úsalas con: sofascore league \"<nombre>\"")
+    _imprimir(f"\n{len(encontradas)} liga(s). Úsalas con: cancha league \"<nombre>\"")
     return 0
 
 
@@ -293,7 +293,7 @@ def cmd_login(args: argparse.Namespace) -> int:
     try:
         _imprimir(f"Credenciales: {cliente.credentials.describe()}")
         if not args.consulta:
-            _imprimir("Pasa un partido (`sofascore login <id|URL|equipos>`) para comprobarlas "
+            _imprimir("Pasa un partido (`cancha login <id|URL|equipos>`) para comprobarlas "
                       "de verdad contra una sección de pago.")
             return 0
         # La sonda tiene que ser una sección que de verdad requiera suscripción.
@@ -327,7 +327,7 @@ def cmd_login(args: argparse.Namespace) -> int:
 
         _imprimir("· Sin conclusión: ninguna sección de pago existe en este partido — "
                   + ", ".join(sin_conclusion) + ".")
-        _imprimir("  Prueba con un partido reciente o en juego: `sofascore live` te da ids.")
+        _imprimir("  Prueba con un partido reciente o en juego: `cancha live` te da ids.")
         return 0
     finally:
         cliente.close()
@@ -374,7 +374,7 @@ def cmd_cookie(args: argparse.Namespace) -> int:
     if args.save:
         estado = _guardar_en_dotenv("SOFA_PLUS_COOKIE", cookie, args.env)
         _imprimir(f"  Línea SOFA_PLUS_COOKIE {estado} en {args.env}.")
-        _imprimir("\nCompruébalo con: sofascore login <id de un partido reciente>")
+        _imprimir("\nCompruébalo con: cancha login <id de un partido reciente>")
     else:
         _imprimir("\nPega esta línea en tu .env (o repite con --save y te la escribo yo):\n")
         _imprimir(f"SOFA_PLUS_COOKIE={cookie}")
@@ -458,7 +458,7 @@ def cmd_fuentes(args: argparse.Namespace) -> int:
         for linea in _envolver(fuente.descripcion, 74):
             _imprimir(f"      {linea}")
         _imprimir(f"      {fuente.base_url} · {fuente.rate_limit}/s · caché {fuente.ttl // 3600} h")
-    _imprimir("\nJúntalas todas sobre un partido con: sofascore contexto <partido>")
+    _imprimir("\nJúntalas todas sobre un partido con: cancha contexto <partido>")
     return 0
 
 
@@ -543,7 +543,7 @@ def cmd_tools(args: argparse.Namespace) -> int:
         primera = herramienta.description.split(". ")[0]
         _imprimir(f"      {primera}.")
     _imprimir("\n(* = obligatorio).  --json vuelca los esquemas completos.")
-    _imprimir("Arranca el servidor MCP con: sofascore mcp")
+    _imprimir("Arranca el servidor MCP con: cancha mcp")
     return 0
 
 
@@ -611,10 +611,10 @@ def cmd_cache(args: argparse.Namespace) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="sofascore",
+        prog="cancha",
         description="Framework para sacar todos los datos de un partido de Sofascore.",
     )
-    parser.add_argument("--version", action="version", version=f"sofascore-framework {__version__}")
+    parser.add_argument("--version", action="version", version=f"cancha {__version__}")
 
     comun = argparse.ArgumentParser(add_help=False)
     comun.add_argument("--lang", help="Idioma preferido (por defecto: es).")

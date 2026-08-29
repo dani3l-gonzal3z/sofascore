@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sofascore.catalog import (
+from cancha.catalog import (
     KNOWN_STAT_KEYS,
     LEAGUES,
     MATCH_STAT_KEYS,

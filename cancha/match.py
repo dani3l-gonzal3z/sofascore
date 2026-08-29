@@ -21,8 +21,8 @@ from .endpoints import Section, get_section, resolve_sections
 from .errors import NotFound, PlusRequired, SofascoreError
 from .models import Event, Player
 
-#: Los estados viven en :mod:`sofascore.report`; se reexportan aquí porque es
-#: donde los busca todo el mundo (``from sofascore.match import OK``).
+#: Los estados viven en :mod:`cancha.report`; se reexportan aquí porque es
+#: donde los busca todo el mundo (``from cancha.match import OK``).
 from .report import (
     EMPTY,
     ERROR,

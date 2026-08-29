@@ -5,18 +5,18 @@ from __future__ import annotations
 import pytest
 from conftest import rutas_por_defecto
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.entities import (
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.entities import (
     build_player_report,
     build_team_report,
     build_tournament_report,
     find_entity,
 )
-from sofascore.errors import MatchNotFound
-from sofascore.report import UNAVAILABLE
-from sofascore.transport import FakeTransport
+from cancha.errors import MatchNotFound
+from cancha.report import UNAVAILABLE
+from cancha.transport import FakeTransport
 
 
 @pytest.fixture
@@ -118,7 +118,7 @@ def test_las_estadisticas_de_temporada_se_piden_solas(cliente):
 def test_se_coge_la_temporada_mas_reciente_de_la_liga_principal(cliente):
     from conftest import cargar
 
-    from sofascore.entities import temporada_mas_reciente
+    from cancha.entities import temporada_mas_reciente
 
     assert temporada_mas_reciente(cargar("player_seasons")) == {
         "tournament_id": 8, "season_id": 61643,
@@ -129,7 +129,7 @@ def test_se_coge_la_temporada_mas_reciente_de_la_liga_principal(cliente):
                                     {"uniqueTournamentSeasons": [{"seasons": []}]},
                                     {"uniqueTournamentSeasons": [{"uniqueTournament": {}}]}])
 def test_un_indice_con_otra_forma_no_revienta(indice):
-    from sofascore.entities import temporada_mas_reciente
+    from cancha.entities import temporada_mas_reciente
 
     assert temporada_mas_reciente(indice) == {}
 

@@ -1,9 +1,9 @@
 """Fuentes de datos, más allá de Sofascore.
 
-    from sofascore.sources import ClubElo, Understat, contexto_partido
+    from cancha.sources import ClubElo, Understat, contexto_partido
 
 Cada fuente es independiente y comparte con las demás el transporte, la caché,
-el limitador de peticiones y los errores tipados (:mod:`sofascore.sources.base`).
+el limitador de peticiones y los errores tipados (:mod:`cancha.sources.base`).
 :func:`contexto_partido` es la que las junta: coge un partido de Sofascore y le
 añade lo que dicen las otras, emparejándolo por su cuenta.
 """

@@ -14,10 +14,10 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-from sofascore import MemoryCache, Settings, SofascoreClient  # noqa: E402
-from sofascore.export import to_markdown  # noqa: E402
-from sofascore.match import build_report  # noqa: E402
-from sofascore.transport import FakeTransport  # noqa: E402
+from cancha import MemoryCache, Settings, SofascoreClient  # noqa: E402
+from cancha.export import to_markdown  # noqa: E402
+from cancha.match import build_report  # noqa: E402
+from cancha.transport import FakeTransport  # noqa: E402
 
 FIXTURES = RAIZ / "tests" / "fixtures"
 EVENT_ID = 11352550

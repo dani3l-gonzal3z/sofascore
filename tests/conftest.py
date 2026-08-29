@@ -12,10 +12,10 @@ RAIZ = Path(__file__).resolve().parents[1]
 if str(RAIZ) not in sys.path:
     sys.path.insert(0, str(RAIZ))
 
-from sofascore.cache import MemoryCache  # noqa: E402
-from sofascore.client import SofascoreClient  # noqa: E402
-from sofascore.config import Settings  # noqa: E402
-from sofascore.transport import FakeTransport  # noqa: E402
+from cancha.cache import MemoryCache  # noqa: E402
+from cancha.client import SofascoreClient  # noqa: E402
+from cancha.config import Settings  # noqa: E402
+from cancha.transport import FakeTransport  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
 EVENT_ID = 11352550

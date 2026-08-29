@@ -3,8 +3,8 @@
 import pytest
 from conftest import EVENT_ID
 
-from sofascore.errors import MatchNotFound
-from sofascore.resolve import normalizar, parecido, parse_event_id, resolve_event, split_teams
+from cancha.errors import MatchNotFound
+from cancha.resolve import normalizar, parecido, parse_event_id, resolve_event, split_teams
 
 
 @pytest.mark.parametrize(
@@ -79,9 +79,9 @@ def test_fecha_equivocada_descarta(cliente):
 
 
 def test_sin_resultados_lanza_matchnotfound(transporte, ajustes):
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.transport import FakeTransport
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.transport import FakeTransport
 
     vacio = SofascoreClient(
         ajustes,

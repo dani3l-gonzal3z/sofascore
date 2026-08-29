@@ -79,7 +79,7 @@ class Settings:
     concurrency: int = 4
 
     # --- Caché en disco ---
-    cache_dir: Path = Path(".sofascore-cache")
+    cache_dir: Path = Path(".cancha-cache")
     #: Segundos de validez de una respuesta cacheada (0 = sin caché).
     cache_ttl: int = 600
     #: Partidos ya finalizados se cachean mucho más tiempo (segundos).

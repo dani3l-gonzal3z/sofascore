@@ -2,7 +2,7 @@
 
 Es la pieza de bajo nivel: sabe hablar HTTP, cachear, reintentar, respetar un
 límite de peticiones y traducir códigos de error a excepciones con sentido. Lo
-que *agrega* los datos de un partido vive en :mod:`sofascore.match`.
+que *agrega* los datos de un partido vive en :mod:`cancha.match`.
 """
 
 from __future__ import annotations
@@ -273,7 +273,7 @@ class SofascoreClient:
         return self.settings.cache_ttl
 
     def event(self, event_id: int) -> Event:
-        """Devuelve el partido como :class:`~sofascore.models.Event`."""
+        """Devuelve el partido como :class:`~cancha.models.Event`."""
         datos = self.get(f"/event/{int(event_id)}", section_name="event")
         return Event.from_api(datos)
 
@@ -350,7 +350,7 @@ class SofascoreClient:
 
         **Ojo con el argumento**: esta ruta no acepta el id numérico, sino el
         ``customId`` del partido (``xNbsDNb``). Con el id devuelve 404. Por eso
-        se pide aquí el :class:`~sofascore.models.Event` entero, o el código
+        se pide aquí el :class:`~cancha.models.Event` entero, o el código
         directamente si ya lo tienes.
         """
         codigo = event.custom_id if isinstance(event, Event) else str(event)

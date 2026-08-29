@@ -1,4 +1,5 @@
 # Caché de respuestas de la API
+.cancha-cache/
 .sofascore-cache/
 
 # Secretos locales

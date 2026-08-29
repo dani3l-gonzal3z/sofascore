@@ -9,12 +9,12 @@ Eso es lo que hay aquí. Cada herramienta trae su esquema JSON, pensado para
 function calling, y devuelve datos ya aplanados y recortados. Se usan desde
 cualquier sitio::
 
-    from sofascore.tools import TOOLS, ejecutar, esquemas
+    from cancha.tools import TOOLS, ejecutar, esquemas
 
     esquemas()                       # las definiciones, para dárselas al modelo
     ejecutar("resumen_partido", {"partido": "Real Madrid vs Barcelona"})
 
-Y por MCP, que es como se conecta una IA local (:mod:`sofascore.mcp`).
+Y por MCP, que es como se conecta una IA local (:mod:`cancha.mcp`).
 
 Sobre el recorte: toda respuesta pasa por un tope de caracteres. Cuando algo no
 cabe, se corta y se dice cuánto se ha quedado fuera, en vez de reventar la

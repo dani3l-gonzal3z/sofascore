@@ -2,8 +2,8 @@
 
 Un informe —de un partido, de un equipo, de un jugador, de una competición— es
 siempre lo mismo: una lista de secciones, cada una con su estado. Aquí vive esa
-mecánica; lo específico de cada tipo está en :mod:`sofascore.match` y
-:mod:`sofascore.entities`.
+mecánica; lo específico de cada tipo está en :mod:`cancha.match` y
+:mod:`cancha.entities`.
 
 La regla de oro: **una sección que falla nunca tumba el informe**. Se queda
 marcada y las demás siguen.

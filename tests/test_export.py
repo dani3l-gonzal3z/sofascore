@@ -5,8 +5,8 @@ import json
 
 from conftest import EVENT_ID
 
-from sofascore.export import to_csv_dir, to_json, to_markdown
-from sofascore.match import build_report
+from cancha.export import to_csv_dir, to_json, to_markdown
+from cancha.match import build_report
 
 
 def _informe(cliente):
@@ -63,10 +63,10 @@ def test_csv_incluye_tiros_si_hay_plus(cliente, tmp_path):
 def test_las_secciones_bloqueadas_se_ven_en_el_markdown(cliente, tmp_path):
     from conftest import rutas_por_defecto
 
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.config import Settings
-    from sofascore.transport import FakeTransport
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.config import Settings
+    from cancha.transport import FakeTransport
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
@@ -81,7 +81,7 @@ def test_las_secciones_bloqueadas_se_ven_en_el_markdown(cliente, tmp_path):
 
 def test_la_cronologia_del_csv_va_hacia_delante(cliente):
     """La API las devuelve del final al principio; el CSV no puede salir así."""
-    from sofascore.export import _filas_incidencias
+    from cancha.export import _filas_incidencias
 
     minutos = [f["minuto"] for f in _filas_incidencias(_informe(cliente))]
     assert minutos == sorted(minutos)
@@ -90,7 +90,7 @@ def test_la_cronologia_del_csv_va_hacia_delante(cliente):
 
 def test_un_cambio_no_pierde_a_los_jugadores(cliente):
     """En un cambio la API no usa 'player': el CSV salía sin nadie."""
-    from sofascore.export import _filas_incidencias
+    from cancha.export import _filas_incidencias
 
     cambios = [f for f in _filas_incidencias(_informe(cliente))
                if f["tipo"] == "substitution"]
@@ -100,7 +100,7 @@ def test_un_cambio_no_pierde_a_los_jugadores(cliente):
 
 
 def test_el_gol_guarda_quien_asistio(cliente):
-    from sofascore.export import _filas_incidencias
+    from cancha.export import _filas_incidencias
 
     goles = [f for f in _filas_incidencias(_informe(cliente)) if f["tipo"] == "goal"]
     assert any(f["asistencia"] for f in goles)

@@ -26,7 +26,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ))
 
-from sofascore import ejecutar_herramienta, esquemas_herramientas  # noqa: E402
+from cancha import ejecutar_herramienta, esquemas_herramientas  # noqa: E402
 
 
 def main() -> int:

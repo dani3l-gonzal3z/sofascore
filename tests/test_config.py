@@ -1,6 +1,6 @@
 """Configuración: entorno, .env y precedencias."""
 
-from sofascore.config import Settings, parse_dotenv
+from cancha.config import Settings, parse_dotenv
 
 
 def test_valores_por_defecto():

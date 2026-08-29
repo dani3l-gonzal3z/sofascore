@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from sofascore import cli
-from sofascore.auth import cookie_desde_navegador
+from cancha import cli
+from cancha.auth import cookie_desde_navegador
 
 CURL_BASH = (
     "curl 'https://api.sofascore.com/api/v1/event/16416311' \\\n"

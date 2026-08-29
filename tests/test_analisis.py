@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 from conftest import EVENT_ID, rutas_por_defecto
 
-from sofascore.analisis import (
+from cancha.analisis import (
     analisis_completo,
     aportacion_jugadores,
     calidad_de_tiro,
@@ -20,11 +20,11 @@ from sofascore.analisis import (
     por_situacion,
     puntos_esperados,
 )
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.match import build_report
-from sofascore.transport import FakeTransport
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.match import build_report
+from cancha.transport import FakeTransport
 
 LOCAL, VISITANTE = "Real Madrid", "Barcelona"
 

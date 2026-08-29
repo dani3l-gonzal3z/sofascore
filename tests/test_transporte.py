@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.errors import Blocked, HTTPError, PlusRequired
-from sofascore.transport import (
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.errors import Blocked, HTTPError, PlusRequired
+from cancha.transport import (
     AUTO_ORDER,
     CallableTransport,
     CurlTransport,
@@ -41,7 +41,7 @@ def test_auto_prefiere_el_que_llega_mas_lejos():
 
 
 def test_auto_cae_a_urllib_si_no_hay_nada_instalado(monkeypatch):
-    import sofascore.transport as t
+    import cancha.transport as t
 
     monkeypatch.setattr(t, "transport_disponible", lambda kind: kind == "urllib")
     assert isinstance(t.build_transport("auto"), UrllibTransport)
@@ -90,7 +90,7 @@ def test_curl_no_manda_nuestro_user_agent():
 
 
 def test_curl_traduce_sus_errores_a_los_nuestros():
-    from sofascore.errors import TransportError
+    from cancha.errors import TransportError
 
     class SesionRota:
         def request(self, *_a, **_k):
@@ -133,7 +133,7 @@ def test_una_seccion_de_pago_sigue_diciendo_plus_no_bloqueo():
 
 
 def test_un_404_no_se_convierte_en_bloqueo():
-    from sofascore.errors import NotFound
+    from cancha.errors import NotFound
 
     cliente = _cliente(FakeTransport({"/event/": 404}))
     with pytest.raises(NotFound):

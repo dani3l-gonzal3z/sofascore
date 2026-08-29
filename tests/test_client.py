@@ -3,11 +3,11 @@
 import pytest
 from conftest import EVENT_ID
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.errors import HTTPError, NotFound, OfflineError, PlusRequired, TransportError
-from sofascore.transport import FakeTransport, Response
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.errors import HTTPError, NotFound, OfflineError, PlusRequired, TransportError
+from cancha.transport import FakeTransport, Response
 
 
 def _cliente(rutas, **ajustes_extra):
@@ -156,7 +156,7 @@ def test_partido_terminado_se_cachea_mas_tiempo(cliente):
 
 def test_transporte_a_medida():
     """La puerta de atrás: cualquier función puede hacer de transporte."""
-    from sofascore.transport import CallableTransport
+    from cancha.transport import CallableTransport
 
     llamadas = []
 
@@ -172,7 +172,7 @@ def test_transporte_a_medida():
 
 
 def test_transporte_a_medida_traduce_los_fallos():
-    from sofascore.transport import CallableTransport
+    from cancha.transport import CallableTransport
 
     def roto(method, url, headers):
         raise RuntimeError("se cayó")

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys
 
-from sofascore import SofascoreError, get_league, get_player, get_team
+from cancha import SofascoreError, get_league, get_player, get_team
 
 
 def main(argv: list[str]) -> int:

@@ -8,11 +8,11 @@ import json
 import pytest
 from conftest import EVENT_ID, rutas_por_defecto
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.mcp import PROTOCOL_VERSION, MCPServer
-from sofascore.transport import FakeTransport
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.mcp import PROTOCOL_VERSION, MCPServer
+from cancha.transport import FakeTransport
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ El framework nació para «dime un partido y te doy todo». Esto es lo mismo
 aplicado a las otras tres cosas que Sofascore sabe describir, con la misma
 mecánica de secciones y estados:
 
-    from sofascore import get_team, get_player, get_league
+    from cancha import get_team, get_player, get_league
 
     madrid = get_team("Real Madrid")
     madrid.get("players")

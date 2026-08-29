@@ -5,12 +5,12 @@ from __future__ import annotations
 import pytest
 from conftest import EVENT_ID, rutas_por_defecto
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.frames import flatten, to_tables
-from sofascore.match import build_report
-from sofascore.transport import FakeTransport
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.frames import flatten, to_tables
+from cancha.match import build_report
+from cancha.transport import FakeTransport
 
 
 @pytest.fixture

@@ -5,7 +5,7 @@ import json
 import pytest
 from conftest import EVENT_ID
 
-from sofascore import cli
+from cancha import cli
 
 
 @pytest.fixture
@@ -64,9 +64,9 @@ def test_match_stdout_json(cli_con_cliente, capsys):
 def test_match_avisa_de_las_secciones_de_pago(monkeypatch, ajustes, capsys):
     from conftest import rutas_por_defecto
 
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.transport import FakeTransport
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.transport import FakeTransport
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
@@ -106,9 +106,9 @@ def test_login_comprueba_contra_un_partido(cli_con_cliente, capsys):
 def test_login_detecta_credenciales_rechazadas(monkeypatch, ajustes, capsys):
     from conftest import rutas_por_defecto
 
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.transport import FakeTransport
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.transport import FakeTransport
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 401
@@ -124,9 +124,9 @@ def test_login_sigue_probando_si_una_sonda_no_existe(monkeypatch, ajustes, capsy
     """win_probability da 404 en muchos partidos: eso no dice nada de tu cuenta."""
     from conftest import rutas_por_defecto
 
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.transport import FakeTransport
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.transport import FakeTransport
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 404      # no existe aquí
@@ -144,9 +144,9 @@ def test_login_sigue_probando_si_una_sonda_no_existe(monkeypatch, ajustes, capsy
 def test_login_lo_dice_cuando_ninguna_sonda_existe(monkeypatch, ajustes, capsys):
     from conftest import rutas_por_defecto
 
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.transport import FakeTransport
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.transport import FakeTransport
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 404
@@ -158,7 +158,7 @@ def test_login_lo_dice_cuando_ninguna_sonda_existe(monkeypatch, ajustes, capsys)
     assert cli.main(["login", str(EVENT_ID)]) == 0
     salida = capsys.readouterr().out
     assert "Sin conclusión" in salida
-    assert "sofascore live" in salida
+    assert "cancha live" in salida
 
 
 def test_errores_salen_por_stderr(cli_con_cliente, capsys):
@@ -167,7 +167,7 @@ def test_errores_salen_por_stderr(cli_con_cliente, capsys):
 
 
 def test_cache_informa_del_estado(tmp_path, capsys):
-    from sofascore.cache import DiskCache
+    from cancha.cache import DiskCache
 
     DiskCache(tmp_path).set("clave", {"a": 1})
     assert cli.main(["cache", "--cache-dir", str(tmp_path)]) == 0
@@ -244,18 +244,18 @@ def test_match_acepta_parallel(cli_con_cliente, capsys):
 
 
 def test_se_puede_ejecutar_como_modulo():
-    """`python -m sofascore` tiene que funcionar aunque el PATH no colabore."""
+    """`python -m cancha` tiene que funcionar aunque el PATH no colabore."""
     import subprocess
     import sys
     from pathlib import Path
 
     raiz = Path(__file__).resolve().parents[1]
     proceso = subprocess.run(
-        [sys.executable, "-m", "sofascore", "--version"],
+        [sys.executable, "-m", "cancha", "--version"],
         capture_output=True, text=True, cwd=raiz, timeout=60,
     )
     assert proceso.returncode == 0, proceso.stderr
-    assert "sofascore-framework" in proceso.stdout
+    assert "cancha" in proceso.stdout
 
 
 def test_doctor_dice_con_que_esta_pidiendo(cli_con_cliente, capsys):
@@ -269,10 +269,10 @@ def test_doctor_dice_con_que_esta_pidiendo(cli_con_cliente, capsys):
 # ------------------------------------------------ listados: filtrar y agrupar
 
 def _cliente_con_directos(eventos):
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.config import Settings
-    from sofascore.transport import FakeTransport
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.config import Settings
+    from cancha.transport import FakeTransport
 
     return SofascoreClient(
         Settings(rate_limit=0),

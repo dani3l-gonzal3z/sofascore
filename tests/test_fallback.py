@@ -5,13 +5,13 @@ from __future__ import annotations
 import pytest
 from conftest import EVENT_ID, rutas_por_defecto
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import DEFAULT_FALLBACK_BASE_URLS, Settings
-from sofascore.endpoints import SECTIONS, resolve_sections
-from sofascore.errors import HTTPError, PlusRequired, TransportError
-from sofascore.match import build_report
-from sofascore.transport import FakeTransport, Response
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import DEFAULT_FALLBACK_BASE_URLS, Settings
+from cancha.endpoints import SECTIONS, resolve_sections
+from cancha.errors import HTTPError, PlusRequired, TransportError
+from cancha.match import build_report
+from cancha.transport import FakeTransport, Response
 
 
 def _cliente(transporte, **ajustes):

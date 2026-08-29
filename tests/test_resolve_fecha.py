@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import pytest
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.errors import MatchNotFound
-from sofascore.resolve import resolve_event
-from sofascore.transport import FakeTransport
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.errors import MatchNotFound
+from cancha.resolve import resolve_event
+from cancha.transport import FakeTransport
 
 FECHA = "2024-10-26"
 #: 26/10/2024 12:00 UTC y 04/10/2026 12:00 UTC.
@@ -121,7 +121,7 @@ def test_ningun_partido_ese_dia_ni_parecido():
 
 
 def test_un_partido_sin_jugar_no_marca_guiones():
-    from sofascore.models import Event
+    from cancha.models import Event
 
     assert Event.from_api(MALO).scoreline == "vs"
     assert Event.from_api(BUENO).scoreline == "0 - 4"
@@ -178,8 +178,8 @@ def test_el_historico_se_pide_por_codigo_y_no_por_id():
 
 
 def test_un_partido_sin_codigo_no_puede_pedir_el_historico():
-    from sofascore.errors import NotFound
-    from sofascore.models import Event
+    from cancha.errors import NotFound
+    from cancha.models import Event
 
     cliente = _cliente({})
     with pytest.raises(NotFound):
@@ -193,7 +193,7 @@ def test_no_se_pide_el_historico_si_ya_esta_el_dia_pedido():
 
 
 def test_las_paginas_se_calculan_segun_lo_vieja_que_sea_la_fecha():
-    from sofascore.resolve import _paginas_para
+    from cancha.resolve import _paginas_para
 
     assert _paginas_para(None) == 1
     assert _paginas_para("2024-10-26") > _paginas_para("2026-08-01")

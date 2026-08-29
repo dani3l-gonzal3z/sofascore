@@ -10,12 +10,12 @@ import json
 
 import pytest
 
-from sofascore.cache import MemoryCache
-from sofascore.config import Settings
-from sofascore.errors import NotFound
-from sofascore.sources import FUENTES, ClubElo, Understat, construir, temporada_de
-from sofascore.sources.base import FuenteError
-from sofascore.transport import FakeTransport, Response
+from cancha.cache import MemoryCache
+from cancha.config import Settings
+from cancha.errors import NotFound
+from cancha.sources import FUENTES, ClubElo, Understat, construir, temporada_de
+from cancha.sources.base import FuenteError
+from cancha.transport import FakeTransport, Response
 
 CSV_DIA = (
     "Rank,Club,Country,Level,Elo,From,To\n"
@@ -201,7 +201,7 @@ def test_un_json_que_no_lo_es_da_un_error_claro():
 # ---------------------------------------------------------------------- cruce
 
 def test_la_temporada_se_deduce_del_mes():
-    from sofascore.models import Event
+    from cancha.models import Event
 
     def evento(fecha_iso, momento):
         return Event.from_api({"id": 1, "startTimestamp": momento})
@@ -219,11 +219,11 @@ def test_contexto_junta_las_fuentes_y_contrasta_los_modelos(monkeypatch, tmp_pat
     sys.path.insert(0, "tests")
     from conftest import EVENT_ID, rutas_por_defecto
 
-    from sofascore.client import SofascoreClient
-    from sofascore.sources import contexto_partido
+    from cancha.client import SofascoreClient
+    from cancha.sources import contexto_partido
 
-    monkeypatch.setattr("sofascore.sources.cruce.Understat", _understat)
-    monkeypatch.setattr("sofascore.sources.cruce.ClubElo", _elo)
+    monkeypatch.setattr("cancha.sources.cruce.Understat", _understat)
+    monkeypatch.setattr("cancha.sources.cruce.ClubElo", _elo)
 
     cliente = SofascoreClient(
         Settings(cache_dir=tmp_path / "c", rate_limit=0, retries=0),
@@ -247,10 +247,10 @@ def test_una_competicion_que_understat_no_cubre_se_dice(monkeypatch, tmp_path):
     sys.path.insert(0, "tests")
     from conftest import EVENT_ID, cargar, rutas_por_defecto
 
-    from sofascore.client import SofascoreClient
-    from sofascore.sources import contexto_partido
+    from cancha.client import SofascoreClient
+    from cancha.sources import contexto_partido
 
-    monkeypatch.setattr("sofascore.sources.cruce.ClubElo", _elo)
+    monkeypatch.setattr("cancha.sources.cruce.ClubElo", _elo)
     rutas = rutas_por_defecto()
     evento = cargar("event")
     evento["event"]["tournament"]["uniqueTournament"] = {"id": 999}
@@ -272,14 +272,14 @@ def test_una_fuente_que_falla_no_tumba_las_demas(monkeypatch, tmp_path):
     sys.path.insert(0, "tests")
     from conftest import EVENT_ID, rutas_por_defecto
 
-    from sofascore.client import SofascoreClient
-    from sofascore.sources import contexto_partido
+    from cancha.client import SofascoreClient
+    from cancha.sources import contexto_partido
 
     def elo_roto():
         return _elo({"/RealMadrid": Response(500, "x", b"boom")})
 
-    monkeypatch.setattr("sofascore.sources.cruce.Understat", _understat)
-    monkeypatch.setattr("sofascore.sources.cruce.ClubElo", elo_roto)
+    monkeypatch.setattr("cancha.sources.cruce.Understat", _understat)
+    monkeypatch.setattr("cancha.sources.cruce.ClubElo", elo_roto)
 
     cliente = SofascoreClient(
         Settings(cache_dir=tmp_path / "c", rate_limit=0, retries=0),
