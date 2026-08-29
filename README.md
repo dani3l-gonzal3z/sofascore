@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 259 tests que corren en menos de un segundo con
+- **Probado sin red.** 294 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -136,6 +136,8 @@ sofascore sections [--kind team]          # catálogo de secciones
 sofascore cookie [--save]                 # saca tu cookie de lo copiado del navegador
 sofascore login [partido]                 # comprueba tus credenciales Plus
 sofascore raw /event/11352550/statistics  # cualquier ruta de la API, tal cual
+sofascore tools [--json]                  # las herramientas que ve una IA
+sofascore mcp                             # servidor MCP para una IA local
 sofascore doctor                          # qué transporte usa y si la API contesta
 sofascore cache [--clear]                 # estado de la caché
 ```
@@ -309,6 +311,71 @@ partido.statistic_keys()         # qué estadísticas trae este partido
 partido.suggest("expectedGoal")  # ['expectedGoals'] — la errata típica
 ```
 
+## Para una IA local
+
+El framework trae una capa de herramientas pensada para que un modelo analice
+partidos por su cuenta: 14 funciones con su esquema JSON, descripciones
+escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
+aplanadas y **recortadas** para que no le revienten el contexto.
+
+```bash
+sofascore tools          # las 14, con sus parámetros
+sofascore tools --json   # los esquemas completos
+sofascore mcp            # arranca el servidor MCP
+```
+
+### Por MCP (lo más cómodo)
+
+MCP es el estándar por el que un modelo descubre herramientas y las llama. Lo
+hablan Claude Desktop, LM Studio, Continue, Cline y compañía. En
+`claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "sofascore": {
+      "command": "python",
+      "args": ["-m", "sofascore", "mcp"],
+      "env": { "SOFA_LANGUAGE": "es" }
+    }
+  }
+}
+```
+
+Y ya está: el modelo ve las herramientas y va tirando del hilo solo.
+
+### A mano, con cualquier modelo
+
+```python
+from sofascore import esquemas_herramientas, ejecutar_herramienta
+
+esquemas_herramientas()                    # se los pasas como definición de funciones
+ejecutar_herramienta("resumen_partido", {"partido": "Real Madrid vs Barcelona"})
+```
+
+Sirve igual con Ollama, llama.cpp, LM Studio o la API que uses: el framework no
+trae ningún modelo dentro. `python examples/agente.py` enseña el bucle entero.
+
+### Cómo está pensado que indague
+
+La gracia no es volcarle un JSON de tres megas —no le cabe— sino que vaya
+tirando del hilo:
+
+1. **`resumen_partido`** es siempre el principio: marcador, goles, mejores
+   notas y, sobre todo, **qué secciones de datos existen** para ese partido.
+2. Desde ahí baja al detalle: `estadisticas_partido` (por periodo o por bloque),
+   `jugadores_partido` (por equipo), `tiros_partido` (xG por disparo, filtrable
+   por jugador), `cronologia_partido`, `momento_partido` (agrupado en tramos).
+3. Amplía el contexto: `historial_entre_equipos`, `ficha_equipo`,
+   `ficha_jugador`, `clasificacion`, `partidos`.
+4. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
+   catálogo en crudo. Y `catalogo` le dice qué nombres son válidos.
+
+Toda respuesta pasa por un tope de caracteres: si algo no cabe, se corta y se
+le dice cuánto falta y cómo afinar, en vez de llenarle el contexto en silencio.
+Un error tampoco es una excepción, es un dato que el modelo puede leer y
+corregir.
+
 ## Sofascore Plus
 
 **Antes de nada, un aviso honesto:** casi todo lo que la web enseña detrás del
@@ -405,6 +472,8 @@ Piezas sueltas, todas intercambiables:
 | `entities.py` | Los informes de equipo, jugador y competición |
 | `frames.py` | Tablas y `DataFrame` |
 | `export.py` | JSON, Markdown y CSV |
+| `tools.py` | Las 14 herramientas para una IA, con sus esquemas |
+| `mcp.py` | Servidor MCP (JSON-RPC por stdin/stdout) |
 | `cli.py` | La línea de comandos |
 
 ### Añadir una sección nueva
@@ -466,7 +535,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 259 tests, sin red
+python -m pytest                  # 294 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```
@@ -514,6 +583,14 @@ Este framework hace tres cosas que no encontré en ellos:
 3. **Cero dependencias.** `pysofascore` arrastra `scrapling` y `curl_cffi`;
    `sofascore-wrapper` levanta un Chromium con Playwright; `soccerdata` y
    `ScraperFC` traen pandas y compañía. Esto funciona con la biblioteca estándar.
+
+## Una sola fuente
+
+Este framework habla **solo con Sofascore**. No agrega FBref, Understat,
+WhoScored ni Transfermarkt: eso lo hacen `soccerdata` y `ScraperFC`, de las que
+aquí solo se tomaron prestadas las rutas contrastadas. Si necesitas cruzar
+varias fuentes, esos dos son el camino —o abrir un módulo nuevo aquí, que el
+catálogo declarativo lo pone fácil.
 
 ## Aviso
 

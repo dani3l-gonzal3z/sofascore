@@ -64,6 +64,7 @@ from .match import MatchReport, build_report
 from .models import Event, Player, Score, Team
 from .report import SectionResult
 from .resolve import Candidate, Resolution, resolve_event
+from .tools import TOOLS, ejecutar as ejecutar_herramienta, esquemas as esquemas_herramientas
 from .transport import FakeTransport, HttpxTransport, UrllibTransport
 
 __version__ = "0.1.0"
@@ -260,6 +261,9 @@ __all__ = [
     "to_frames",
     "to_tables",
     "flatten",
+    "TOOLS",
+    "ejecutar_herramienta",
+    "esquemas_herramientas",
     "DiskCache",
     "MemoryCache",
     "NullCache",
