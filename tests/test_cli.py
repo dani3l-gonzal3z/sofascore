@@ -9,8 +9,8 @@ from cancha import cli
 
 
 @pytest.fixture
-def cli_con_cliente(monkeypatch, cliente):
-    monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
+def cli_con_cliente(inyectar_cliente, cliente):
+    inyectar_cliente(cliente)
     return cliente
 
 
@@ -61,7 +61,7 @@ def test_match_stdout_json(cli_con_cliente, capsys):
     assert datos["partido"]["id"] == EVENT_ID
 
 
-def test_match_avisa_de_las_secciones_de_pago(monkeypatch, ajustes, capsys):
+def test_match_avisa_de_las_secciones_de_pago(inyectar_cliente, ajustes, capsys):
     from conftest import rutas_por_defecto
 
     from cancha.cache import MemoryCache
@@ -72,7 +72,7 @@ def test_match_avisa_de_las_secciones_de_pago(monkeypatch, ajustes, capsys):
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
     cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
                               cache=MemoryCache(), sleep=lambda _s: None)
-    monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
+    inyectar_cliente(cliente)
     assert cli.main(["match", str(EVENT_ID), "--sections", "win_probability"]) == 0
     salida = capsys.readouterr().out
     assert "Requieren Sofascore Plus" in salida
@@ -103,7 +103,7 @@ def test_login_comprueba_contra_un_partido(cli_con_cliente, capsys):
     assert "funcionan" in capsys.readouterr().out
 
 
-def test_login_detecta_credenciales_rechazadas(monkeypatch, ajustes, capsys):
+def test_login_detecta_credenciales_rechazadas(inyectar_cliente, ajustes, capsys):
     from conftest import rutas_por_defecto
 
     from cancha.cache import MemoryCache
@@ -115,12 +115,12 @@ def test_login_detecta_credenciales_rechazadas(monkeypatch, ajustes, capsys):
     ajustes.plus_cookie = "sesion=caducada"
     cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
                               cache=MemoryCache(), sleep=lambda _s: None)
-    monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
+    inyectar_cliente(cliente)
     assert cli.main(["login", str(EVENT_ID)]) == 1
     assert "ha rechazado" in capsys.readouterr().out
 
 
-def test_login_sigue_probando_si_una_sonda_no_existe(monkeypatch, ajustes, capsys):
+def test_login_sigue_probando_si_una_sonda_no_existe(inyectar_cliente, ajustes, capsys):
     """win_probability da 404 en muchos partidos: eso no dice nada de tu cuenta."""
     from conftest import rutas_por_defecto
 
@@ -134,14 +134,14 @@ def test_login_sigue_probando_si_una_sonda_no_existe(monkeypatch, ajustes, capsy
     ajustes.plus_cookie = "sesion=mia"
     cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
                               cache=MemoryCache(), sleep=lambda _s: None)
-    monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
+    inyectar_cliente(cliente)
     assert cli.main(["login", str(EVENT_ID)]) == 0
     salida = capsys.readouterr().out
     assert "funcionan" in salida
     assert "ai_insights" in salida
 
 
-def test_login_lo_dice_cuando_ninguna_sonda_existe(monkeypatch, ajustes, capsys):
+def test_login_lo_dice_cuando_ninguna_sonda_existe(inyectar_cliente, ajustes, capsys):
     from conftest import rutas_por_defecto
 
     from cancha.cache import MemoryCache
@@ -154,7 +154,7 @@ def test_login_lo_dice_cuando_ninguna_sonda_existe(monkeypatch, ajustes, capsys)
     ajustes.plus_cookie = "sesion=mia"
     cliente = SofascoreClient(ajustes, transport=FakeTransport(rutas),
                               cache=MemoryCache(), sleep=lambda _s: None)
-    monkeypatch.setattr(cli, "_construir_cliente", lambda args: cliente)
+    inyectar_cliente(cliente)
     assert cli.main(["login", str(EVENT_ID)]) == 0
     salida = capsys.readouterr().out
     assert "Sin conclusión" in salida
@@ -301,8 +301,8 @@ DIRECTOS = [
 ]
 
 
-def test_live_agrupa_por_competicion(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+def test_live_agrupa_por_competicion(inyectar_cliente, capsys):
+    inyectar_cliente(_cliente_con_directos(DIRECTOS))
     assert cli.main(["live"]) == 0
     salida = capsys.readouterr().out
     assert "LaLiga" in salida and "Premier League" in salida
@@ -311,44 +311,44 @@ def test_live_agrupa_por_competicion(monkeypatch, capsys):
     assert "4 partido(s) en 3 competición(es)" in salida
 
 
-def test_live_filtra_por_liga_conocida(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+def test_live_filtra_por_liga_conocida(inyectar_cliente, capsys):
+    inyectar_cliente(_cliente_con_directos(DIRECTOS))
     assert cli.main(["live", "--league", "laliga"]) == 0
     salida = capsys.readouterr().out
     assert "Real Madrid" in salida and "Girona" in salida
     assert "Arsenal" not in salida
 
 
-def test_live_filtra_por_texto_libre(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+def test_live_filtra_por_texto_libre(inyectar_cliente, capsys):
+    inyectar_cliente(_cliente_con_directos(DIRECTOS))
     assert cli.main(["live", "--filter", "arsenal"]) == 0
     salida = capsys.readouterr().out
     assert "Arsenal" in salida and "Real Madrid" not in salida
 
 
-def test_una_liga_desconocida_se_busca_como_texto(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+def test_una_liga_desconocida_se_busca_como_texto(inyectar_cliente, capsys):
+    inyectar_cliente(_cliente_con_directos(DIRECTOS))
     assert cli.main(["live", "--league", "Club Friendly"]) == 0
     assert "SSD Rovato" in capsys.readouterr().out
 
 
-def test_el_limite_avisa_de_lo_que_se_deja_fuera(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+def test_el_limite_avisa_de_lo_que_se_deja_fuera(inyectar_cliente, capsys):
+    inyectar_cliente(_cliente_con_directos(DIRECTOS))
     assert cli.main(["live", "--limit", "2"]) == 0
     salida = capsys.readouterr().out
     assert "se enseñan 2" in salida
     assert "--filter" in salida
 
 
-def test_sin_resultados_dice_de_cuantos_venia(monkeypatch, capsys):
+def test_sin_resultados_dice_de_cuantos_venia(inyectar_cliente, capsys):
     """Distingue "el filtro no encaja" de "no hay nada en juego"."""
-    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos(DIRECTOS))
+    inyectar_cliente(_cliente_con_directos(DIRECTOS))
     assert cli.main(["live", "--filter", "equipo que no juega"]) == 0
     assert "Ninguno de los 4 partidos encaja" in capsys.readouterr().out
 
 
-def test_sin_nada_en_juego_lo_dice_de_otra_forma(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "_construir_cliente", lambda a: _cliente_con_directos([]))
+def test_sin_nada_en_juego_lo_dice_de_otra_forma(inyectar_cliente, capsys):
+    inyectar_cliente(_cliente_con_directos([]))
     assert cli.main(["live"]) == 0
     assert "No hay ningún partido ahora mismo" in capsys.readouterr().out
 

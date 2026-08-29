@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import sys
 from pathlib import Path
@@ -67,6 +68,54 @@ def rutas_por_defecto() -> dict:
         "/sport/football/events/live": cargar("team_events"),
         "/sport/football/scheduled-events/2024-10-26": cargar("team_events"),
     }
+
+
+@pytest.fixture(autouse=True)
+def sin_red(monkeypatch):
+    """Ningún test puede salir a internet, y si lo intenta se entera.
+
+    Hasta ahora eso se confiaba a que cada test recordara inyectar un
+    transporte falso. Cuando se partió el CLI y el punto de inyección cambió de
+    sitio, varios tests empezaron a llamar a la API de verdad y la suite se
+    quedó colgada dos minutos sin decir por qué. Esto lo convierte en un fallo
+    inmediato y con nombre.
+    """
+    def prohibido(*args, **kwargs):
+        raise AssertionError(
+            "Un test ha intentado salir a la red.\n"
+            "Inyecta un FakeTransport, o un Reproductor si lo que quieres es "
+            "usar respuestas grabadas."
+        )
+
+    # Se corta donde de verdad sale el paquete, no en nuestras clases: así un
+    # test que ejercite CurlTransport con una sesión de mentira sigue valiendo.
+    import urllib.request
+
+    monkeypatch.setattr(urllib.request, "urlopen", prohibido)
+    for modulo, atributo in (("curl_cffi.requests", "Session"), ("httpx", "Client")):
+        try:
+            importado = importlib.import_module(modulo)
+        except ImportError:
+            continue
+        clase = getattr(importado, atributo, None)
+        if clase is not None:
+            monkeypatch.setattr(clase, "request", prohibido, raising=False)
+
+
+@pytest.fixture
+def inyectar_cliente(monkeypatch):
+    """Hace que todos los comandos usen el cliente que le pases.
+
+    Los comandos piden el suyo a `comandos.comun.construir_cliente`; sustituir
+    ese único punto vale para los veintiún comandos.
+    """
+    from cancha.comandos import comun
+
+    def poner(cliente):
+        monkeypatch.setattr(comun, "construir_cliente", lambda args: cliente)
+        return cliente
+
+    return poner
 
 
 @pytest.fixture

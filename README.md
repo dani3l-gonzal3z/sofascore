@@ -1,43 +1,38 @@
-# Sofascore Framework
+# cancha
 
 [![tests](https://github.com/dani3l-gonzal3z/sofascore/actions/workflows/tests.yml/badge.svg)](https://github.com/dani3l-gonzal3z/sofascore/actions/workflows/tests.yml)
 
-Te lo descargas, le dices un partido y te devuelve **todos sus datos**: marcador,
-estadísticas, alineaciones, cronología, momento de ataque, cara a cara, forma
-previa... Y si tienes **Sofascore Plus**, también las secciones de pago, usando
-tu propia sesión.
-
-Lo mismo vale para **equipos, jugadores y competiciones**.
+Le dices un partido y te devuelve **todos sus datos** —de Sofascore, de
+Understat y de ClubElo— ya cruzados y listos para analizar. Por línea de
+comandos, como librería o **como herramientas para una IA local**.
 
 ```bash
-sofascore match "Real Madrid vs Barcelona" --date 2024-10-26
+cancha match "Real Madrid vs Barcelona" --date 2024-10-26
+cancha analisis 12437616       # puntos esperados, calidad de tiro, carrera de xG
+cancha contexto 12437616       # dos modelos de xG y el Elo de ambos equipos
+cancha mcp                     # servidor MCP para tu IA local
 ```
 
 ```python
-from sofascore import get_match
+from cancha import get_match
 
 partido = get_match("Real Madrid vs Barcelona", date="2024-10-26")
-
-print(partido.event.label)                    # Real Madrid 0 - 4 Barcelona (LaLiga, 2024-10-26)
-print(partido.statistic("expectedGoals"))     # {'name': 'Goles esperados (xG)', 'home': '1.24', ...}
-print(partido.goals())                        # cronología de goles
-print(partido.available())                    # secciones con datos
-print(partido.locked())                       # secciones que requieren Plus
+partido.statistic("expectedGoals")
+partido.goals()
+partido.available()            # secciones con datos
 ```
 
-- **Cero dependencias.** Solo biblioteca estándar de Python 3.10+. `pip install`
-  y a funcionar; `httpx` y `pandas` son opcionales.
-- **Un informe, no veinte llamadas.** No tienes que ir pidiendo alineaciones,
-  estadísticas y mapa de tiros por separado: pides el partido y llega todo, en
-  paralelo, con el estado de cada sección a la vista.
+- **Cero dependencias obligatorias.** Solo biblioteca estándar de Python 3.10+.
+  `curl_cffi` y `pandas` son opcionales y el CI comprueba que se puede vivir sin
+  ellos.
+- **Un informe, no veinte llamadas.** Pides el partido y llegan las 30 secciones
+  a la vez, en paralelo, con el estado de cada una a la vista.
 - **Nada te tumba el informe.** Si una sección falla, no existe para ese deporte
-  o está detrás del muro de pago, queda marcada y el resto sigue adelante.
-- **Educado con la API.** Límite de peticiones por segundo, reintentos con
-  espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
-- **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
-  responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 347 tests que corren en menos de un segundo con
-  respuestas de ejemplo.
+  o está detrás del muro de pago, queda marcada y el resto sigue.
+- **Las cuentas hechas.** Puntos esperados, xG acumulado, calidad de tiro: los
+  números que un modelo calcularía mal.
+- **Probado sin red.** 398 tests en menos de un segundo, y un modo de grabar
+  respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
 
@@ -63,7 +58,7 @@ solo y empieza a usarlo.
 
 ```bash
 pip install curl_cffi
-sofascore doctor        # dice qué transporte usa y si la API contesta
+cancha doctor        # dice qué transporte usa y si la API contesta
 ```
 
 No es un capricho de este proyecto: **ninguna** de las librerías que hablan con
@@ -80,684 +75,32 @@ no está en el PATH* (habitual en Windows con instalación de usuario), no hace
 falta configurar nada: `python -m sofascore` hace exactamente lo mismo.
 
 ```bash
-python -m sofascore match "Real Madrid vs Barcelona" --date 2024-10-26
+python -m cancha match "Real Madrid vs Barcelona" --date 2024-10-26
 ```
 
 Y sin instalar nada: copia la carpeta `sofascore/` a tu proyecto y usa
 `python -m sofascore ...` desde el directorio que la contiene.
 
-## Cómo se nombra un partido
+## Documentación
 
-Las cuatro formas valen, elige la que te resulte más cómoda:
-
-| Forma | Ejemplo |
+| | |
 | --- | --- |
-| Nombres de los equipos | `"Real Madrid vs Barcelona"` (`vs`, `-`, `x`, `contra`...) |
-| Con fecha para desempatar | `--date 2024-10-26` |
-| URL de Sofascore | `https://www.sofascore.com/.../#id:11352550` |
-| Id del evento | `11352550` |
-
-**La fecha es una condición, no una sugerencia.** Si dices `--date`, no se elige
-nada de otro día. Para encontrarlo se prueban cuatro vías, en este orden y
-parando en cuanto aparece:
-
-1. el buscador de Sofascore;
-2. los partidos programados de ese día;
-3. el calendario de los equipos, **retrocediendo páginas** según lo antigua que
-   sea la fecha (una página son ~30 partidos: un cruce de hace dos temporadas
-   queda muy atrás);
-4. el histórico del enfrentamiento (`/event/{customId}/h2h/events`), que
-   devuelve la serie completa entre esos dos equipos por vieja que sea. Esa
-   ruta pide el **código** del partido (`xNbsDNb`), no el id numérico: con el
-   id responde 404.
-
-Si aun así ese día no hubo nada que encaje, te lo dice —y con `--debug` te
-enseña qué aportó cada vía— antes de darte lo que haya encontrado.
-
-Si dos equipos se cruzan el mismo día en competiciones distintas —un
-Barcelona-Madrid de LaLiga y otro de la Liga F, por ejemplo— eliges tú: el
-resumen enseña los otros candidatos con su competición. Con `--strict` falla en
-vez de elegir; con `sofascore search` los ves todos:
-
-```bash
-sofascore search "Betis Sevilla"
-```
-
-## La línea de comandos
-
-```bash
-sofascore match <consulta> [opciones]     # informe completo de un partido
-sofascore team "Real Madrid"              # plantilla, calendario, forma, traspasos
-sofascore player "Vinicius Junior"        # ficha, atributos, temporadas
-sofascore league laliga                   # clasificación, jornadas, goleadores
-sofascore live [--league laliga]          # lo que se está jugando ahora mismo
-sofascore today [--date AAAA-MM-DD]       # todos los partidos de un día
-sofascore leagues [filtro]                # ligas conocidas con su id
-sofascore search <consulta>               # partidos candidatos
-sofascore sections [--kind team]          # catálogo de secciones
-sofascore cookie [--save]                 # saca tu cookie de lo copiado del navegador
-sofascore login [partido]                 # comprueba tus credenciales Plus
-sofascore raw /event/11352550/statistics  # cualquier ruta de la API, tal cual
-cancha grabar <partido>                   # guarda respuestas reales para los tests
-cancha analisis <partido>                 # las cuentas hechas: puntos esperados, xG
-sofascore fuentes                         # qué fuentes hay además de Sofascore
-sofascore contexto <partido>              # el partido visto por todas a la vez
-sofascore tools [--json]                  # las herramientas que ve una IA
-sofascore mcp                             # servidor MCP para una IA local
-sofascore doctor                          # qué transporte usa y si la API contesta
-sofascore cache [--clear]                 # estado de la caché
-```
-
-Opciones más usadas de `match`:
-
-| Opción | Para qué |
-| --- | --- |
-| `--date AAAA-MM-DD` | Desempatar entre varios cruces |
-| `--all` | Pedir todas las secciones del catálogo |
-| `--sections statistics,shotmap` | Solo las que te interesan |
-| `--no-plus` | Ni intentar las de pago |
-| `--json p.json` `--markdown p.md` `--csv carpeta/` | Guardar el resultado |
-| `--print statistics` | Volcar una sola sección por pantalla |
-| `--stdout-json` | El informe entero en JSON, listo para `jq` |
-| `--offline` / `--no-cache` | Solo caché / ignorar caché |
-| `--parallel N` | Secciones a la vez (`1` las pide de una en una) |
-| `--transport curl` | Forzar transporte (`auto`, `curl`, `httpx`, `urllib`) |
-
-`--debug`, `--offline`, `--no-cache`, `--parallel` y `--transport` valen en
-**todos** los comandos, no solo en `match`.
-| `--debug` | Contadores de peticiones y ajustes en uso |
-
-```bash
-sofascore match 11352550 --all --json partido.json --csv datos/
-sofascore match 11352550 --print statistics --quiet | jq '.[0].groups'
-```
-
-## Qué trae cada informe
-
-`sofascore sections` lista el catálogo completo. Por defecto vienen:
-
-| Sección | Contenido |
-| --- | --- |
-| `event` | Marcador, estado, competición, sede, árbitro, asistencia |
-| `statistics` | Posesión, tiros, pases, duelos, xG... por periodo |
-| `lineups` | Titulares, suplentes, dorsales, formación, valoraciones |
-| `incidents` | Goles, tarjetas, cambios, VAR, penaltis |
-| `momentum` | Presión/momento de ataque minuto a minuto |
-| `best_players` | Mejores jugadores según Sofascore |
-| `managers` | Entrenadores |
-| `h2h` | Balance histórico entre los dos equipos |
-| `pregame_form` | Forma y clasificación antes del partido |
-
-Bajo demanda (`--sections` o `--all`): `votes`, `h2h_events`, `team_streaks`,
-`odds`, `odds_featured`, `winning_odds`, `highlights`, `comments`,
-`tv_channels`, `standings`.
-
-Y las avanzadas: `shotmap` (xG por disparo), `average_positions`,
-`team_heatmap`, `player_statistics`, `heatmaps`. **La web las enseña bajo el
-reclamo de Sofascore Plus, pero la API las sirve abiertas** —comprobado
-pidiéndolas sin credenciales— así que las tienes igual.
-
-Solo dos siguen marcadas como de pago, y por prudencia más que por certeza:
-`win_probability` y `ai_insights`. Si resulta que también son abiertas, saldrán
-`ok` igual: el ámbito es una pista, la respuesta de la API es la que manda.
-
-Hay además secciones que solo existen en su deporte y que se piden solas cuando
-toca: `point_by_point` y `tennis_power` (tenis), `innings` (críquet),
-`esports_games`. En un partido de fútbol ni se intentan.
-
-Cada sección termina en uno de estos estados, y lo verás en el resumen:
-
-| Estado | Significado |
-| --- | --- |
-| `ok` | Datos recibidos |
-| `empty` | La sección existe pero no tiene contenido (partido sin jugar, por ejemplo) |
-| `plus_required` | Hace falta Sofascore Plus y no hay credenciales válidas |
-| `unavailable` | Ese partido o deporte no tiene esa sección |
-| `error` | Fallo de red o de la API |
-
-Un `unavailable` no significa que la ruta esté mal. `tv_channels` solo existe
-en partidos por jugar, `win_probability` no la tienen todos los deportes ni
-todos los partidos, y `cuptree` solo existe donde hay eliminatorias: en una
-liga regular devuelve 404 y es lo correcto.
-
-Y si Cloudflare te corta el paso, el error no es un `HTTP 403` pelado: te dice
-qué instalar (`Blocked`, que hereda de `HTTPError`, así que quien ya capturaba
-`HTTPError` no tiene que cambiar nada).
-
-## Más allá del partido
-
-La misma idea aplicada a equipos, jugadores y competiciones: pides uno y llega
-todo lo que hay, con el estado de cada sección a la vista.
-
-```python
-from sofascore import get_team, get_player, get_league
-
-madrid = get_team("Real Madrid")
-madrid.profile["venue"]["stadium"]["name"]
-len(madrid.get("players"))
-madrid.get("next_events")
-
-vini = get_player("Vinicius Junior")
-vini.get("attributes")          # el radar de atributos
-vini.get("transfers")           # historial de traspasos
-vini.get("season_statistics")   # la temporada entera: goles, xG, pases...
-
-liga = get_league("laliga")     # temporada en curso si no dices otra
-liga.get("standings")
-liga.get("top_players")
-```
-
-Los nombres se resuelven con el buscador de Sofascore, puntuando los candidatos
-por parecido; también valen los ids. Para las ligas hay además un catálogo de
-alias que no necesita ni buscar:
-
-```bash
-sofascore leagues              # las 37 ligas conocidas con su id
-sofascore league champions     # "premier", "mundial", "libertadores"...
-```
-
-Las estadísticas de temporada de un jugador necesitan saber *de qué* liga y
-temporada, y eso no lo sabes de antemano. Como el informe ya trae el índice de
-temporadas del jugador, de ahí se saca la más reciente y se piden en una
-segunda tanda, sin que tengas que averiguar ningún id.
-
-`sofascore sections --kind team|player|tournament` lista lo que trae cada uno.
-
-## Qué se juega ahora
-
-```bash
-sofascore live                          # en directo, agrupado por competición
-sofascore live --league laliga          # solo una competición
-sofascore live --filter "Arsenal"       # por equipo o competición
-sofascore today --date 2024-10-26       # todos los partidos de ese día
-```
-
-Un `live` sin filtrar son 150 partidos entre amistosos, ligas juveniles y
-femeninas de medio mundo, así que salen **agrupados por competición** y te dice
-cuántos se ha dejado fuera. `--league` usa el catálogo de ligas conocidas (y
-filtra por id, que es exacto); `--filter` busca texto libre en equipos y
-competición.
-
-```python
-from sofascore import live_matches, matches_on
-
-for partido in live_matches():
-    print(partido.label, partido.status_description)
-```
-
-## Tablas y pandas
-
-Todo lo del informe sale también en forma de tabla, listo para analizar:
-
-```python
-partido = get_match(11352550, sections=["all"])
-
-partido.tables()      # listas de diccionarios, sin instalar nada
-partido.frames()      # DataFrames de pandas (pip install "sofascore-framework[pandas]")
-```
-
-Las tablas son `partido`, `estadisticas`, `incidencias`, `alineaciones`,
-`valoraciones`, `tiros`, `momento` y `posiciones_medias`. Las que ese partido no
-tenga, simplemente no aparecen. Lo mismo escrito a disco:
-
-```bash
-sofascore match 11352550 --all --csv datos/
-```
-
-Y unos cuantos atajos para lo que se mira siempre:
-
-```python
-partido.goals()                  # goles en orden
-partido.cards()                  # tarjetas
-partido.substitutions()          # cambios
-partido.ratings()                # jugadores por valoración, de mayor a menor
-partido.shots()                  # disparos con xG (si tienes Plus)
-partido.statistic("expectedGoals")
-partido.statistic_keys()         # qué estadísticas trae este partido
-partido.suggest("expectedGoal")  # ['expectedGoals'] — la errata típica
-```
-
-## Para una IA local
-
-El framework trae una capa de herramientas pensada para que un modelo analice
-partidos por su cuenta: 23 funciones con su esquema JSON, descripciones
-escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
-aplanadas y **recortadas** para que no le revienten el contexto.
-
-```bash
-sofascore tools          # las 23, con sus parámetros
-sofascore tools --json   # los esquemas completos
-sofascore mcp            # arranca el servidor MCP
-```
-
-### Por MCP (lo más cómodo)
-
-MCP es el estándar por el que un modelo descubre herramientas y las llama. Lo
-hablan Claude Desktop, LM Studio, Continue, Cline y compañía. En
-`claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "sofascore": {
-      "command": "python",
-      "args": ["-m", "sofascore", "mcp"],
-      "env": { "SOFA_LANGUAGE": "es" }
-    }
-  }
-}
-```
-
-Y ya está: el modelo ve las herramientas y va tirando del hilo solo.
-
-### A mano, con cualquier modelo
-
-```python
-from cancha import Sesion, esquemas_herramientas, ejecutar_herramienta
-
-esquemas_herramientas()          # se los pasas como definición de funciones
-
-# Una sesión para toda la conversación: cada sección se pide UNA vez.
-with Sesion() as sesion:
-    ejecutar_herramienta("resumen_partido", {"partido": "Real Madrid vs Barcelona"},
-                         sesion=sesion)
-    ejecutar_herramienta("tiros_partido", {"partido": "Real Madrid vs Barcelona"},
-                         sesion=sesion)
-```
-
-Sin sesión cada llamada empieza de cero: resuelve el partido otra vez y vuelve
-a pedir lo que ya tenía. En una conversación normal de ocho preguntas sobre un
-partido eso son **25 peticiones en vez de 11**. El servidor MCP mantiene una
-sesión durante toda la conversación, así que por ahí ya viene puesto.
-
-Sirve igual con Ollama, llama.cpp, LM Studio o la API que uses: el framework no
-trae ningún modelo dentro. `python examples/agente.py` enseña el bucle entero.
-
-### Cómo está pensado que indague
-
-La gracia no es volcarle un JSON de tres megas —no le cabe— sino que vaya
-tirando del hilo:
-
-1. **`resumen_partido`** es siempre el principio: marcador, goles, mejores
-   notas y, sobre todo, **qué secciones de datos existen** para ese partido.
-2. Desde ahí baja al detalle: `estadisticas_partido` (por periodo o por bloque),
-   `jugadores_partido` (por equipo), `tiros_partido` (xG por disparo, filtrable
-   por jugador), `cronologia_partido`, `momento_partido` (agrupado en tramos).
-3. **`analisis_partido`** le da las cuentas hechas —puntos esperados, calidad
-   de tiro, carrera de xG— para que no las haga él, que es donde falla.
-4. Amplía el contexto: `historial_entre_equipos`, `ficha_equipo`,
-   `ficha_jugador`, `clasificacion`, `partidos`. Y sobre todo
-   **`contexto_externo`**, que cruza las fuentes: los dos modelos de xG con su
-   diferencia, y el Elo de ambos equipos.
-5. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
-   catálogo en crudo. Y `catalogo` le dice qué nombres son válidos.
-
-Toda respuesta pasa por un tope de caracteres: si algo no cabe, se corta y se
-le dice cuánto falta y cómo afinar, en vez de llenarle el contexto en silencio.
-Un error tampoco es una excepción, es un dato que el modelo puede leer y
-corregir.
-
-## Sofascore Plus
-
-**Antes de nada, un aviso honesto:** casi todo lo que la web enseña detrás del
-reclamo de Plus —mapa de tiros, xG por disparo, posiciones medias, mapas de
-calor, estadísticas por jugador— **la API lo sirve abierto**. Lo comprobamos
-pidiéndolo sin ninguna credencial. Así que probablemente no necesites nada de
-esta sección.
-
-**El framework no rompe ni esquiva ningún muro de pago.** Si tienes la
-suscripción y alguna sección sí la exige, tu navegador ya recibe esos datos
-porque tu sesión está autenticada; aquí simplemente reutilizas *tu* sesión para
-pedir lo mismo desde Python. Sin credenciales, esas secciones salen como
-`plus_required` y el informe sigue con todo lo demás.
-
-Copia `.env.example` a `.env` y rellena **una** de las tres opciones:
-
-```ini
-SOFA_PLUS_COOKIE=          # la cabecera Cookie de tu navegador con sesión iniciada
-SOFA_PLUS_TOKEN=           # o un token Bearer de tu cuenta
-SOFA_PLUS_COOKIE_FILE=     # o un JSON de cookies exportado del navegador
-```
-
-Comprueba que funcionan:
-
-```bash
-sofascore login 12437616
-# Partido de prueba: Real Madrid 0 - 4 FC Barcelona (LaLiga, 2024-10-26)
-# ✓ Las credenciales funcionan: 'ai_insights' ha traído datos de pago.
-```
-
-Las sondas son secciones que de verdad requieran suscripción —probar con el
-mapa de tiros no diría nada, porque sale `ok` tengas cuenta o no— y se prueban
-todas hasta que una responda algo concluyente: varias no existen en todos los
-partidos, y un 404 no dice nada de tus credenciales.
-
-### Sacar la cookie sin volverse loco
-
-Buscarla a mano entre cientos de peticiones —y en las cabeceras de *solicitud*,
-no en las de respuesta— es donde se atasca todo el mundo. No hace falta:
-
-1. Entra en `sofascore.com` con tu sesión de Plus iniciada.
-2. `F12` → pestaña **Red** → botón **Fetch/XHR** (quita el ruido de imágenes y
-   scripts). Recarga con `F5`.
-3. **Botón derecho** sobre cualquier petición a `api.sofascore.com` →
-   **Copiar** → **Copiar como cURL**.
-4. En la terminal:
-
-```bash
-sofascore cookie --save
-```
-
-Pega lo copiado, `Ctrl+Z` y `Enter` en Windows (`Ctrl+D` en Linux/Mac). Él
-encuentra la cookie, te dice cuántos valores tiene y la escribe en tu `.env`.
-
-Vale cualquiera de los tres formatos que da el navegador: *Copiar como cURL*
-(bash o cmd), *Copiar como PowerShell*, o lo que devuelva `document.cookie` en
-la consola. Sin `--save` te enseña la línea para que la pegues tú.
-
-Son credenciales personales: no las compartas ni las subas a ningún repositorio
-(`.env` está en `.gitignore`). Caducan, así que si un día `login` dice que no
-las aceptan, vuelve a copiarlas.
-
-## Usarlo como librería
-
-```python
-from sofascore import SofascoreClient, Settings, build_report, resolve_event
-
-# Un cliente reutilizable (comparte caché y límite de peticiones).
-cliente = SofascoreClient(Settings.from_env(rate_limit=2))
-
-partido = resolve_event(cliente, "Girona vs Osasuna").event
-informe = build_report(cliente, partido, sections=["statistics", "lineups"])
-
-for jugador in informe.players():
-    valoracion = jugador.raw.get("statistics", {}).get("rating")
-    print(f"{jugador.shirt_number:>2} {jugador.name:<25} {valoracion}")
-```
-
-Piezas sueltas, todas intercambiables:
-
-| Módulo | Qué hace |
-| --- | --- |
-| `config.py` | Ajustes desde entorno y `.env` (prefijo `SOFA_`) |
-| `transport.py` | HTTP con `urllib`, con `httpx`, a medida o falso (para tests) |
-| `cache.py` | Caché en disco, en memoria o ninguna |
-| `ratelimit.py` | Espaciado de peticiones |
-| `auth.py` | Tus credenciales de Plus |
-| `endpoints.py` | Catálogo declarativo de secciones (partido, equipo, jugador, liga) |
-| `catalog.py` | Ligas conocidas, códigos de estado y claves de estadística |
-| `client.py` | Peticiones, reintentos, cambio de host, errores tipados |
-| `resolve.py` | De «un partido» a un id de evento |
-| `report.py` | La mecánica común: secciones, estados, paralelismo |
-| `match.py` | El informe de un partido |
-| `entities.py` | Los informes de equipo, jugador y competición |
-| `frames.py` | Tablas y `DataFrame` |
-| `export.py` | JSON, Markdown y CSV |
-| `tools.py` | Las 14 herramientas para una IA, con sus esquemas |
-| `mcp.py` | Servidor MCP (JSON-RPC por stdin/stdout) |
-| `analisis.py` | Métricas calculadas: puntos esperados, calidad de tiro, xG acumulado |
-| `sesion.py` | Sostiene lo ya resuelto y traído, para no repetirlo |
-| `grabacion.py` | Grabar respuestas reales y reproducirlas sin red |
-| `sources/` | Otras fuentes: Understat, ClubElo, y el cruce entre ellas |
-| `cli.py` | La línea de comandos |
-
-### Añadir una sección nueva
-
-Es una línea en `endpoints.py`; no hay que tocar el cliente:
-
-```python
-Section("mi_seccion", "/event/{event_id}/lo-que-sea",
-        "Qué trae esta sección.", unwrap="clave", default=False)
-```
-
-### Otro deporte
-
-El catálogo está pensado para fútbol, pero la API comparte estructura. Cambia el
-deporte de las búsquedas con `--sport basketball` (o `SOFA_SPORT`); las secciones
-que no existan aparecerán como `unavailable` en vez de romper nada. Las que sí
-son de otro deporte (`point_by_point`, `innings`...) se piden solas cuando el
-partido lo es.
-
-### Si te bloquean
-
-Lo primero es `pip install curl_cffi` (ver [arriba](#por-qué-curl_cffi)), que
-resuelve el caso normal. El framework se prueba además con los dos hosts de la
-API antes de rendirse, y si aun así te responden 403 te lo dice con la salida
-escrita en el propio error, no con un `HTTP 403` a secas.
-
-Si ni con eso, el transporte es enchufable y no hace falta tocar nada más —aquí
-con `curl_cffi` a mano, pero vale igual `playwright` o un proxy tuyo:
-
-```python
-from curl_cffi import requests as cr
-from sofascore import SofascoreClient
-from sofascore.transport import CallableTransport
-
-sesion = cr.Session(impersonate="chrome")
-cliente = SofascoreClient(transport=CallableTransport(
-    lambda m, url, h: (lambda r: (r.status_code, r.content))(sesion.request(m, url, headers=h))
-))
-```
-
-`curl_cffi`, `playwright` o lo que prefieras son dependencias tuyas: el
-framework sigue sin necesitar ninguna.
-
-## Errores
-
-Todos heredan de `SofascoreError`, así que un solo `except` te cubre:
-
-```python
-from sofascore import MatchNotFound, PlusRequired, RateLimited, SofascoreError
-
-try:
-    partido = get_match("Equipo Inventado")
-except MatchNotFound as exc:
-    print(exc)   # explica cómo afinar la consulta
-except SofascoreError as exc:
-    print(f"algo ha fallado: {exc}")
-```
-
-## Desarrollo
-
-```bash
-python -m pytest                  # 347 tests, sin red
-ruff check .                      # el mismo estilo que exige el CI
-python examples/demo_offline.py   # el informe completo con datos de ejemplo
-python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
-```
-
-### Grabar respuestas reales
-
-Los tests de arriba usan respuestas escritas a mano: prueban que el código es
-coherente **consigo mismo**, no que la API devuelva lo que aquí se supone. Esa
-diferencia dejó pasar dos fallos serios (`/h2h/events` quería el `customId` y
-no el id; los cambios de jugador no usan la clave `player`).
-
-```bash
-cancha grabar 12437616            # graba partido, equipo, jugador y liga
-python -m pytest tests/test_contrato.py -v
-```
-
-`tests/test_contrato.py` comprueba lo único que los demás no pueden: que lo que
-el código da por supuesto esté de verdad en la respuesta. Sin grabaciones se
-salta entero, con el aviso de cómo conseguirlas.
-
-Se guarda **solo la respuesta**, nunca la petición: tu cookie de Plus no acaba
-en ningún fichero. Si subes las grabaciones al repositorio, el CI empieza a
-comprobar el contrato en cada push.
-
-Y cualquier comando puede servirse de ellas en vez de salir a internet:
-
-```bash
-cancha match 12437616 --all --replay tests/fixtures/reales
-cancha grabaciones                # qué hay guardado
-```
-
-### Integración continua
-
-Cada push y cada PR ejecutan los tests solos, en tres sistemas y cuatro
-versiones de Python:
-
-| Trabajo | Qué comprueba |
-| --- | --- |
-| `tests` | Python 3.10, 3.11, 3.12 y 3.13 en Linux; 3.12 en Windows y macOS |
-| `sin-dependencias` | Que instalado **sin extras** todo sigue funcionando, y que no se ha colado ninguna dependencia por la puerta de atrás |
-| `estilo` | `ruff` con la configuración de `pyproject.toml`, la misma que en tu máquina |
-
-Los tests no tocan la red, así que el CI no depende de que Sofascore esté de
-buenas ni se pone a hacerle peticiones.
-
-Los tests usan `FakeTransport` y respuestas guardadas en `tests/fixtures/`:
-nada sale a internet, así que corren igual de rápido con o sin conexión.
-
-## De dónde salen las rutas
-
-La API que usa la web de Sofascore no está documentada. Las rutas de este
-framework están **contrastadas una a una** con las librerías públicas que llevan
-años hablando con ella: [`ScraperFC`](https://pypi.org/project/ScraperFC/),
-[`soccerdata`](https://pypi.org/project/soccerdata/),
-[`sofascore-wrapper`](https://pypi.org/project/sofascore-wrapper/),
-[`sofascrape`](https://pypi.org/project/sofascrape/) y
-[`pysofascore`](https://pypi.org/project/pysofascore/). Cuando una ruta aparece
-en varias de ellas, es la que funciona de verdad.
-
-De ese repaso salieron tres cosas que aquí ya están puestas:
-
-- la **probabilidad de victoria** cuelga de `/event/{id}/graph/win-probability`,
-  no de `/event/{id}/win-probability`;
-- el **catálogo de ligas** (nombre → id de competición) y la tabla de **códigos
-  de estado** (`100` = *Ended*, `7` = *2nd half*...);
-- las **claves de estadística** que devuelve la API — 110 de jugador y las
-  habituales de equipo—, que es lo que hace posible `partido.suggest()`.
-
-Si alguna ruta cambiara, la sección saldría como `unavailable` en el resumen en
-vez de romper el informe, y corregirla es una línea en `endpoints.py`.
-
-## Comparado con otras librerías
-
-Si lo que quieres es sacar datos de varias fuentes y ponerte a analizar cuanto
-antes, `soccerdata` y `ScraperFC` están más rodados: cubren FBref, Understat,
-WhoScored, Transfermarkt y más, y llevan años de parches.
-
-Este framework hace tres cosas que no encontré en ellos:
-
-1. **Un informe, no un wrapper.** Los demás te dan `get_lineups(id)`,
-   `get_statistics(id)`... y tú ensamblas. Aquí dices el partido y llegan las 30
-   secciones a la vez, cada una con su estado.
-2. **Sofascore Plus.** Ninguno contempla autenticación: todos asumen acceso
-   anónimo. Aquí, si tienes la suscripción, pones tu sesión y esas secciones
-   dejan de salir bloqueadas.
-3. **Cero dependencias.** `pysofascore` arrastra `scrapling` y `curl_cffi`;
-   `sofascore-wrapper` levanta un Chromium con Playwright; `soccerdata` y
-   `ScraperFC` traen pandas y compañía. Esto funciona con la biblioteca estándar.
-
-## Análisis: las cuentas ya hechas
-
-Un modelo sumando treinta valores de xG te da un número redondo, con aplomo y
-equivocado. Estas métricas se calculan en Python y llegan **correctas**:
-
-```bash
-sofascore analisis 12437616
-```
-```
-Real Madrid 0 - 4 Barcelona  (LaLiga, 2024-10-26)
-
-¿Ganó el que mereció?
-  gana Real Madrid               9.6%
-  empate                        24.0%
-  gana Barcelona                66.4%
-  puntos esperados: Real Madrid 0.53 · Barcelona 2.23
-  Barcelona sacó algo más de lo que merecía por ocasiones.
-
-Calidad de las ocasiones
-  Barcelona
-    5 tiros · xG 1.52 (0.304 por tiro) · 3 claras · 1 lejanos
-    Muy por encima de lo esperable: acierto excepcional o portero rival flojo.
-
-Manda en xG: Barcelona, desde el minuto 56
-```
-
-| Métrica | Qué contesta |
-| --- | --- |
-| **Puntos esperados** | ¿Ganó el que mereció? Probabilidad de victoria, empate y derrota |
-| **Calidad de tiro** | ¿Tres ocasiones claras o quince chutes de lejos? |
-| **Carrera de xG** | ¿*Cuándo* se generó el peligro, no solo cuánto? |
-| **Por situación** | Jugada abierta, córner, falta, penalti |
-| **Aportación** | Quién generó el peligro, ordenado por xG (no por nota) |
-| **Por periodos** | Qué cambió del descanso a la vuelta |
-
-Los puntos esperados no son una estimación a ojo: cada disparo es una moneda
-trucada con probabilidad su xG, y la distribución de goles sale de
-**convolucionarlas una a una** —exacta, no una aproximación de Poisson—. De ahí
-la probabilidad de cada resultado. El único supuesto es que los disparos son
-independientes entre sí, y queda dicho en la propia respuesta.
-
-Todo son funciones puras sobre un informe ya traído (`sofascore/analisis.py`):
-no tocan la red, así que son rápidas y deterministas.
-
-```python
-from sofascore import get_match
-from sofascore.analisis import analisis_completo, puntos_esperados
-
-partido = get_match(12437616, sections=["all"])
-puntos_esperados(partido)["probabilidades"]
-analisis_completo(partido)
-```
-
-## Otras fuentes
-
-Sofascore es la fuente principal, pero no la única:
-
-```bash
-sofascore fuentes                     # qué hay y qué aporta cada una
-sofascore contexto 12437616           # un partido visto por todas a la vez
-```
-
-| Fuente | Qué aporta |
-| --- | --- |
-| **Sofascore** | Partidos, equipos, jugadores y competiciones. La base de todo. |
-| **Understat** | xG disparo a disparo, de un modelo **distinto**. Cinco grandes ligas. |
-| **ClubElo** | Elo de clubes europeos desde 1939. Cuánto vale de verdad un rival. |
-
-### Lo que aquí se hace distinto
-
-`soccerdata` y `ScraperFC` te dan una tabla por fuente y el emparejado te lo
-comes tú: los equipos se llaman distinto en cada sitio, los partidos llevan ids
-distintos y las temporadas se numeran distinto. Aquí eso lo hace el framework.
-
-```bash
-sofascore contexto "Real Madrid vs Barcelona" --date 2024-10-26
-```
-```
-Real Madrid 0 - 4 FC Barcelona  (LaLiga, 2024-10-26)
-
-  xG Sofascore      1.48 - 2.58
-  xG Understat      1.31 - 2.79
-
-  Discrepancia máxima entre modelos: 0.21
-  Los dos modelos coinciden: el xG es sólido.
-
-  Elo  Real Madrid 2010.1 (#2)  vs  Barcelona 1995.7 (#3)
-       Probabilidad del local según Elo: 52%
-```
-
-**Dos modelos de xG que discrepan son información, no ruido**: donde no se
-ponen de acuerdo suele haber penaltis, remates bloqueados o tiros muy lejanos,
-que cada modelo pondera distinto. La IA tiene esa comparación en una sola
-llamada (`contexto_externo`).
-
-Además, todas las fuentes comparten transporte, caché, errores tipados y modo
-offline, **cada una con su propio ritmo** de peticiones: ClubElo aguanta dos por
-segundo y Understat no es una API pública y se le va despacio. Añadir una
-fuente es heredar de `Fuente` y escribir lo que trae.
-
-### Lo que falta
-
-**FBref** es la pieza gorda que no está: tablas HTML con la maña de venir
-dentro de comentarios, y un límite de peticiones que banea por encima de una
-cada tres segundos. Es su propio trabajo, no un rato. Igual **Transfermarkt**
-(valores de mercado) y **WhoScored** (que necesita navegador). Si los quieres,
-se piden.
+| [Partidos](docs/partidos.md) | Cómo se nombra uno, qué trae el informe, las tablas |
+| [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
+| [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
+| [Fuentes de datos](docs/fuentes.md) | Understat, ClubElo, el cruce y de dónde salen las rutas |
+| [Para una IA local](docs/ia.md) | Las 23 herramientas, MCP y cómo indaga |
+| [La línea de comandos](docs/comandos.md) | Todos los comandos y sus opciones |
+| [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
+| [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |
+| [Desarrollo](docs/desarrollo.md) | Tests, grabar respuestas reales, CI |
+
+## Cómo se llama esto
+
+El paquete se llamaba `sofascore` hasta que empezó a hablar con tres fuentes.
+Ahora es **`cancha`**, pero el nombre viejo sigue funcionando: `import
+sofascore`, `python -m sofascore` y el comando `sofascore` valen igual y no hay
+planes de quitarlos.
 
 ## Aviso
 

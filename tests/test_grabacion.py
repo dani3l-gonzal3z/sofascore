@@ -181,3 +181,16 @@ def test_una_grabacion_va_y_vuelve_sin_perder_nada():
     vuelta = Grabacion.from_dict(ida.to_dict())
     assert vuelta.como_respuesta().json() == {"a": [1, 2]}
     assert vuelta.cabeceras == {"content-type": "application/json"}
+
+
+def test_la_suite_no_puede_salir_a_la_red():
+    """La red de seguridad que faltaba, comprobada.
+
+    Al partir el CLI cambió el punto donde los tests inyectan el cliente falso,
+    varios empezaron a llamar a la API de verdad y la suite se quedó colgada dos
+    minutos sin decir por qué. Ahora eso es un fallo inmediato y con nombre.
+    """
+    from cancha.transport import UrllibTransport
+
+    with pytest.raises(AssertionError, match="salir a la red"):
+        UrllibTransport().request("GET", "https://api.sofascore.com/api/v1/event/1", {})
