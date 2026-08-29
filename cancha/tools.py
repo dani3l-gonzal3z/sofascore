@@ -33,9 +33,8 @@ from .client import SofascoreClient
 from .endpoints import CATALOGS, SECTIONS
 from .entities import build_player_report, build_team_report, build_tournament_report
 from .errors import SofascoreError
-from .match import build_report
 from .models import Event
-from .resolve import resolve_event
+from .sesion import Sesion
 
 #: Tope de caracteres por respuesta. Generoso para un modelo de 128k, pero
 #: suficiente para que un mapa de tiros entero no se lleve el contexto por
@@ -124,11 +123,6 @@ def recortar(datos: Any, max_chars: int = MAX_CHARS) -> Any:
 
 # ------------------------------------------------------------------- ayudantes
 
-def _evento(cliente: SofascoreClient, partido: str | int, fecha: str | None = None) -> Event:
-    """Resuelve lo que la IA haya escrito (id, URL o nombres) a un partido."""
-    return resolve_event(cliente, partido, date=fecha).event
-
-
 def _lado(evento: Event, es_local: Any) -> str:
     if es_local is None:
         return ""
@@ -160,8 +154,8 @@ def _filtrar_por_equipo(filas: list[dict], equipo: str | None, clave: str = "equ
     },
     ["consulta"],
 )
-def _buscar_partido(cliente, consulta: str, fecha: str | None = None, limite: int = 8):
-    resolucion = resolve_event(cliente, consulta, date=fecha)
+def _buscar_partido(sesion, consulta: str, fecha: str | None = None, limite: int = 8):
+    resolucion = sesion.resolucion(consulta, fecha)
     return {
         "elegido": resolucion.event.to_dict(),
         "aviso": resolucion.warning or None,
@@ -191,9 +185,9 @@ def _buscar_partido(cliente, consulta: str, fecha: str | None = None, limite: in
     },
     ["partido"],
 )
-def _resumen_partido(cliente, partido: str, fecha: str | None = None):
-    evento = _evento(cliente, partido, fecha)
-    informe = build_report(cliente, evento)
+def _resumen_partido(sesion, partido: str, fecha: str | None = None):
+    evento = sesion.evento(partido, fecha)
+    informe = sesion.informe(evento)
     posesion = informe.statistic("ballPossession")
     xg = informe.statistic("expectedGoals")
     return {
@@ -236,9 +230,9 @@ def _resumen_partido(cliente, partido: str, fecha: str | None = None):
     },
     ["partido"],
 )
-def _estadisticas_partido(cliente, partido: str, periodo: str = "ALL", grupo: str | None = None):
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=["statistics"])
+def _estadisticas_partido(sesion, partido: str, periodo: str = "ALL", grupo: str | None = None):
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, ["statistics"])
     filas = informe.statistics_table(periodo)
     if grupo:
         from .resolve import normalizar
@@ -267,10 +261,10 @@ def _estadisticas_partido(cliente, partido: str, periodo: str = "ALL", grupo: st
     },
     ["partido"],
 )
-def _jugadores_partido(cliente, partido: str, equipo: str | None = None,
+def _jugadores_partido(sesion, partido: str, equipo: str | None = None,
                        solo_titulares: bool = False):
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=["lineups"])
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, ["lineups"])
     equipos = {evento.home.id: evento.home.name, evento.away.id: evento.away.name}
     filas = []
     for jugador in informe.players():
@@ -307,12 +301,12 @@ def _jugadores_partido(cliente, partido: str, equipo: str | None = None,
     },
     ["partido"],
 )
-def _tiros_partido(cliente, partido: str, equipo: str | None = None,
+def _tiros_partido(sesion, partido: str, equipo: str | None = None,
                    jugador: str | None = None, solo_goles: bool = False):
     from .resolve import normalizar
 
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=["shotmap"])
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, ["shotmap"])
     filas = []
     for tiro in informe.shots():
         filas.append({
@@ -356,9 +350,9 @@ def _tiros_partido(cliente, partido: str, equipo: str | None = None,
     },
     ["partido"],
 )
-def _cronologia_partido(cliente, partido: str, tipo: str | None = None):
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=["incidents"])
+def _cronologia_partido(sesion, partido: str, tipo: str | None = None):
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, ["incidents"])
     filas = []
     for i in informe.incidents(tipo):
         if i.get("incidentType") in {"period", "injuryTime"} and not tipo:
@@ -391,9 +385,9 @@ def _cronologia_partido(cliente, partido: str, tipo: str | None = None):
     },
     ["partido"],
 )
-def _momento_partido(cliente, partido: str, cada: int = 5):
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=["momentum"])
+def _momento_partido(sesion, partido: str, cada: int = 5):
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, ["momentum"])
     puntos = [p for p in (informe.get("momentum") or []) if isinstance(p, dict)]
     if cada <= 1:
         serie = [{"minuto": p.get("minute"), "valor": p.get("value")} for p in puntos]
@@ -429,12 +423,12 @@ def _momento_partido(cliente, partido: str, cada: int = 5):
     },
     ["partido", "seccion"],
 )
-def _seccion_partido(cliente, partido: str, seccion: str):
+def _seccion_partido(sesion, partido: str, seccion: str):
     if seccion not in SECTIONS:
         return {"error": f"Sección desconocida: '{seccion}'.",
                 "disponibles": sorted(SECTIONS)}
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=[seccion])
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, [seccion])
     resultado = informe.sections[seccion]
     return {
         "partido": f"{evento.home} {evento.scoreline} {evento.away}",
@@ -453,9 +447,9 @@ def _seccion_partido(cliente, partido: str, seccion: str):
     {"partido": {"type": "string", "description": "Un partido entre los dos equipos."}},
     ["partido"],
 )
-def _historial(cliente, partido: str):
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=["h2h", "h2h_events"])
+def _historial(sesion, partido: str):
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, ["h2h", "h2h_events"])
     anteriores = [
         {
             "fecha": Event.from_api(e).date,
@@ -485,8 +479,8 @@ def _historial(cliente, partido: str):
     },
     ["equipo"],
 )
-def _ficha_equipo(cliente, equipo: str, secciones: list[str] | None = None):
-    informe = build_team_report(cliente, equipo, sections=secciones)
+def _ficha_equipo(sesion, equipo: str, secciones: list[str] | None = None):
+    informe = build_team_report(sesion.cliente, equipo, sections=secciones)
     return informe.to_dict()
 
 
@@ -502,8 +496,8 @@ def _ficha_equipo(cliente, equipo: str, secciones: list[str] | None = None):
     },
     ["jugador"],
 )
-def _ficha_jugador(cliente, jugador: str, secciones: list[str] | None = None):
-    informe = build_player_report(cliente, jugador, sections=secciones)
+def _ficha_jugador(sesion, jugador: str, secciones: list[str] | None = None):
+    informe = build_player_report(sesion.cliente, jugador, sections=secciones)
     return informe.to_dict()
 
 
@@ -518,9 +512,9 @@ def _ficha_jugador(cliente, jugador: str, secciones: list[str] | None = None):
     },
     ["liga"],
 )
-def _clasificacion(cliente, liga: str, temporada: int | None = None):
+def _clasificacion(sesion, liga: str, temporada: int | None = None):
     informe = build_tournament_report(
-        cliente, liga, season_id=temporada, sections=["profile", "standings"]
+        sesion.cliente, liga, season_id=temporada, sections=["profile", "standings"]
     )
     filas = []
     for tabla in informe.get("standings") or []:
@@ -550,10 +544,10 @@ def _clasificacion(cliente, liga: str, temporada: int | None = None):
         "limite": {"type": "integer", "description": "Cuántos devolver (por defecto 30)."},
     },
 )
-def _partidos(cliente, fecha: str | None = None, liga: str | None = None, limite: int = 30):
+def _partidos(sesion, fecha: str | None = None, liga: str | None = None, limite: int = 30):
     from .catalog import find_league
 
-    crudos = cliente.scheduled_events(fecha) if fecha else cliente.live_events()
+    crudos = sesion.cliente.scheduled_events(fecha) if fecha else sesion.cliente.live_events()
     eventos = [Event.from_api(e) for e in crudos]
     if liga:
         identificador = find_league(liga)
@@ -587,7 +581,7 @@ def _partidos(cliente, fecha: str | None = None, liga: str | None = None, limite
                 "description": "Qué parte del catálogo quieres."},
     },
 )
-def _catalogo(cliente, que: str = "todo"):
+def _catalogo(sesion, que: str = "todo"):
     salida: dict[str, Any] = {}
     if que in ("secciones", "todo"):
         salida["secciones"] = {
@@ -620,11 +614,11 @@ def _catalogo(cliente, que: str = "todo"):
     },
     ["partido"],
 )
-def _analisis_partido(cliente, partido: str, fecha: str | None = None, cada: int = 15):
+def _analisis_partido(sesion, partido: str, fecha: str | None = None, cada: int = 15):
     from .analisis import analisis_completo
 
-    evento = _evento(cliente, partido, fecha)
-    informe = build_report(cliente, evento, sections=["statistics", "shotmap", "incidents",
+    evento = sesion.evento(partido, fecha)
+    informe = sesion.informe(evento, ["statistics", "shotmap", "incidents",
                                                       "lineups"])
     return analisis_completo(informe, cada=cada)
 
@@ -641,11 +635,11 @@ def _analisis_partido(cliente, partido: str, fecha: str | None = None, cada: int
     },
     ["partido"],
 )
-def _puntos_esperados(cliente, partido: str, fecha: str | None = None):
+def _puntos_esperados(sesion, partido: str, fecha: str | None = None):
     from .analisis import puntos_esperados
 
-    evento = _evento(cliente, partido, fecha)
-    return puntos_esperados(build_report(cliente, evento, sections=["shotmap"]))
+    evento = sesion.evento(partido, fecha)
+    return puntos_esperados(sesion.informe(evento, ["shotmap"]))
 
 
 @herramienta(
@@ -660,11 +654,11 @@ def _puntos_esperados(cliente, partido: str, fecha: str | None = None):
     },
     ["partido"],
 )
-def _carrera_xg(cliente, partido: str, cada: int = 5):
+def _carrera_xg(sesion, partido: str, cada: int = 5):
     from .analisis import carrera_xg
 
-    evento = _evento(cliente, partido)
-    return carrera_xg(build_report(cliente, evento, sections=["shotmap"]), cada=cada)
+    evento = sesion.evento(partido)
+    return carrera_xg(sesion.informe(evento, ["shotmap"]), cada=cada)
 
 
 @herramienta(
@@ -679,11 +673,11 @@ def _carrera_xg(cliente, partido: str, cada: int = 5):
     },
     ["partido"],
 )
-def _aportacion_jugadores(cliente, partido: str, minimo_xg: float = 0.05):
+def _aportacion_jugadores(sesion, partido: str, minimo_xg: float = 0.05):
     from .analisis import aportacion_jugadores
 
-    evento = _evento(cliente, partido)
-    informe = build_report(cliente, evento, sections=["shotmap", "incidents", "lineups"])
+    evento = sesion.evento(partido)
+    informe = sesion.informe(evento, ["shotmap", "incidents", "lineups"])
     return aportacion_jugadores(informe, minimo_xg=minimo_xg)
 
 
@@ -703,10 +697,10 @@ def _aportacion_jugadores(cliente, partido: str, minimo_xg: float = 0.05):
     },
     ["partido"],
 )
-def _contexto_externo(cliente, partido: str, fecha: str | None = None):
+def _contexto_externo(sesion, partido: str, fecha: str | None = None):
     from .sources import contexto_partido
 
-    return contexto_partido(cliente, partido, fecha=fecha)
+    return contexto_partido(sesion.cliente, partido, fecha=fecha)
 
 
 @herramienta(
@@ -723,7 +717,7 @@ def _contexto_externo(cliente, partido: str, fecha: str | None = None):
     },
     ["equipo"],
 )
-def _elo_equipo(cliente, equipo: str, historico: bool = False):
+def _elo_equipo(sesion, equipo: str, historico: bool = False):
     from .sources import ClubElo
 
     fuente = ClubElo()
@@ -746,7 +740,7 @@ def _elo_equipo(cliente, equipo: str, historico: bool = False):
         "fecha": {"type": "string", "description": "AAAA-MM-DD (por defecto, hoy)."},
     },
 )
-def _ranking_elo(cliente, cuantos: int = 20, pais: str | None = None, fecha: str | None = None):
+def _ranking_elo(sesion, cuantos: int = 20, pais: str | None = None, fecha: str | None = None):
     from .sources import ClubElo
 
     fuente = ClubElo()
@@ -769,7 +763,7 @@ def _ranking_elo(cliente, cuantos: int = 20, pais: str | None = None, fecha: str
     },
     ["partido_understat"],
 )
-def _tiros_understat(cliente, partido_understat: int):
+def _tiros_understat(sesion, partido_understat: int):
     from .sources import Understat
 
     fuente = Understat()
@@ -787,7 +781,7 @@ def _tiros_understat(cliente, partido_understat: int):
     "Consúltalo si no sabes de dónde puede salir un dato.",
     {},
 )
-def _fuentes(cliente):
+def _fuentes(sesion):
     from .sources import FUENTES, construir
 
     return {
@@ -813,8 +807,13 @@ def ejecutar(
     argumentos: dict | None = None,
     cliente: SofascoreClient | None = None,
     max_chars: int = MAX_CHARS,
+    sesion: Sesion | None = None,
 ) -> dict:
     """Ejecuta una herramienta y devuelve su resultado, ya recortado.
+
+    Pásale una :class:`~cancha.sesion.Sesion` si vas a hacer varias preguntas
+    sobre el mismo partido: entonces cada sección se pide una sola vez. Sin
+    ella se monta una de usar y tirar, que sirve para una llamada suelta.
 
     Nunca lanza: un fallo se devuelve como ``{"error": ...}`` para que el modelo
     pueda leerlo, entenderlo y reintentar de otra forma.
@@ -822,10 +821,10 @@ def ejecutar(
     if nombre not in TOOLS:
         return {"error": f"No existe la herramienta '{nombre}'.",
                 "disponibles": sorted(TOOLS)}
-    propio = cliente is None
-    cliente = cliente or SofascoreClient()
+    propia = sesion is None
+    sesion = sesion or Sesion(cliente=cliente)
     try:
-        resultado = TOOLS[nombre].handler(cliente, **(argumentos or {}))
+        resultado = TOOLS[nombre].handler(sesion, **(argumentos or {}))
         return recortar(resultado, max_chars)
     except SofascoreError as exc:
         return {"error": str(exc), "herramienta": nombre}
@@ -833,8 +832,8 @@ def ejecutar(
         return {"error": f"Argumentos incorrectos para '{nombre}': {exc}",
                 "esperados": TOOLS[nombre].parameters}
     finally:
-        if propio:
-            cliente.close()
+        if propia:
+            sesion.close()
 
 
 __all__ = ["TOOLS", "Tool", "esquemas", "ejecutar", "recortar", "MAX_CHARS"]

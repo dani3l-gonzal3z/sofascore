@@ -64,6 +64,7 @@ from .match import MatchReport, build_report
 from .models import Event, Player, Score, Team
 from .report import SectionResult
 from .resolve import Candidate, Resolution, resolve_event
+from .sesion import Sesion
 from .tools import TOOLS
 from .tools import ejecutar as ejecutar_herramienta
 from .tools import esquemas as esquemas_herramientas
@@ -263,6 +264,7 @@ __all__ = [
     "to_frames",
     "to_tables",
     "flatten",
+    "Sesion",
     "TOOLS",
     "ejecutar_herramienta",
     "esquemas_herramientas",

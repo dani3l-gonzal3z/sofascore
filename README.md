@@ -353,11 +353,22 @@ Y ya está: el modelo ve las herramientas y va tirando del hilo solo.
 ### A mano, con cualquier modelo
 
 ```python
-from sofascore import esquemas_herramientas, ejecutar_herramienta
+from cancha import Sesion, esquemas_herramientas, ejecutar_herramienta
 
-esquemas_herramientas()                    # se los pasas como definición de funciones
-ejecutar_herramienta("resumen_partido", {"partido": "Real Madrid vs Barcelona"})
+esquemas_herramientas()          # se los pasas como definición de funciones
+
+# Una sesión para toda la conversación: cada sección se pide UNA vez.
+with Sesion() as sesion:
+    ejecutar_herramienta("resumen_partido", {"partido": "Real Madrid vs Barcelona"},
+                         sesion=sesion)
+    ejecutar_herramienta("tiros_partido", {"partido": "Real Madrid vs Barcelona"},
+                         sesion=sesion)
 ```
+
+Sin sesión cada llamada empieza de cero: resuelve el partido otra vez y vuelve
+a pedir lo que ya tenía. En una conversación normal de ocho preguntas sobre un
+partido eso son **25 peticiones en vez de 11**. El servidor MCP mantiene una
+sesión durante toda la conversación, así que por ahí ya viene puesto.
 
 Sirve igual con Ollama, llama.cpp, LM Studio o la API que uses: el framework no
 trae ningún modelo dentro. `python examples/agente.py` enseña el bucle entero.
@@ -485,6 +496,7 @@ Piezas sueltas, todas intercambiables:
 | `tools.py` | Las 14 herramientas para una IA, con sus esquemas |
 | `mcp.py` | Servidor MCP (JSON-RPC por stdin/stdout) |
 | `analisis.py` | Métricas calculadas: puntos esperados, calidad de tiro, xG acumulado |
+| `sesion.py` | Sostiene lo ya resuelto y traído, para no repetirlo |
 | `grabacion.py` | Grabar respuestas reales y reproducirlas sin red |
 | `sources/` | Otras fuentes: Understat, ClubElo, y el cruce entre ellas |
 | `cli.py` | La línea de comandos |

@@ -34,6 +34,7 @@ from typing import Any, TextIO
 
 from .client import SofascoreClient
 from .config import Settings
+from .sesion import Sesion
 from .tools import TOOLS, ejecutar
 
 #: Versión del protocolo que hablamos.
@@ -64,8 +65,12 @@ def _error(id_: Any, codigo: int, mensaje: str) -> dict:
 class MCPServer:
     """El servidor. Lee peticiones de una línea y contesta en otra."""
 
-    def __init__(self, cliente: SofascoreClient | None = None) -> None:
+    def __init__(self, cliente: SofascoreClient | None = None,
+                 sesion: Sesion | None = None) -> None:
         self.cliente = cliente or SofascoreClient(Settings.from_env())
+        # Una sola sesión para toda la conversación: el modelo pregunta ocho
+        # cosas del mismo partido y cada sección se pide una vez.
+        self.sesion = sesion or Sesion(cliente=self.cliente)
 
     # --- métodos del protocolo ---
 
@@ -92,7 +97,7 @@ class MCPServer:
     def tools_call(self, params: dict) -> dict:
         nombre = params.get("name", "")
         argumentos = params.get("arguments") or {}
-        resultado = ejecutar(nombre, argumentos, cliente=self.cliente)
+        resultado = ejecutar(nombre, argumentos, sesion=self.sesion)
         es_error = isinstance(resultado, dict) and "error" in resultado
         return {
             "content": [
@@ -148,6 +153,7 @@ class MCPServer:
         except (KeyboardInterrupt, BrokenPipeError):
             pass
         finally:
+            self.sesion.close()
             self.cliente.close()
         return 0
 
