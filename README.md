@@ -94,6 +94,7 @@ Y sin instalar nada: copia la carpeta `sofascore/` a tu proyecto y usa
 | [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
 | [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |
 | [Desarrollo](docs/desarrollo.md) | Tests, grabar respuestas reales, CI |
+| [Cambios](CHANGELOG.md) | Qué ha ido pasando en cada versión |
 
 ## Cómo se llama esto
 
