@@ -382,6 +382,77 @@ def cmd_cookie(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_fuentes(args: argparse.Namespace) -> int:
+    """Qué fuentes hay además de Sofascore."""
+    from .sources import FUENTES, construir
+
+    _imprimir("Fuente principal:\n")
+    _imprimir("  sofascore    Partidos, equipos, jugadores y competiciones.")
+    _imprimir(f"\nOtras {len(FUENTES)} fuentes:\n")
+    for nombre in sorted(FUENTES):
+        fuente = construir(nombre)
+        _imprimir(f"  {nombre}")
+        for linea in _envolver(fuente.descripcion, 74):
+            _imprimir(f"      {linea}")
+        _imprimir(f"      {fuente.base_url} · {fuente.rate_limit}/s · caché {fuente.ttl // 3600} h")
+    _imprimir("\nJúntalas todas sobre un partido con: sofascore contexto <partido>")
+    return 0
+
+
+def _envolver(texto: str, ancho: int) -> list[str]:
+    import textwrap
+
+    return textwrap.wrap(texto, ancho)
+
+
+def cmd_contexto(args: argparse.Namespace) -> int:
+    """Un partido visto por todas las fuentes a la vez."""
+    from .sources import contexto_partido
+
+    cliente = _construir_cliente(args)
+    try:
+        datos = contexto_partido(cliente, args.consulta, fecha=args.date)
+        if args.stdout_json:
+            _imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+            return 0
+
+        partido = datos["partido"]
+        _imprimir(f"{partido['local']} {partido['marcador']} {partido['visitante']}  "
+                  f"({partido['competicion']}, {partido['fecha']})\n")
+
+        xg = datos["sofascore"].get("xg")
+        if xg:
+            _imprimir(f"  xG Sofascore      {xg.get('local')} - {xg.get('visitante')}")
+
+        understat = datos["fuentes"].get("understat") or {}
+        if understat.get("estado") == "ok" and understat.get("xg"):
+            u = understat["xg"]
+            _imprimir(f"  xG Understat      {u.get('local')} - {u.get('visitante')}")
+        else:
+            _imprimir(f"  xG Understat      – {understat.get('nota', 'no disponible')}")
+
+        contraste = datos.get("contraste_xg") or {}
+        if contraste.get("posible"):
+            _imprimir(f"\n  Discrepancia máxima entre modelos: {contraste['discrepancia_maxima']}")
+            for linea in _envolver(contraste["lectura"], 74):
+                _imprimir(f"  {linea}")
+
+        elo = datos["fuentes"].get("clubelo") or {}
+        if elo.get("estado") == "ok":
+            _imprimir(f"\n  Elo  {elo['local']['equipo']} {elo['local']['elo']} "
+                      f"(#{elo['local']['puesto']})  vs  "
+                      f"{elo['visitante']['equipo']} {elo['visitante']['elo']} "
+                      f"(#{elo['visitante']['puesto']})")
+            _imprimir(f"       Probabilidad del local según Elo: "
+                      f"{elo['probabilidad_local']:.0%}")
+        else:
+            _imprimir(f"\n  Elo               – {elo.get('nota', 'no disponible')}")
+        _depuracion(args, cliente)
+        return 0
+    finally:
+        cliente.close()
+
+
 def cmd_mcp(args: argparse.Namespace) -> int:
     """Arranca el servidor MCP para que lo use una IA local."""
     from .mcp import MCPServer
@@ -589,6 +660,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_cookie.add_argument("--save", action="store_true", help="Escribirla en el .env.")
     p_cookie.add_argument("--env", default=".env", help="Ruta del .env (por defecto: .env).")
     p_cookie.set_defaults(func=cmd_cookie)
+
+    p_contexto = sub.add_parser(
+        "contexto", parents=[comun],
+        help="Un partido visto por todas las fuentes: xG de dos modelos y Elo.",
+    )
+    p_contexto.add_argument("consulta", help="Id, URL o 'Equipo A vs Equipo B'.")
+    p_contexto.add_argument("--date", help="Fecha (AAAA-MM-DD).")
+    p_contexto.add_argument("--stdout-json", action="store_true", help="Vuelca el JSON.")
+    p_contexto.set_defaults(func=cmd_contexto)
+
+    p_fuentes = sub.add_parser("fuentes", help="Qué fuentes de datos hay y qué aporta cada una.")
+    p_fuentes.set_defaults(func=cmd_fuentes)
 
     p_mcp = sub.add_parser(
         "mcp", parents=[comun],
