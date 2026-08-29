@@ -34,7 +34,7 @@ print(partido.locked())                       # secciones que requieren Plus
   espera creciente y caché en disco (un partido terminado no se vuelve a pedir).
 - **Aguanta un bloqueo.** La misma API vive en dos hosts; si el primero
   responde 403, se prueba el otro antes de rendirse.
-- **Probado sin red.** 320 tests que corren en menos de un segundo con
+- **Probado sin red.** 347 tests que corren en menos de un segundo con
   respuestas de ejemplo.
 
 ---
@@ -136,6 +136,7 @@ sofascore sections [--kind team]          # catálogo de secciones
 sofascore cookie [--save]                 # saca tu cookie de lo copiado del navegador
 sofascore login [partido]                 # comprueba tus credenciales Plus
 sofascore raw /event/11352550/statistics  # cualquier ruta de la API, tal cual
+sofascore analisis <partido>              # las cuentas hechas: puntos esperados, xG
 sofascore fuentes                         # qué fuentes hay además de Sofascore
 sofascore contexto <partido>              # el partido visto por todas a la vez
 sofascore tools [--json]                  # las herramientas que ve una IA
@@ -316,12 +317,12 @@ partido.suggest("expectedGoal")  # ['expectedGoals'] — la errata típica
 ## Para una IA local
 
 El framework trae una capa de herramientas pensada para que un modelo analice
-partidos por su cuenta: 19 funciones con su esquema JSON, descripciones
+partidos por su cuenta: 23 funciones con su esquema JSON, descripciones
 escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
 aplanadas y **recortadas** para que no le revienten el contexto.
 
 ```bash
-sofascore tools          # las 19, con sus parámetros
+sofascore tools          # las 23, con sus parámetros
 sofascore tools --json   # los esquemas completos
 sofascore mcp            # arranca el servidor MCP
 ```
@@ -368,11 +369,13 @@ tirando del hilo:
 2. Desde ahí baja al detalle: `estadisticas_partido` (por periodo o por bloque),
    `jugadores_partido` (por equipo), `tiros_partido` (xG por disparo, filtrable
    por jugador), `cronologia_partido`, `momento_partido` (agrupado en tramos).
-3. Amplía el contexto: `historial_entre_equipos`, `ficha_equipo`,
+3. **`analisis_partido`** le da las cuentas hechas —puntos esperados, calidad
+   de tiro, carrera de xG— para que no las haga él, que es donde falla.
+4. Amplía el contexto: `historial_entre_equipos`, `ficha_equipo`,
    `ficha_jugador`, `clasificacion`, `partidos`. Y sobre todo
    **`contexto_externo`**, que cruza las fuentes: los dos modelos de xG con su
    diferencia, y el Elo de ambos equipos.
-4. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
+5. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
    catálogo en crudo. Y `catalogo` le dice qué nombres son válidos.
 
 Toda respuesta pasa por un tope de caracteres: si algo no cabe, se corta y se
@@ -478,6 +481,7 @@ Piezas sueltas, todas intercambiables:
 | `export.py` | JSON, Markdown y CSV |
 | `tools.py` | Las 14 herramientas para una IA, con sus esquemas |
 | `mcp.py` | Servidor MCP (JSON-RPC por stdin/stdout) |
+| `analisis.py` | Métricas calculadas: puntos esperados, calidad de tiro, xG acumulado |
 | `sources/` | Otras fuentes: Understat, ClubElo, y el cruce entre ellas |
 | `cli.py` | La línea de comandos |
 
@@ -540,7 +544,7 @@ except SofascoreError as exc:
 ## Desarrollo
 
 ```bash
-python -m pytest                  # 320 tests, sin red
+python -m pytest                  # 347 tests, sin red
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```
@@ -588,6 +592,59 @@ Este framework hace tres cosas que no encontré en ellos:
 3. **Cero dependencias.** `pysofascore` arrastra `scrapling` y `curl_cffi`;
    `sofascore-wrapper` levanta un Chromium con Playwright; `soccerdata` y
    `ScraperFC` traen pandas y compañía. Esto funciona con la biblioteca estándar.
+
+## Análisis: las cuentas ya hechas
+
+Un modelo sumando treinta valores de xG te da un número redondo, con aplomo y
+equivocado. Estas métricas se calculan en Python y llegan **correctas**:
+
+```bash
+sofascore analisis 12437616
+```
+```
+Real Madrid 0 - 4 Barcelona  (LaLiga, 2024-10-26)
+
+¿Ganó el que mereció?
+  gana Real Madrid               9.6%
+  empate                        24.0%
+  gana Barcelona                66.4%
+  puntos esperados: Real Madrid 0.53 · Barcelona 2.23
+  Barcelona sacó algo más de lo que merecía por ocasiones.
+
+Calidad de las ocasiones
+  Barcelona
+    5 tiros · xG 1.52 (0.304 por tiro) · 3 claras · 1 lejanos
+    Muy por encima de lo esperable: acierto excepcional o portero rival flojo.
+
+Manda en xG: Barcelona, desde el minuto 56
+```
+
+| Métrica | Qué contesta |
+| --- | --- |
+| **Puntos esperados** | ¿Ganó el que mereció? Probabilidad de victoria, empate y derrota |
+| **Calidad de tiro** | ¿Tres ocasiones claras o quince chutes de lejos? |
+| **Carrera de xG** | ¿*Cuándo* se generó el peligro, no solo cuánto? |
+| **Por situación** | Jugada abierta, córner, falta, penalti |
+| **Aportación** | Quién generó el peligro, ordenado por xG (no por nota) |
+| **Por periodos** | Qué cambió del descanso a la vuelta |
+
+Los puntos esperados no son una estimación a ojo: cada disparo es una moneda
+trucada con probabilidad su xG, y la distribución de goles sale de
+**convolucionarlas una a una** —exacta, no una aproximación de Poisson—. De ahí
+la probabilidad de cada resultado. El único supuesto es que los disparos son
+independientes entre sí, y queda dicho en la propia respuesta.
+
+Todo son funciones puras sobre un informe ya traído (`sofascore/analisis.py`):
+no tocan la red, así que son rápidas y deterministas.
+
+```python
+from sofascore import get_match
+from sofascore.analisis import analisis_completo, puntos_esperados
+
+partido = get_match(12437616, sections=["all"])
+puntos_esperados(partido)["probabilidades"]
+analisis_completo(partido)
+```
 
 ## Otras fuentes
 

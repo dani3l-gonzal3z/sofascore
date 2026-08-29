@@ -382,6 +382,70 @@ def cmd_cookie(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_analisis(args: argparse.Namespace) -> int:
+    """Las métricas calculadas de un partido."""
+    from .analisis import analisis_completo
+
+    cliente = _construir_cliente(args)
+    try:
+        resolucion = resolve_event(cliente, args.consulta, date=args.date)
+        informe = build_report(
+            cliente, resolucion.event,
+            sections=["statistics", "shotmap", "incidents", "lineups"],
+        )
+        datos = analisis_completo(informe, cada=args.cada)
+        if args.stdout_json:
+            _imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+            return 0
+
+        _imprimir(f"{datos['partido']['titulo']}  "
+                  f"({datos['partido']['competicion']}, {datos['partido']['fecha']})")
+
+        puntos = datos["puntos_esperados"]
+        if puntos.get("disponible"):
+            _imprimir("\n¿Ganó el que mereció?")
+            for resultado, probabilidad in puntos["probabilidades"].items():
+                _imprimir(f"  {resultado:<28} {probabilidad:6.1%}")
+            _imprimir("  puntos esperados: " + " · ".join(
+                f"{equipo} {valor}" for equipo, valor in puntos["puntos_esperados"].items()))
+            for linea in _envolver(puntos["lectura"], 72):
+                _imprimir(f"  {linea}")
+        else:
+            _imprimir(f"\n¿Ganó el que mereció? — {puntos.get('nota')}")
+
+        calidad = datos["calidad_de_tiro"]
+        if calidad.get("disponible"):
+            _imprimir("\nCalidad de las ocasiones")
+            for equipo, bloque in calidad["por_equipo"].items():
+                if not bloque.get("tiros"):
+                    continue
+                _imprimir(f"  {equipo}")
+                _imprimir(f"    {bloque['tiros']} tiros · xG {bloque['xg_total']} "
+                          f"({bloque['xg_por_tiro']} por tiro) · "
+                          f"{bloque['ocasiones_claras']} claras · "
+                          f"{bloque['tiros_lejanos']} lejanos")
+                for linea in _envolver(bloque["lectura"], 68):
+                    _imprimir(f"    {linea}")
+
+        carrera = datos["carrera_xg"]
+        if carrera.get("disponible") and carrera.get("manda_en_xg"):
+            _imprimir(f"\nManda en xG: {carrera['manda_en_xg']}"
+                      + (f", desde el minuto {carrera['desde_el_minuto']}"
+                         if carrera.get("desde_el_minuto") else ""))
+
+        aportacion = datos["aportacion"]
+        if aportacion.get("disponible"):
+            _imprimir("\nQuién generó el peligro")
+            for jugador in aportacion["jugadores"][:6]:
+                _imprimir(f"  {jugador['jugador']:<24} xG {jugador['xg']:<6} "
+                          f"{jugador['goles']}g {jugador['asistencias']}a  "
+                          f"({jugador['equipo']})")
+        _depuracion(args, cliente)
+        return 0
+    finally:
+        cliente.close()
+
+
 def cmd_fuentes(args: argparse.Namespace) -> int:
     """Qué fuentes hay además de Sofascore."""
     from .sources import FUENTES, construir
@@ -660,6 +724,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_cookie.add_argument("--save", action="store_true", help="Escribirla en el .env.")
     p_cookie.add_argument("--env", default=".env", help="Ruta del .env (por defecto: .env).")
     p_cookie.set_defaults(func=cmd_cookie)
+
+    p_analisis = sub.add_parser(
+        "analisis", parents=[comun],
+        help="Las cuentas hechas: puntos esperados, calidad de tiro, carrera de xG.",
+    )
+    p_analisis.add_argument("consulta", help="Id, URL o 'Equipo A vs Equipo B'.")
+    p_analisis.add_argument("--date", help="Fecha (AAAA-MM-DD).")
+    p_analisis.add_argument("--cada", type=int, default=15,
+                            help="Minutos por tramo en la carrera de xG.")
+    p_analisis.add_argument("--stdout-json", action="store_true", help="Vuelca el JSON.")
+    p_analisis.set_defaults(func=cmd_analisis)
 
     p_contexto = sub.add_parser(
         "contexto", parents=[comun],
