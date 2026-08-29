@@ -24,7 +24,9 @@ def test_lectura_de_entorno():
 
 def test_dotenv_y_precedencia(tmp_path):
     fichero = tmp_path / ".env"
-    fichero.write_text('SOFA_LANGUAGE=fr\nSOFA_CACHE_TTL=10\n# comentario\nexport SOFA_SPORT="tennis"\n')
+    fichero.write_text(
+        'SOFA_LANGUAGE=fr\nSOFA_CACHE_TTL=10\n# comentario\nexport SOFA_SPORT="tennis"\n'
+    )
     assert parse_dotenv(fichero)["SOFA_SPORT"] == "tennis"
 
     ajustes = Settings.from_env(env={"SOFA_CACHE_TTL": "99"}, dotenv=fichero)

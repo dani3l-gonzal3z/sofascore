@@ -1,5 +1,7 @@
 # Sofascore Framework
 
+[![tests](https://github.com/dani3l-gonzal3z/sofascore/actions/workflows/tests.yml/badge.svg)](https://github.com/dani3l-gonzal3z/sofascore/actions/workflows/tests.yml)
+
 Te lo descargas, le dices un partido y te devuelve **todos sus datos**: marcador,
 estadísticas, alineaciones, cronología, momento de ataque, cara a cara, forma
 previa... Y si tienes **Sofascore Plus**, también las secciones de pago, usando
@@ -545,9 +547,24 @@ except SofascoreError as exc:
 
 ```bash
 python -m pytest                  # 347 tests, sin red
+ruff check .                      # el mismo estilo que exige el CI
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
 ```
+
+### Integración continua
+
+Cada push y cada PR ejecutan los tests solos, en tres sistemas y cuatro
+versiones de Python:
+
+| Trabajo | Qué comprueba |
+| --- | --- |
+| `tests` | Python 3.10, 3.11, 3.12 y 3.13 en Linux; 3.12 en Windows y macOS |
+| `sin-dependencias` | Que instalado **sin extras** todo sigue funcionando, y que no se ha colado ninguna dependencia por la puerta de atrás |
+| `estilo` | `ruff` con la configuración de `pyproject.toml`, la misma que en tu máquina |
+
+Los tests no tocan la red, así que el CI no depende de que Sofascore esté de
+buenas ni se pone a hacerle peticiones.
 
 Los tests usan `FakeTransport` y respuestas guardadas en `tests/fixtures/`:
 nada sale a internet, así que corren igual de rápido con o sin conexión.

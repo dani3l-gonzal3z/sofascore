@@ -49,7 +49,8 @@ def test_powershell_las_añade_una_a_una():
 
 
 def test_document_cookie_pegado_tal_cual():
-    assert cookie_desde_navegador("_ga=GA1.1.5; sofa_session=zzz") == "_ga=GA1.1.5; sofa_session=zzz"
+    pegado = "_ga=GA1.1.5; sofa_session=zzz"
+    assert cookie_desde_navegador(pegado) == pegado
 
 
 def test_curl_con_la_bandera_corta():

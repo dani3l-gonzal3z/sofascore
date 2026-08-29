@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -46,7 +47,9 @@ class Response:
 class Transport(Protocol):
     """Contrato que debe cumplir cualquier transporte."""
 
-    def request(self, method: str, url: str, headers: dict[str, str]) -> Response:  # pragma: no cover
+    def request(  # pragma: no cover
+        self, method: str, url: str, headers: dict[str, str]
+    ) -> Response:
         ...
 
 
@@ -68,10 +71,8 @@ class UrllibTransport:
                 )
         except urllib.error.HTTPError as exc:  # 4xx / 5xx: es una respuesta válida
             cuerpo = b""
-            try:
+            with suppress(Exception):  # el cuerpo del error es opcional
                 cuerpo = exc.read()
-            except Exception:  # noqa: BLE001 - el cuerpo del error es opcional
-                pass
             return Response(
                 status=exc.code,
                 url=url,
@@ -215,7 +216,7 @@ class FakeTransport:
         #: Historial de URLs pedidas, útil para asertar en tests.
         self.calls: list[str] = []
 
-    def add(self, fragmento: str, payload: Any) -> "FakeTransport":
+    def add(self, fragmento: str, payload: Any) -> FakeTransport:
         self.routes[fragmento] = payload
         return self
 

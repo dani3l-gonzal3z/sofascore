@@ -107,7 +107,7 @@ class Settings:
         env: dict[str, str] | None = None,
         dotenv: str | os.PathLike[str] | None = ".env",
         **overrides,
-    ) -> "Settings":
+    ) -> Settings:
         """Construye los ajustes desde el entorno, el ``.env`` y overrides explícitos.
 
         Precedencia (de menor a mayor): valores por defecto < ``.env`` <
@@ -163,7 +163,7 @@ class Settings:
 
     def redacted(self) -> dict:
         """Copia serializable con los secretos ocultos (para logs y ``--debug``)."""
-        datos = {
+        return {
             "base_url": self.base_url,
             "transport": self.transport,
             "fallback_base_urls": list(self.fallback_base_urls),
@@ -178,4 +178,3 @@ class Settings:
             "sport": self.sport,
             "plus_credentials": "configuradas" if self.has_plus_credentials() else "no",
         }
-        return datos

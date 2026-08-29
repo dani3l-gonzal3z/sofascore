@@ -86,7 +86,7 @@ class DiskCache:
             temporal.replace(ruta)
         except OSError:
             # Una caché que falla nunca debe tumbar la petición.
-            return None
+            return
 
     def clear(self) -> int:
         """Borra la caché entera. Devuelve cuántos ficheros ha eliminado."""

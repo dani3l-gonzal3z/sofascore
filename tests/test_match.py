@@ -1,12 +1,12 @@
 """Construcción del informe del partido."""
 
+from conftest import EVENT_ID, rutas_por_defecto
+
 from sofascore.cache import MemoryCache
 from sofascore.client import SofascoreClient
 from sofascore.config import Settings
 from sofascore.match import EMPTY, OK, PLUS_REQUIRED, UNAVAILABLE, build_report
 from sofascore.transport import FakeTransport
-
-from conftest import EVENT_ID, rutas_por_defecto
 
 
 def _cliente(rutas, **extra):

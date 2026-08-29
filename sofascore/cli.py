@@ -20,8 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
-from .cache import DiskCache, NullCache
 from .auth import cookie_desde_navegador
+from .cache import DiskCache, NullCache
 from .catalog import LEAGUES, find_league
 from .client import SofascoreClient
 from .config import Settings
@@ -32,7 +32,6 @@ from .export import to_csv_dir, to_json, to_markdown
 from .match import build_report
 from .models import Event
 from .resolve import normalizar, resolve_event
-
 
 # --------------------------------------------------------------------- utilidades
 

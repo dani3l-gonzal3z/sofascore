@@ -32,7 +32,8 @@ class NotFound(HTTPError):
 class RateLimited(HTTPError):
     """429: demasiadas peticiones. Baja ``SOFA_RATE_LIMIT`` y reintenta."""
 
-    def __init__(self, status: int, url: str, body: str = "", retry_after: float | None = None) -> None:
+    def __init__(self, status: int, url: str, body: str = "",
+                 retry_after: float | None = None) -> None:
         self.retry_after = retry_after
         super().__init__(status, url, body)
 

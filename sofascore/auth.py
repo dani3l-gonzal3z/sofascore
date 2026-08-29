@@ -106,7 +106,7 @@ class Credentials:
     token: str = ""
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> "Credentials":
+    def from_settings(cls, settings: Settings) -> Credentials:
         cookie = settings.plus_cookie
         if not cookie and settings.plus_cookie_file:
             cookie = _cookies_desde_fichero(settings.plus_cookie_file)

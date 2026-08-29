@@ -97,7 +97,7 @@ class SofascoreClient:
 
     # --- Contexto ---
 
-    def __enter__(self) -> "SofascoreClient":
+    def __enter__(self) -> SofascoreClient:
         return self
 
     def __exit__(self, *_exc) -> None:

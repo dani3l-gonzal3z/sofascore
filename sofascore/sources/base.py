@@ -20,6 +20,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -78,7 +79,7 @@ class Fuente:
 
     def arrancar(self) -> None:
         """Lo que haya que hacer antes de la primera petición (cookies, etc.)."""
-        return None
+        return
 
     def cabeceras(self) -> dict[str, str]:
         return {
@@ -110,11 +111,9 @@ class Fuente:
 
         if not self._arrancada:
             self._arrancada = True
-            try:
+            # Si el arranque falla, se intenta igual: puede que no hiciera falta.
+            with suppress(SofascoreError):
                 self.arrancar()
-            except SofascoreError:
-                # Si el arranque falla, se intenta igual: puede que no hiciera falta.
-                pass
 
         self._limiter.wait()
         try:

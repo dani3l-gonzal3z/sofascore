@@ -1,6 +1,7 @@
 """Modelos y catálogo de secciones."""
 
 import pytest
+from conftest import cargar
 
 from sofascore.endpoints import (
     ALL_SECTIONS,
@@ -10,8 +11,6 @@ from sofascore.endpoints import (
     resolve_sections,
 )
 from sofascore.models import Event, Player, Score, Team
-
-from conftest import cargar
 
 
 def test_evento_completo():

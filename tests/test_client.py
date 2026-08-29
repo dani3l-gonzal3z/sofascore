@@ -1,14 +1,13 @@
 """Cliente HTTP: caché, reintentos, errores y credenciales."""
 
 import pytest
+from conftest import EVENT_ID
 
 from sofascore.cache import MemoryCache
 from sofascore.client import SofascoreClient
 from sofascore.config import Settings
 from sofascore.errors import HTTPError, NotFound, OfflineError, PlusRequired, TransportError
 from sofascore.transport import FakeTransport, Response
-
-from conftest import EVENT_ID
 
 
 def _cliente(rutas, **ajustes_extra):

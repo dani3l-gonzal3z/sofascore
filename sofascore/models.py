@@ -38,7 +38,7 @@ class Team:
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
-    def from_api(cls, datos: dict | None) -> "Team":
+    def from_api(cls, datos: dict | None) -> Team:
         datos = datos or {}
         return cls(
             id=datos.get("id"),
@@ -67,7 +67,7 @@ class Score:
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
-    def from_api(cls, datos: dict | None) -> "Score":
+    def from_api(cls, datos: dict | None) -> Score:
         datos = datos or {}
         return cls(
             current=datos.get("current"),
@@ -96,7 +96,7 @@ class Player:
 
     @classmethod
     def from_api(cls, datos: dict | None, team_id: int | None = None,
-                 substitute: bool = False) -> "Player":
+                 substitute: bool = False) -> Player:
         datos = datos or {}
         jugador = datos.get("player", datos)
         dorsal = datos.get("shirtNumber") or jugador.get("jerseyNumber")
@@ -149,7 +149,7 @@ class Event:
     raw: dict = field(default_factory=dict, repr=False)
 
     @classmethod
-    def from_api(cls, datos: dict) -> "Event":
+    def from_api(cls, datos: dict) -> Event:
         datos = datos.get("event", datos) if isinstance(datos, dict) else {}
         return cls(
             id=int(datos.get("id", 0)),

@@ -64,7 +64,9 @@ from .match import MatchReport, build_report
 from .models import Event, Player, Score, Team
 from .report import SectionResult
 from .resolve import Candidate, Resolution, resolve_event
-from .tools import TOOLS, ejecutar as ejecutar_herramienta, esquemas as esquemas_herramientas
+from .tools import TOOLS
+from .tools import ejecutar as ejecutar_herramienta
+from .tools import esquemas as esquemas_herramientas
 from .transport import FakeTransport, HttpxTransport, UrllibTransport
 
 __version__ = "0.1.0"

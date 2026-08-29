@@ -1,8 +1,8 @@
 """La API de una línea: get_match / search_matches."""
 
-import sofascore
-
 from conftest import EVENT_ID
+
+import sofascore
 
 
 def test_get_match_con_cliente_inyectado(cliente):

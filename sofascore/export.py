@@ -5,8 +5,8 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from .match import MatchReport
 
+from .match import MatchReport
 
 # --------------------------------------------------------------------------- JSON
 
@@ -103,7 +103,8 @@ def to_markdown(informe: MatchReport, ruta: str | Path | None = None) -> str:
         f"- **Estado:** {evento.status_description or evento.status_type}",
     ]
     if evento.venue:
-        lineas.append(f"- **Estadio:** {evento.venue}" + (f" ({evento.city})" if evento.city else ""))
+        ciudad = f" ({evento.city})" if evento.city else ""
+        lineas.append(f"- **Estadio:** {evento.venue}{ciudad}")
     if evento.referee:
         lineas.append(f"- **Árbitro:** {evento.referee}")
     if evento.attendance:

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -176,10 +177,9 @@ def _eventos_de_equipo(
         if not tanda:
             break
         eventos.extend(Event.from_api(e) for e in tanda)
-    try:
+    # Los próximos partidos son un extra: si no están, el calendario sirve igual.
+    with suppress(SofascoreError):
         eventos.extend(Event.from_api(e) for e in cliente.team_events(team_id, when="next"))
-    except SofascoreError:
-        pass
     return eventos
 
 

@@ -11,14 +11,16 @@ así que va en una segunda tanda.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from .catalog import suggest_stat
 from .client import SofascoreClient
 from .endpoints import Section, get_section, resolve_sections
 from .errors import NotFound, PlusRequired, SofascoreError
 from .models import Event, Player
+
 #: Los estados viven en :mod:`sofascore.report`; se reexportan aquí porque es
 #: donde los busca todo el mundo (``from sofascore.match import OK``).
 from .report import (

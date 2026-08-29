@@ -3,10 +3,9 @@
 import json
 
 import pytest
+from conftest import EVENT_ID
 
 from sofascore import cli
-
-from conftest import EVENT_ID
 
 
 @pytest.fixture
@@ -63,10 +62,11 @@ def test_match_stdout_json(cli_con_cliente, capsys):
 
 
 def test_match_avisa_de_las_secciones_de_pago(monkeypatch, ajustes, capsys):
+    from conftest import rutas_por_defecto
+
     from sofascore.cache import MemoryCache
     from sofascore.client import SofascoreClient
     from sofascore.transport import FakeTransport
-    from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
@@ -104,10 +104,11 @@ def test_login_comprueba_contra_un_partido(cli_con_cliente, capsys):
 
 
 def test_login_detecta_credenciales_rechazadas(monkeypatch, ajustes, capsys):
+    from conftest import rutas_por_defecto
+
     from sofascore.cache import MemoryCache
     from sofascore.client import SofascoreClient
     from sofascore.transport import FakeTransport
-    from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 401
@@ -121,10 +122,11 @@ def test_login_detecta_credenciales_rechazadas(monkeypatch, ajustes, capsys):
 
 def test_login_sigue_probando_si_una_sonda_no_existe(monkeypatch, ajustes, capsys):
     """win_probability da 404 en muchos partidos: eso no dice nada de tu cuenta."""
+    from conftest import rutas_por_defecto
+
     from sofascore.cache import MemoryCache
     from sofascore.client import SofascoreClient
     from sofascore.transport import FakeTransport
-    from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 404      # no existe aquí
@@ -140,10 +142,11 @@ def test_login_sigue_probando_si_una_sonda_no_existe(monkeypatch, ajustes, capsy
 
 
 def test_login_lo_dice_cuando_ninguna_sonda_existe(monkeypatch, ajustes, capsys):
+    from conftest import rutas_por_defecto
+
     from sofascore.cache import MemoryCache
     from sofascore.client import SofascoreClient
     from sofascore.transport import FakeTransport
-    from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 404

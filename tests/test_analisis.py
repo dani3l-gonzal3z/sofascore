@@ -8,8 +8,8 @@ tienen que salir bien.
 from __future__ import annotations
 
 import pytest
-
 from conftest import EVENT_ID, rutas_por_defecto
+
 from sofascore.analisis import (
     analisis_completo,
     aportacion_jugadores,

@@ -1,11 +1,10 @@
 """Resolución de la consulta a un partido concreto."""
 
 import pytest
+from conftest import EVENT_ID
 
 from sofascore.errors import MatchNotFound
 from sofascore.resolve import normalizar, parecido, parse_event_id, resolve_event, split_teams
-
-from conftest import EVENT_ID
 
 
 @pytest.mark.parametrize(

@@ -3,10 +3,10 @@
 import csv
 import json
 
+from conftest import EVENT_ID
+
 from sofascore.export import to_csv_dir, to_json, to_markdown
 from sofascore.match import build_report
-
-from conftest import EVENT_ID
 
 
 def _informe(cliente):
@@ -61,11 +61,12 @@ def test_csv_incluye_tiros_si_hay_plus(cliente, tmp_path):
 
 
 def test_las_secciones_bloqueadas_se_ven_en_el_markdown(cliente, tmp_path):
+    from conftest import rutas_por_defecto
+
     from sofascore.cache import MemoryCache
     from sofascore.client import SofascoreClient
     from sofascore.config import Settings
     from sofascore.transport import FakeTransport
-    from conftest import rutas_por_defecto
 
     rutas = rutas_por_defecto()
     rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403

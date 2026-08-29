@@ -24,8 +24,9 @@ ventana de contexto del modelo en silencio.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from .catalog import KNOWN_STAT_KEYS, LEAGUES
 from .client import SofascoreClient
@@ -154,7 +155,8 @@ def _filtrar_por_equipo(filas: list[dict], equipo: str | None, clave: str = "equ
     {
         "consulta": {"type": "string", "description": "Equipos, URL o id del partido."},
         "fecha": {"type": "string", "description": "AAAA-MM-DD. Filtra a ese día exacto."},
-        "limite": {"type": "integer", "description": "Cuántos candidatos devolver (por defecto 8)."},
+        "limite": {"type": "integer",
+                   "description": "Cuántos candidatos devolver (por defecto 8)."},
     },
     ["consulta"],
 )
@@ -511,7 +513,8 @@ def _ficha_jugador(cliente, jugador: str, secciones: list[str] | None = None):
     "Acepta alias ('laliga', 'premier', 'champions').",
     {
         "liga": {"type": "string", "description": "Nombre o alias de la competición."},
-        "temporada": {"type": "integer", "description": "Id de temporada (por defecto, la actual)."},
+        "temporada": {"type": "integer",
+                      "description": "Id de temporada (por defecto, la actual)."},
     },
     ["liga"],
 )

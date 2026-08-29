@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from conftest import EVENT_ID, rutas_por_defecto
+
 from sofascore.cache import MemoryCache
 from sofascore.client import SofascoreClient
 from sofascore.config import Settings

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-
 from conftest import rutas_por_defecto
+
 from sofascore.cache import MemoryCache
 from sofascore.client import SofascoreClient
 from sofascore.config import Settings
@@ -116,8 +116,9 @@ def test_las_estadisticas_de_temporada_se_piden_solas(cliente):
 
 
 def test_se_coge_la_temporada_mas_reciente_de_la_liga_principal(cliente):
-    from sofascore.entities import temporada_mas_reciente
     from conftest import cargar
+
+    from sofascore.entities import temporada_mas_reciente
 
     assert temporada_mas_reciente(cargar("player_seasons")) == {
         "tournament_id": 8, "season_id": 61643,
