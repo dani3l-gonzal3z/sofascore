@@ -10,7 +10,10 @@ import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-ENV_PREFIX = "SOFA_"
+ENV_PREFIX = "CANCHA_"
+#: El prefijo de antes de que el paquete se llamara `cancha`. Se sigue leyendo:
+#: quien ya tuviera su .env escrito no tiene por qué tocarlo.
+ENV_PREFIX_ANTIGUO = "SOFA_"
 
 DEFAULT_BASE_URL = "https://api.sofascore.com/api/v1"
 
@@ -47,6 +50,15 @@ def parse_dotenv(path: str | os.PathLike[str]) -> dict[str, str]:
             valor = valor[1:-1]
         valores[clave] = valor
     return valores
+
+
+def leer(fuente: dict[str, str], campo: str) -> str | None:
+    """Busca un ajuste con el prefijo nuevo y, si no está, con el viejo."""
+    for prefijo in (ENV_PREFIX, ENV_PREFIX_ANTIGUO):
+        valor = fuente.get(prefijo + campo.upper())
+        if valor is not None:
+            return valor
+    return None
 
 
 def _as_bool(valor: str, por_defecto: bool = False) -> bool:
@@ -101,6 +113,12 @@ class Settings:
     #: Cabeceras extra que quieras añadir a cada petición.
     extra_headers: dict[str, str] = field(default_factory=dict)
 
+    # --- Grabar y reproducir ---
+    #: Carpeta donde guardar lo que responda la API. Vacío = no grabar.
+    grabar_en: str = ""
+    #: Carpeta de la que servir respuestas grabadas, sin tocar la red.
+    reproducir_de: str = ""
+
     @classmethod
     def from_env(
         cls,
@@ -120,24 +138,26 @@ class Settings:
 
         ajustes = cls()
         for campo in ("base_url", "user_agent", "language", "plus_cookie", "plus_token",
-                      "plus_cookie_file", "sport", "transport"):
-            valor = fuente.get(ENV_PREFIX + campo.upper())
+                      "plus_cookie_file", "sport", "transport", "grabar_en",
+                      "reproducir_de"):
+            valor = leer(fuente, campo)
             if valor:
                 setattr(ajustes, campo, valor)
         for campo in ("timeout", "backoff", "rate_limit"):
-            valor = fuente.get(ENV_PREFIX + campo.upper())
+            valor = leer(fuente, campo)
             if valor:
                 setattr(ajustes, campo, float(valor))
         for campo in ("retries", "cache_ttl", "cache_ttl_finished", "concurrency"):
-            valor = fuente.get(ENV_PREFIX + campo.upper())
+            valor = leer(fuente, campo)
             if valor:
                 setattr(ajustes, campo, int(valor))
-        if ENV_PREFIX + "OFFLINE" in fuente:
-            ajustes.offline = _as_bool(fuente[ENV_PREFIX + "OFFLINE"])
-        if fuente.get(ENV_PREFIX + "CACHE_DIR"):
-            ajustes.cache_dir = Path(fuente[ENV_PREFIX + "CACHE_DIR"])
-        if fuente.get(ENV_PREFIX + "FALLBACK_BASE_URLS") is not None:
-            crudo = fuente[ENV_PREFIX + "FALLBACK_BASE_URLS"]
+        offline = leer(fuente, "offline")
+        if offline is not None:
+            ajustes.offline = _as_bool(offline)
+        if leer(fuente, "cache_dir"):
+            ajustes.cache_dir = Path(leer(fuente, "cache_dir"))
+        crudo = leer(fuente, "fallback_base_urls")
+        if crudo is not None:
             ajustes.fallback_base_urls = tuple(
                 u.strip() for u in crudo.split(",") if u.strip()
             )
@@ -177,4 +197,6 @@ class Settings:
             "offline": self.offline,
             "sport": self.sport,
             "plus_credentials": "configuradas" if self.has_plus_credentials() else "no",
+            "grabar_en": self.grabar_en or None,
+            "reproducir_de": self.reproducir_de or None,
         }

@@ -138,7 +138,8 @@ sofascore sections [--kind team]          # catálogo de secciones
 sofascore cookie [--save]                 # saca tu cookie de lo copiado del navegador
 sofascore login [partido]                 # comprueba tus credenciales Plus
 sofascore raw /event/11352550/statistics  # cualquier ruta de la API, tal cual
-sofascore analisis <partido>              # las cuentas hechas: puntos esperados, xG
+cancha grabar <partido>                   # guarda respuestas reales para los tests
+cancha analisis <partido>                 # las cuentas hechas: puntos esperados, xG
 sofascore fuentes                         # qué fuentes hay además de Sofascore
 sofascore contexto <partido>              # el partido visto por todas a la vez
 sofascore tools [--json]                  # las herramientas que ve una IA
@@ -484,6 +485,7 @@ Piezas sueltas, todas intercambiables:
 | `tools.py` | Las 14 herramientas para una IA, con sus esquemas |
 | `mcp.py` | Servidor MCP (JSON-RPC por stdin/stdout) |
 | `analisis.py` | Métricas calculadas: puntos esperados, calidad de tiro, xG acumulado |
+| `grabacion.py` | Grabar respuestas reales y reproducirlas sin red |
 | `sources/` | Otras fuentes: Understat, ClubElo, y el cruce entre ellas |
 | `cli.py` | La línea de comandos |
 
@@ -550,6 +552,33 @@ python -m pytest                  # 347 tests, sin red
 ruff check .                      # el mismo estilo que exige el CI
 python examples/demo_offline.py   # el informe completo con datos de ejemplo
 python examples/entidades.py      # equipos, jugadores y ligas (necesita red)
+```
+
+### Grabar respuestas reales
+
+Los tests de arriba usan respuestas escritas a mano: prueban que el código es
+coherente **consigo mismo**, no que la API devuelva lo que aquí se supone. Esa
+diferencia dejó pasar dos fallos serios (`/h2h/events` quería el `customId` y
+no el id; los cambios de jugador no usan la clave `player`).
+
+```bash
+cancha grabar 12437616            # graba partido, equipo, jugador y liga
+python -m pytest tests/test_contrato.py -v
+```
+
+`tests/test_contrato.py` comprueba lo único que los demás no pueden: que lo que
+el código da por supuesto esté de verdad en la respuesta. Sin grabaciones se
+salta entero, con el aviso de cómo conseguirlas.
+
+Se guarda **solo la respuesta**, nunca la petición: tu cookie de Plus no acaba
+en ningún fichero. Si subes las grabaciones al repositorio, el CI empieza a
+comprobar el contrato en cada push.
+
+Y cualquier comando puede servirse de ellas en vez de salir a internet:
+
+```bash
+cancha match 12437616 --all --replay tests/fixtures/reales
+cancha grabaciones                # qué hay guardado
 ```
 
 ### Integración continua

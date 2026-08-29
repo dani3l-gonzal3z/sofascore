@@ -27,6 +27,7 @@ from typing import Any
 from ..cache import Cache, build_cache
 from ..config import Settings
 from ..errors import HTTPError, NotFound, OfflineError, SofascoreError, TransportError
+from ..grabacion import preparar_transporte
 from ..ratelimit import RateLimiter
 from ..transport import Transport, build_transport
 
@@ -65,8 +66,11 @@ class Fuente:
 
     def __post_init__(self) -> None:
         self.settings = self.settings or Settings.from_env()
-        self.transport = self.transport or build_transport(
-            self.settings.transport, timeout=self.settings.timeout
+        self.transport = preparar_transporte(
+            self.transport or build_transport(
+                self.settings.transport, timeout=self.settings.timeout
+            ),
+            self.settings,
         )
         if self.cache is None:
             self.cache = build_cache(

@@ -26,6 +26,7 @@ from .errors import (
     RateLimited,
     TransportError,
 )
+from .grabacion import preparar_transporte
 from .models import Event
 from .ratelimit import RateLimiter
 from .transport import Transport, build_transport
@@ -84,8 +85,11 @@ class SofascoreClient:
         sleep=time.sleep,
     ) -> None:
         self.settings = settings or Settings.from_env()
-        self.transport = transport or build_transport(
-            self.settings.transport, timeout=self.settings.timeout
+        self.transport = preparar_transporte(
+            transport or build_transport(
+                self.settings.transport, timeout=self.settings.timeout
+            ),
+            self.settings,
         )
         self.cache = cache if cache is not None else build_cache(
             self.settings.cache_dir, self.settings.cache_ttl

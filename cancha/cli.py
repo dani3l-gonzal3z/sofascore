@@ -44,6 +44,8 @@ def _construir_cliente(args: argparse.Namespace) -> SofascoreClient:
         offline=True if getattr(args, "offline", False) else None,
         concurrency=getattr(args, "parallel", None),
         transport=getattr(args, "transport", None),
+        grabar_en=getattr(args, "record", None),
+        reproducir_de=getattr(args, "replay", None),
         cache_dir=Path(args.cache_dir) if getattr(args, "cache_dir", None) else None,
     )
     cache = NullCache() if getattr(args, "no_cache", False) else None
@@ -381,6 +383,83 @@ def cmd_cookie(args: argparse.Namespace) -> int:
     return 0
 
 
+#: Lo que se graba para que los tests de contrato tengan de todo.
+GUION_DE_GRABACION = (
+    ("partido, todas las secciones", "match", ["--all", "--players", "6", "--quiet"]),
+    ("equipo", "team", ["--all"]),
+    ("jugador", "player", ["--all"]),
+    ("competición", "league", ["--all"]),
+)
+
+
+def cmd_grabar(args: argparse.Namespace) -> int:
+    """Guarda respuestas reales de la API para que los tests las usen.
+
+    Los tests de este proyecto se han escrito siempre contra respuestas de
+    ejemplo inventadas, y eso dejó pasar fallos de verdad. Esto graba lo que la
+    API responde para poder comprobar que el código no da por supuesto nada que
+    no esté.
+    """
+    from .grabacion import resumen
+
+    destino = Path(args.carpeta)
+    _imprimir(f"Grabando en {destino}\n")
+    _imprimir("Se guarda SOLO la respuesta, nunca la petición: tu cookie de Plus")
+    _imprimir("no acaba en ningún fichero.\n")
+
+    plan = [
+        ("partido", ["match", args.partido, "--all", "--players", "4", "--quiet"]),
+    ]
+    if args.equipo:
+        plan.append(("equipo", ["team", args.equipo, "--all"]))
+    if args.jugador:
+        plan.append(("jugador", ["player", args.jugador, "--all"]))
+    if args.liga:
+        plan.append(("competición", ["league", args.liga, "--all"]))
+    if args.fuentes:
+        plan.append(("otras fuentes", ["contexto", args.partido]))
+
+    fallos = 0
+    for etiqueta, orden in plan:
+        _imprimir(f"  · {etiqueta}: cancha {' '.join(orden[:2])} …")
+        completa = [*orden, "--record", str(destino)]
+        if getattr(args, "date", None) and orden[0] == "match":
+            completa += ["--date", args.date]
+        try:
+            codigo = main(completa)
+            if codigo != 0:
+                fallos += 1
+                _imprimir(f"      (terminó con código {codigo})")
+        except SofascoreError as exc:
+            fallos += 1
+            _imprimir(f"      falló: {exc}")
+
+    datos = resumen(destino)
+    _imprimir(f"\n{datos.get('grabaciones', 0)} respuestas guardadas.")
+    if datos.get("grabaciones"):
+        _imprimir("\nAhora los tests de contrato ya tienen con qué trabajar:")
+        _imprimir("    python -m pytest tests/test_contrato.py -v")
+    if fallos:
+        _imprimir(f"\n{fallos} parte(s) no se pudieron grabar; el resto sí.")
+    return 0
+
+
+def cmd_grabaciones(args: argparse.Namespace) -> int:
+    """Qué hay grabado."""
+    from .grabacion import resumen
+
+    datos = resumen(args.carpeta)
+    if not datos.get("grabaciones"):
+        _imprimir(f"No hay nada grabado en {args.carpeta}.")
+        _imprimir("Grábalo con: cancha grabar <partido>")
+        return 0
+    _imprimir(f"{datos['grabaciones']} respuestas en {args.carpeta}")
+    _imprimir(f"Grabadas entre {datos['desde']} y {datos['hasta']}\n")
+    for ruta in datos["rutas"]:
+        _imprimir(f"  {ruta}")
+    return 0
+
+
 def cmd_analisis(args: argparse.Namespace) -> int:
     """Las métricas calculadas de un partido."""
     from .analisis import analisis_completo
@@ -630,6 +709,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Cómo se hacen las peticiones (por defecto: auto).")
     comun.add_argument("--debug", action="store_true",
                        help="Muestra contadores de peticiones y ajustes en uso.")
+    comun.add_argument("--record", metavar="CARPETA",
+                       help="Guarda lo que responda la API en esa carpeta.")
+    comun.add_argument("--replay", metavar="CARPETA",
+                       help="Sirve las respuestas de esa carpeta, sin tocar la red.")
 
     # Opciones comunes a los informes por secciones (partido, equipo, jugador, liga).
     informe = argparse.ArgumentParser(add_help=False)
@@ -723,6 +806,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_cookie.add_argument("--save", action="store_true", help="Escribirla en el .env.")
     p_cookie.add_argument("--env", default=".env", help="Ruta del .env (por defecto: .env).")
     p_cookie.set_defaults(func=cmd_cookie)
+
+    p_grabar = sub.add_parser(
+        "grabar", parents=[comun],
+        help="Guarda respuestas reales de la API para los tests.",
+        description="Los tests se escribieron contra respuestas inventadas. "
+                    "Esto graba las de verdad para poder comprobar el código "
+                    "contra ellas.",
+    )
+    p_grabar.add_argument("partido", help="Id, URL o 'Equipo A vs Equipo B'.")
+    p_grabar.add_argument("--date", help="Fecha del partido (AAAA-MM-DD).")
+    p_grabar.add_argument("--carpeta", default="tests/fixtures/reales",
+                          help="Dónde guardarlo (por defecto: tests/fixtures/reales).")
+    p_grabar.add_argument("--equipo", default="Real Madrid", help="Equipo del que grabar la ficha.")
+    p_grabar.add_argument("--jugador", default="Vinicius Junior", help="Jugador del que grabarla.")
+    p_grabar.add_argument("--liga", default="laliga", help="Competición de la que grabarla.")
+    p_grabar.add_argument("--fuentes", action="store_true",
+                          help="Grabar también Understat y ClubElo.")
+    p_grabar.set_defaults(func=cmd_grabar)
+
+    p_grabaciones = sub.add_parser("grabaciones", help="Qué respuestas hay grabadas.")
+    p_grabaciones.add_argument("--carpeta", default="tests/fixtures/reales")
+    p_grabaciones.set_defaults(func=cmd_grabaciones)
 
     p_analisis = sub.add_parser(
         "analisis", parents=[comun],

@@ -58,6 +58,9 @@ def rutas_por_defecto() -> dict:
         "/unique-tournament/8": {"uniqueTournament": {"id": 8, "name": "LaLiga"}},
         "/unique-tournament/8/seasons": cargar("seasons"),
         "/unique-tournament/8/season/61643/standings/total": cargar("standings"),
+        # También la temporada anterior: sin esta, el transporte falso caía a
+        # "/unique-tournament/8" y servía la ficha como si fuera la tabla.
+        "/unique-tournament/8/season/52376/standings/total": cargar("standings"),
         "/unique-tournament/8/season/61643/rounds": {"rounds": [{"round": 12}]},
         "/unique-tournament/8/season/61643/top-players/overall": {"topPlayers": {}},
         "/unique-tournament/8/season/61643/events/last/0": cargar("team_events"),

@@ -13,7 +13,7 @@ import json
 import urllib.error
 import urllib.request
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 from .errors import TransportError
@@ -231,7 +231,9 @@ class FakeTransport:
     @staticmethod
     def _build(url: str, payload: Any) -> Response:
         if isinstance(payload, Response):
-            return payload
+            # La URL es la que se ha pedido, no la que llevara la respuesta
+            # preparada: un transporte que mienta en eso engaña a quien grabe.
+            return replace(payload, url=url)
         if isinstance(payload, int):
             return Response(status=payload, url=url, body=b"{}")
         if callable(payload):
