@@ -287,5 +287,85 @@ def test_una_fuente_que_falla_no_tumba_las_demas(monkeypatch, tmp_path):
         sleep=lambda _s: None,
     )
     salida = contexto_partido(cliente, EVENT_ID)
-    assert salida["fuentes"]["clubelo"]["estado"] == "error"
+    # Un 500 en todas sus raíces: la fuente no ha contestado, no es el nombre.
+    assert salida["fuentes"]["clubelo"]["estado"] == "sin_respuesta"
     assert salida["fuentes"]["understat"]["estado"] == "ok"
+
+
+# ------------------------------------ que una raíz no conteste no es el final
+
+def test_si_la_raiz_principal_no_responde_se_prueba_la_otra():
+    """Lo que le pasó a ClubElo en http: 15 segundos y cero bytes."""
+    from cancha.errors import TransportError
+
+    class SoloHttps:
+        def __init__(self):
+            self.calls = []
+
+        def request(self, method, url, headers):
+            self.calls.append(url)
+            if url.startswith("http://"):
+                raise TransportError("timeout")
+            return _texto(CSV_BARCELONA)
+
+    transporte = SoloHttps()
+    fuente = ClubElo(settings=Settings(rate_limit=0), transport=transporte,
+                     cache=MemoryCache())
+    fuente.base_url = "http://api.clubelo.com"
+    fuente.urls_alternativas = ("https://api.clubelo.com",)
+    assert fuente.actual("Barcelona")["elo"] == 1995.7
+    assert len(transporte.calls) == 2
+
+
+def test_por_defecto_se_intenta_https_antes_que_http():
+    fuente = ClubElo()
+    assert fuente.raices()[0].startswith("https://")
+    assert any(r.startswith("http://") for r in fuente.raices())
+
+
+def test_la_cache_no_depende_de_por_qué_raiz_entro():
+    fuente = _elo()
+    fuente.urls_alternativas = ("http://api.clubelo.com",)
+    fuente.actual("Barcelona")
+    peticiones = len(fuente.transport.calls)
+    fuente.actual("Barcelona")
+    assert len(fuente.transport.calls) == peticiones
+
+
+def test_si_ninguna_raiz_contesta_se_dice():
+    from cancha.errors import TransportError
+
+    class Muerto:
+        calls = []
+
+        def request(self, *_a, **_k):
+            raise TransportError("nada")
+
+    fuente = ClubElo(settings=Settings(rate_limit=0), transport=Muerto(),
+                     cache=MemoryCache())
+    with pytest.raises(FuenteError, match="no responde"):
+        fuente.por_fecha("2026-08-23")
+
+
+def test_un_timeout_no_se_confunde_con_un_nombre_mal_escrito():
+    """El mensaje culpaba al nombre del equipo cuando era la red."""
+    from cancha.errors import TransportError
+    from cancha.models import Event
+    from cancha.sources import cruce
+
+    class Muerto:
+        def request(self, *_a, **_k):
+            raise TransportError("timeout")
+
+    def elo_muerto():
+        return ClubElo(settings=Settings(rate_limit=0), transport=Muerto(),
+                       cache=MemoryCache())
+
+    original, cruce.ClubElo = cruce.ClubElo, elo_muerto
+    try:
+        salida = cruce._clubelo(Event.from_api({"id": 1, "homeTeam": {"name": "Real Madrid"},
+                                                "awayTeam": {"name": "Barcelona"}}))
+    finally:
+        cruce.ClubElo = original
+    assert salida["estado"] == "sin_respuesta"
+    assert "No es el nombre del equipo" in salida["nota"]

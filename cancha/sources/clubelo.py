@@ -28,8 +28,13 @@ class ClubElo(Fuente):
     NOMBRE = "clubelo"
 
     nombre: str = "clubelo"
-    base_url: str = "http://api.clubelo.com"
+    # Su documentación dice http, pero https funciona y es lo que debe
+    # intentarse primero; el http queda de reserva.
+    base_url: str = "https://api.clubelo.com"
+    urls_alternativas: tuple[str, ...] = ("http://api.clubelo.com",)
     rate_limit: float = 2.0
+    #: Tarda lo suyo en contestar: 15 segundos se le quedan cortos.
+    timeout: float = 30.0
     #: El Elo cambia como mucho una vez al día.
     ttl: int = 12 * 3600
     descripcion: str = (

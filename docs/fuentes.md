@@ -41,8 +41,10 @@ que cada modelo pondera distinto. La IA tiene esa comparación en una sola
 llamada (`contexto_externo`).
 
 Además, todas las fuentes comparten transporte, caché, errores tipados y modo
-offline, **cada una con su propio ritmo** de peticiones: ClubElo aguanta dos por
-segundo y Understat no es una API pública y se le va despacio. Añadir una
+offline, **cada una con su propio ritmo, su paciencia y sus raíces de
+reserva**: ClubElo aguanta dos peticiones por segundo pero tarda en contestar
+(30 s de espera, y si https no va se prueba http), y Understat no es una API
+pública y se le va despacio. Añadir una
 fuente es heredar de `Fuente` y escribir lo que trae.
 
 ### Lo que falta

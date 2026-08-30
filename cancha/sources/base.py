@@ -48,10 +48,15 @@ class Fuente:
     nombre: str = ""
     #: Raíz de sus URLs.
     base_url: str = ""
+    #: Raíces alternativas, por si la principal no contesta. Mismo mecanismo
+    #: que usa el cliente de Sofascore con sus dos hosts.
+    urls_alternativas: tuple[str, ...] = ()
     #: Peticiones por segundo. Cada sitio aguanta lo que aguanta.
     rate_limit: float = 1.0
     #: Segundos que se guarda una respuesta. Los datos históricos no cambian.
     ttl: int = 24 * 3600
+    #: Segundos de espera por petición. Hay sitios lentos que necesitan más.
+    timeout: float = 0.0
     #: Cabeceras propias de la fuente.
     headers: dict[str, str] = field(default_factory=dict)
     #: Qué trae, en una línea, para que se pueda listar (y para la IA).
@@ -68,7 +73,8 @@ class Fuente:
         self.settings = self.settings or Settings.from_env()
         self.transport = preparar_transporte(
             self.transport or build_transport(
-                self.settings.transport, timeout=self.settings.timeout
+                self.settings.transport,
+                timeout=self.timeout or self.settings.timeout,
             ),
             self.settings,
         )
@@ -95,23 +101,35 @@ class Fuente:
 
     # --- pedir ---
 
-    def url(self, ruta: str) -> str:
+    def raices(self) -> list[str]:
+        """La raíz principal y sus alternativas, sin repetidos."""
+        vistas: list[str] = []
+        for raiz in (self.base_url, *self.urls_alternativas):
+            limpia = (raiz or "").rstrip("/")
+            if limpia and limpia not in vistas:
+                vistas.append(limpia)
+        return vistas
+
+    def url(self, ruta: str, raiz: str | None = None) -> str:
         if ruta.startswith("http"):
             return ruta
-        return f"{self.base_url.rstrip('/')}/{ruta.lstrip('/')}"
+        return f"{(raiz or self.base_url).rstrip('/')}/{ruta.lstrip('/')}"
 
     def texto(self, ruta: str, ttl: int | None = None) -> str:
-        """Pide una ruta y devuelve el cuerpo como texto, con caché."""
-        url = self.url(ruta)
+        """Pide una ruta y devuelve el cuerpo como texto, con caché.
+
+        La caché se indexa por *ruta* y no por URL: si la respuesta entró por
+        una raíz alternativa, la siguiente vez se reaprovecha igual.
+        """
         ttl = self.ttl if ttl is None else ttl
-        clave = f"{self.nombre}|{url}"
+        clave = f"{self.nombre}|{ruta}"
 
         guardado = self.cache.get(clave, ttl)
         if guardado is not None:
             return guardado
 
         if self.settings.offline:
-            raise OfflineError(f"Modo offline y sin copia en caché de {url}.")
+            raise OfflineError(f"Modo offline y sin copia en caché de {ruta}.")
 
         if not self._arrancada:
             self._arrancada = True
@@ -119,20 +137,32 @@ class Fuente:
             with suppress(SofascoreError):
                 self.arrancar()
 
-        self._limiter.wait()
-        try:
-            respuesta = self.transport.request("GET", url, self.cabeceras())
-        except TransportError as exc:
-            raise FuenteError(f"[{self.nombre}] no responde: {exc}") from exc
+        ultimo: Exception | None = None
+        raices = self.raices() or [""]
+        for indice, raiz in enumerate(raices):
+            url = self.url(ruta, raiz)
+            self._limiter.wait()
+            try:
+                respuesta = self.transport.request("GET", url, self.cabeceras())
+            except TransportError as exc:
+                # Que una raíz no conteste no dice nada del dato pedido: se
+                # prueba la siguiente antes de rendirse.
+                ultimo = FuenteError(f"[{self.nombre}] no responde: {exc}")
+                continue
 
-        if respuesta.status == 404:
-            raise NotFound(404, url, respuesta.text()[:200])
-        if not respuesta.ok:
-            raise HTTPError(respuesta.status, url, respuesta.text()[:200])
+            if respuesta.status == 404:
+                raise NotFound(404, url, respuesta.text()[:200])
+            if not respuesta.ok:
+                ultimo = HTTPError(respuesta.status, url, respuesta.text()[:200])
+                if indice < len(raices) - 1:
+                    continue
+                raise ultimo
 
-        cuerpo = respuesta.text()
-        self.cache.set(clave, cuerpo)
-        return cuerpo
+            cuerpo = respuesta.text()
+            self.cache.set(clave, cuerpo)
+            return cuerpo
+
+        raise ultimo or FuenteError(f"[{self.nombre}] no ha podido traer {ruta}.")
 
     def json(self, ruta: str, ttl: int | None = None) -> Any:
         """Lo mismo, ya decodificado."""

@@ -153,14 +153,25 @@ def _por_lado(equipos: dict, evento: Event, emparejado: dict) -> dict | None:
 
 def _clubelo(evento: Event) -> dict:
     """La fuerza de los dos equipos según ClubElo."""
+    from ..errors import NotFound as NoEncontrado
+
     fuente = ClubElo()
     try:
         return {"estado": "ok", **fuente.comparar(evento.home.name, evento.away.name)}
-    except SofascoreError as exc:
+    except NoEncontrado as exc:
+        # Aquí sí es cosa del nombre: ClubElo los escribe a su manera.
         return {
-            "estado": "error",
+            "estado": "no_encontrado",
             "nota": f"{exc}. ClubElo escribe los nombres a su manera "
-                    f"('Man City', 'Inter'): compruébalo con la clasificación.",
+                    f"('Man City', 'Inter'): míralos con `cancha raw` sobre su "
+                    f"clasificación o con la herramienta ranking_elo.",
+        }
+    except SofascoreError as exc:
+        # Y aquí no: no ha contestado, y decir que revises el nombre despista.
+        return {
+            "estado": "sin_respuesta",
+            "nota": f"{exc}. No es el nombre del equipo: la fuente no ha "
+                    f"contestado. Vuelve a intentarlo, que suele ir lenta.",
         }
     finally:
         fuente.close()

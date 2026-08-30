@@ -195,7 +195,9 @@ def cmd_contexto(args: argparse.Namespace) -> int:
             imprimir(f"       Probabilidad del local según Elo: "
                       f"{elo['probabilidad_local']:.0%}")
         else:
-            imprimir(f"\n  Elo               – {elo.get('nota', 'no disponible')}")
+            imprimir("\n  Elo               – no disponible")
+            for linea in envolver(elo.get("nota", ""), 70):
+                imprimir(f"    {linea}")
         depuracion(args, cliente)
         return 0
     finally:

@@ -72,6 +72,10 @@ Todos salieron de ejecutarlo contra la API de verdad:
   de antemano; ahora se deducen del propio informe.
 - `cancha login` sondeaba con una sección que da 404 en muchos partidos, así que
   no decía nada de tus credenciales.
+- **ClubElo se pedía por HTTP plano** y se quedaba colgado quince segundos sin
+  recibir un byte. Ahora se intenta primero por HTTPS, con el HTTP de reserva y
+  más paciencia. Y cuando una fuente no contesta, el aviso ya no culpa a cómo
+  hayas escrito el nombre del equipo.
 
 ### Cambios internos
 
