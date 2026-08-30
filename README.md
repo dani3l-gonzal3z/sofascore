@@ -67,19 +67,31 @@ usa `tls_requests`, y `ScraperFC` y `sofascore-wrapper` llegan a levantar un
 navegador entero. Sigue siendo opcional —sin ella el framework funciona igual
 desde una red que no esté bloqueada— pero si ves un `403`, es esto.
 
-Con `--transport` (o `SOFA_TRANSPORT`) eliges a mano: `auto`, `curl`, `httpx`
+Con `--transport` (o `CANCHA_TRANSPORT`) eliges a mano: `auto`, `curl`, `httpx`
 o `urllib`.
 
-Si al instalar te avisa de que `sofascore.exe` ha quedado en una carpeta *que
-no está en el PATH* (habitual en Windows con instalación de usuario), no hace
-falta configurar nada: `python -m sofascore` hace exactamente lo mismo.
+### Si el comando `cancha` no se encuentra
+
+Al instalar, pip deja `cancha.exe` en una carpeta que **en Windows no suele
+estar en el PATH**, y te lo avisa. No hace falta configurar nada: **`python -m
+cancha` hace exactamente lo mismo**.
 
 ```bash
 python -m cancha match "Real Madrid vs Barcelona" --date 2024-10-26
+python -m cancha grabar 12437616
 ```
 
-Y sin instalar nada: copia la carpeta `sofascore/` a tu proyecto y usa
-`python -m sofascore ...` desde el directorio que la contiene.
+Si prefieres el comando a secas, añade al PATH de tu usuario la carpeta que te
+dijo pip (una vez, y luego reabre la terminal):
+
+```powershell
+$scripts = "$env:APPDATA\Python\Python312\Scripts"   # la que te diga pip
+[Environment]::SetEnvironmentVariable(
+    "Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$scripts", "User")
+```
+
+Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
+`python -m cancha ...` desde el directorio que la contiene.
 
 ## Documentación
 
