@@ -4,6 +4,54 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.3.0
+
+El framework sabía traer los datos de **un** partido. Ahora se acuerda de
+muchos, que es lo que hace falta para analizar de verdad: un dato suelto no
+dice nada sin saber qué es normal en esa liga o en ese jugador.
+
+### Novedades
+
+- **Memoria local** (`cancha/almacen.py`): una base SQLite —biblioteca
+  estándar— con partidos, estadísticas, actuaciones de jugadores, tiros e
+  incidencias. Guardar es idempotente, así que un barrido se puede cortar y
+  reanudar sin romper nada.
+- **Barrido** (`cancha barrido`): la agenda del día en 25 competiciones (las
+  cinco grandes, UEFA, MLS, Arabia, y varias europeas y americanas) y, de cada
+  equipo que juega, sus últimos partidos con detalle. El primero es caro; los
+  siguientes casi no, porque solo entra lo nuevo.
+- **Estilo de equipo** (`cancha estilo`): posesión, verticalidad, juego por
+  fuera, dependencia del balón parado, presión… todo **comparado con la media
+  de su liga**, y esa media se calcula sin contar al propio equipo.
+- **Forma y rachas de jugador** (`cancha forma`): cuántos partidos lleva sin
+  marcar, sin tirar entre palos o sin ser titular. Las rachas solo cuentan
+  partidos jugados, no los que pasó en el banquillo.
+- **Perfil de árbitro** (`cancha arbitro`): tarjetas, penaltis y faltas por
+  partido, y cómo reparte entre local y visitante. Sale de contar sus partidos
+  guardados; Sofascore no publica un endpoint para esto.
+- **Previa** (`cancha previa`): todo junto sobre un partido por jugar, incluido
+  dónde se pueden hacer daño.
+- **Seis herramientas más para la IA** (29 en total), ninguna de las cuales
+  sale a la red: leen de la memoria. Con `agenda_del_dia` y `previa_de_partido`
+  se escribe un repaso diario entero.
+
+### Arreglos
+
+- **ClubElo se pedía por HTTP plano** y se quedaba colgado quince segundos sin
+  recibir un byte. Ahora se intenta primero por HTTPS, con el HTTP de reserva.
+  El mecanismo es general: cualquier fuente puede declarar raíces alternativas
+  y su propio timeout.
+- Cuando una fuente no contestaba, el aviso culpaba a cómo hubieras escrito el
+  nombre del equipo. Ahora distingue «no encontrado» de «no ha contestado».
+- El orden en que la IA ve las herramientas ya no depende del orden de los
+  imports, que cualquier formateador reordena sin avisar.
+
+### Verificado contra la API real
+
+**Understat funciona.** Se escribió a ciegas, leyendo el código de
+`soccerdata`, y en la primera ejecución real dio 1.41–2.52 de xG donde
+Sofascore daba 1.46–2.58: los dos modelos coinciden dentro de 0.06.
+
 ## 0.2.0
 
 El paquete se llamaba `sofascore` y hablaba solo con Sofascore. Ahora se llama

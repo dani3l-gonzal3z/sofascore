@@ -1,3 +1,7 @@
+# La memoria local: es tuya y pesa; se reconstruye con `cancha barrido`
+datos/
+*.db
+
 # Caché de respuestas de la API
 .cancha-cache/
 .sofascore-cache/

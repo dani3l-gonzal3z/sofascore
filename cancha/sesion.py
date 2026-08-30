@@ -22,6 +22,7 @@ compartida entre procesos: eso ya lo hace :mod:`cancha.cache`.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from .client import SofascoreClient
 from .config import Settings
@@ -37,12 +38,15 @@ class Sesion:
 
     cliente: SofascoreClient | None = None
     settings: Settings | None = None
+    #: Fichero de la memoria. Se abre la primera vez que hace falta.
+    ruta_almacen: str = "datos/cancha.db"
     #: Cuántas veces se ha evitado repetir trabajo. Para poder demostrarlo.
     reutilizados: int = 0
 
     _resoluciones: dict[str, Resolution] = field(default_factory=dict, repr=False)
     _informes: dict[int, MatchReport] = field(default_factory=dict, repr=False)
     _propia: bool = field(default=False, repr=False)
+    _almacen: Any = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if self.cliente is None:
@@ -57,7 +61,19 @@ class Sesion:
     def __exit__(self, *_exc) -> None:
         self.close()
 
+    @property
+    def almacen(self):
+        """La memoria local, abierta solo si alguien la pide."""
+        if self._almacen is None:
+            from .almacen import Almacen
+
+            self._almacen = Almacen(self.ruta_almacen)
+        return self._almacen
+
     def close(self) -> None:
+        if self._almacen is not None:
+            self._almacen.close()
+            self._almacen = None
         if self._propia and self.cliente is not None:
             self.cliente.close()
 

@@ -1,6 +1,6 @@
 [project]
 name = "cancha"
-version = "0.2.0"
+version = "0.3.0"
 description = "Le dices un partido y te devuelve todos sus datos, de Sofascore y de otras fuentes, listos para analizar (también por una IA)"
 requires-python = ">=3.10"
 readme = "README.md"

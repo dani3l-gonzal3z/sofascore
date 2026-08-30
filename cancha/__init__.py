@@ -70,7 +70,7 @@ from .tools import ejecutar as ejecutar_herramienta
 from .tools import esquemas as esquemas_herramientas
 from .transport import FakeTransport, HttpxTransport, UrllibTransport
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def build_client(settings: Settings | None = None, **overrides) -> SofascoreClient:

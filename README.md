@@ -7,9 +7,11 @@ Understat y de ClubElo— ya cruzados y listos para analizar. Por línea de
 comandos, como librería o **como herramientas para una IA local**.
 
 ```bash
-cancha match "Real Madrid vs Barcelona" --date 2024-10-26
+cancha barrido                 # trae los partidos del día y el historial de quien juega
+cancha previa "Girona vs Osasuna"   # cómo llegan, cómo juegan, quién pita
+cancha estilo "Girona"         # cómo juega, comparado con su liga
+cancha forma "Vinicius Junior" # rachas: 4 partidos sin tirar entre palos
 cancha analisis 12437616       # puntos esperados, calidad de tiro, carrera de xG
-cancha contexto 12437616       # dos modelos de xG y el Elo de ambos equipos
 cancha mcp                     # servidor MCP para tu IA local
 ```
 
@@ -31,7 +33,10 @@ partido.available()            # secciones con datos
   o está detrás del muro de pago, queda marcada y el resto sigue.
 - **Las cuentas hechas.** Puntos esperados, xG acumulado, calidad de tiro: los
   números que un modelo calcularía mal.
-- **Probado sin red.** 398 tests en menos de un segundo, y un modo de grabar
+- **Memoria.** Una base local con lo que se va viendo, para poder decir cómo
+  juega un equipo *comparado con su liga* o cuántos partidos lleva alguien sin
+  rematar entre palos. Eso no se contesta mirando un partido.
+- **Probado sin red.** 438 tests en menos de un segundo, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
@@ -97,6 +102,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 
 | | |
 | --- | --- |
+| [La memoria](docs/memoria.md) | Barrido diario, estilo de equipo, rachas de jugador, árbitros, previas |
 | [Partidos](docs/partidos.md) | Cómo se nombra uno, qué trae el informe, las tablas |
 | [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
 | [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
