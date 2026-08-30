@@ -1,17 +1,16 @@
 """Modelos y catálogo de secciones."""
 
 import pytest
+from conftest import cargar
 
-from sofascore.endpoints import (
+from cancha.endpoints import (
     ALL_SECTIONS,
     DEFAULT_SECTIONS,
     SECTIONS,
     get_section,
     resolve_sections,
 )
-from sofascore.models import Event, Player, Score, Team
-
-from conftest import cargar
+from cancha.models import Event, Player, Score, Team
 
 
 def test_evento_completo():

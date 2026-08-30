@@ -1,0 +1,20 @@
+{
+ "players": [
+  {
+   "player": {
+    "id": 831993,
+    "name": "Vinicius Junior",
+    "position": "F",
+    "jerseyNumber": "7"
+   }
+  },
+  {
+   "player": {
+    "id": 776636,
+    "name": "Jude Bellingham",
+    "position": "M",
+    "jerseyNumber": "5"
+   }
+  }
+ ]
+}

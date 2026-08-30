@@ -1,0 +1,27 @@
+{
+ "team": {
+  "id": 2829,
+  "name": "Real Madrid",
+  "shortName": "Real Madrid",
+  "nameCode": "RMA",
+  "slug": "real-madrid",
+  "country": {
+   "name": "Spain",
+   "alpha2": "ES"
+  },
+  "venue": {
+   "stadium": {
+    "name": "Santiago Bernabéu",
+    "capacity": 81044
+   },
+   "city": {
+    "name": "Madrid"
+   }
+  },
+  "manager": {
+   "id": 794075,
+   "name": "Carlo Ancelotti"
+  },
+  "foundationDateTimestamp": -2429913600
+ }
+}

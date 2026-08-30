@@ -1,27 +1,49 @@
 [project]
-name = "sofascore-framework"
-version = "0.1.0"
-description = "Le dices un partido y te devuelve todos sus datos de Sofascore (y los de Plus si tienes cuenta)"
+name = "cancha"
+version = "0.4.0"
+description = "Le dices un partido y te devuelve todos sus datos, de Sofascore y de otras fuentes, listos para analizar (también por una IA)"
 requires-python = ">=3.10"
 readme = "README.md"
-keywords = ["sofascore", "futbol", "football", "stats", "api", "scraping"]
+keywords = ["sofascore", "understat", "clubelo", "futbol", "football", "stats", "xg", "mcp", "api"]
 # Sin dependencias: funciona con la biblioteca estándar nada más descargarlo.
 dependencies = []
 
 [project.optional-dependencies]
+# Muy recomendable: imita el handshake TLS de Chrome. Sofascore está detrás de
+# Cloudflare, que mira esa huella y no solo las cabeceras; sin esto es fácil
+# llevarse un 403. El framework lo detecta y lo usa solo si está instalado.
+curl = ["curl_cffi>=0.7"]
 # Transporte alternativo (conexiones reutilizadas, timeouts finos).
 http = ["httpx>=0.27"]
-dev = ["pytest>=8.0"]
+# Tablas: informe.frames() devuelve DataFrames en vez de listas de diccionarios.
+pandas = ["pandas>=2.0"]
+dev = ["pytest>=8.0", "pandas>=2.0", "curl_cffi>=0.7"]
 
 [project.scripts]
-sofascore = "sofascore.cli:main"
+cancha = "cancha.cli:main"
+# El nombre viejo sigue funcionando: nadie tiene que reaprender nada.
+sofascore = "cancha.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["sofascore"]
+packages = ["cancha", "sofascore"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# Lo que de verdad importa: errores (E, F), imports ordenados (I), modernizar
+# sintaxis (UP), trampas conocidas (B), simplificaciones (SIM) y retornos (RET).
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RET"]
+
+[tool.ruff.lint.per-file-ignores]
+# En los tests se importa dentro de la función a propósito, para que cada caso
+# enseñe de dónde sale lo que prueba.
+"tests/*" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

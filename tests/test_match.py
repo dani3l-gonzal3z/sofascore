@@ -1,12 +1,12 @@
 """Construcción del informe del partido."""
 
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.match import EMPTY, OK, PLUS_REQUIRED, UNAVAILABLE, build_report
-from sofascore.transport import FakeTransport
-
 from conftest import EVENT_ID, rutas_por_defecto
+
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.match import EMPTY, OK, PLUS_REQUIRED, UNAVAILABLE, build_report
+from cancha.transport import FakeTransport
 
 
 def _cliente(rutas, **extra):
@@ -44,11 +44,18 @@ def test_seccion_vacia_se_marca_como_empty():
 
 def test_sin_credenciales_las_secciones_plus_quedan_bloqueadas():
     rutas = rutas_por_defecto()
-    rutas[f"/event/{EVENT_ID}/shotmap"] = 403
-    informe = build_report(_cliente(rutas), EVENT_ID)
-    assert informe.sections["shotmap"].status == PLUS_REQUIRED
-    assert "shotmap" in informe.locked()
+    rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
+    informe = build_report(_cliente(rutas), EVENT_ID, sections=["win_probability"])
+    assert informe.sections["win_probability"].status == PLUS_REQUIRED
+    assert "win_probability" in informe.locked()
     assert "nota_plus" in informe.meta
+
+
+def test_el_mapa_de_tiros_es_publico():
+    """La web lo vende como Plus, pero la API lo sirve abierto: comprobado."""
+    informe = build_report(_cliente(rutas_por_defecto()), EVENT_ID)
+    assert informe.sections["shotmap"].status == OK
+    assert not informe.locked()
 
 
 def test_no_plus_ni_lo_intenta():
@@ -57,9 +64,15 @@ def test_no_plus_ni_lo_intenta():
         Settings(rate_limit=0, cache_ttl=60), transport=espia,
         cache=MemoryCache(), sleep=lambda _s: None,
     )
-    informe = build_report(cli, EVENT_ID, include_plus=False)
-    assert "shotmap" not in informe.sections
-    assert not any("shotmap" in url for url in espia.calls)
+    informe = build_report(cli, EVENT_ID, sections=["all"], include_plus=False)
+    assert "win_probability" not in informe.sections
+    assert not any("win-probability" in url for url in espia.calls)
+
+
+def test_no_plus_no_se_lleva_por_delante_lo_que_es_publico():
+    """--no-plus quitaba el mapa de tiros, que es gratis. Ya no."""
+    informe = build_report(_cliente(rutas_por_defecto()), EVENT_ID, include_plus=False)
+    assert informe.sections["shotmap"].status == OK
 
 
 def test_con_credenciales_la_seccion_plus_llega():
@@ -111,3 +124,28 @@ def test_resumen_legible(cliente):
     resumen = build_report(cliente, EVENT_ID).summary()
     assert "Real Madrid" in resumen
     assert "statistics" in resumen
+
+
+def test_el_historico_del_cruce_usa_el_codigo_del_partido():
+    """La ruta /h2h/events pide el customId; con el id numérico da 404."""
+    espia = FakeTransport(rutas_por_defecto())
+    cli = SofascoreClient(
+        Settings(rate_limit=0, cache_ttl=0), transport=espia,
+        cache=MemoryCache(), sleep=lambda _s: None,
+    )
+    informe = build_report(cli, EVENT_ID, sections=["h2h_events"])
+    assert informe.sections["h2h_events"].status == OK
+    assert any("/event/OR/h2h/events" in url for url in espia.calls)
+
+
+def test_sin_codigo_la_seccion_queda_no_disponible_sin_pedir_nada():
+    rutas = rutas_por_defecto()
+    rutas[f"/event/{EVENT_ID}"] = {"event": {"id": EVENT_ID}}   # sin customId
+    espia = FakeTransport(rutas)
+    cli = SofascoreClient(
+        Settings(rate_limit=0, cache_ttl=0), transport=espia,
+        cache=MemoryCache(), sleep=lambda _s: None,
+    )
+    informe = build_report(cli, EVENT_ID, sections=["h2h_events"])
+    assert informe.sections["h2h_events"].status == UNAVAILABLE
+    assert not any("h2h/events" in url for url in espia.calls)

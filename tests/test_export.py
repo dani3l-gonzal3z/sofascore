@@ -3,10 +3,10 @@
 import csv
 import json
 
-from sofascore.export import to_csv_dir, to_json, to_markdown
-from sofascore.match import build_report
-
 from conftest import EVENT_ID
+
+from cancha.export import to_csv_dir, to_json, to_markdown
+from cancha.match import build_report
 
 
 def _informe(cliente):
@@ -61,18 +61,52 @@ def test_csv_incluye_tiros_si_hay_plus(cliente, tmp_path):
 
 
 def test_las_secciones_bloqueadas_se_ven_en_el_markdown(cliente, tmp_path):
-    from sofascore.cache import MemoryCache
-    from sofascore.client import SofascoreClient
-    from sofascore.config import Settings
-    from sofascore.transport import FakeTransport
     from conftest import rutas_por_defecto
 
+    from cancha.cache import MemoryCache
+    from cancha.client import SofascoreClient
+    from cancha.config import Settings
+    from cancha.transport import FakeTransport
+
     rutas = rutas_por_defecto()
-    rutas[f"/event/{EVENT_ID}/shotmap"] = 403
+    rutas[f"/event/{EVENT_ID}/graph/win-probability"] = 403
     cli = SofascoreClient(
         Settings(rate_limit=0, cache_ttl=0), transport=FakeTransport(rutas),
         cache=MemoryCache(), sleep=lambda _s: None,
     )
-    texto = to_markdown(build_report(cli, EVENT_ID))
-    assert "🔒 `shotmap`" in texto
+    texto = to_markdown(build_report(cli, EVENT_ID, sections=["win_probability"]))
+    assert "🔒 `win_probability`" in texto
     assert "Sofascore Plus" in texto
+
+
+def test_la_cronologia_del_csv_va_hacia_delante(cliente):
+    """La API las devuelve del final al principio; el CSV no puede salir así."""
+    from cancha.export import _filas_incidencias
+
+    minutos = [f["minuto"] for f in _filas_incidencias(_informe(cliente))]
+    assert minutos == sorted(minutos)
+    assert len(minutos) > 1
+
+
+def test_un_cambio_no_pierde_a_los_jugadores(cliente):
+    """En un cambio la API no usa 'player': el CSV salía sin nadie."""
+    from cancha.export import _filas_incidencias
+
+    cambios = [f for f in _filas_incidencias(_informe(cliente))
+               if f["tipo"] == "substitution"]
+    assert cambios
+    assert cambios[0]["jugador"] == "Frenkie de Jong"
+    assert cambios[0]["jugador_sale"] == "Marc Casadó"
+
+
+def test_el_gol_guarda_quien_asistio(cliente):
+    from cancha.export import _filas_incidencias
+
+    goles = [f for f in _filas_incidencias(_informe(cliente)) if f["tipo"] == "goal"]
+    assert any(f["asistencia"] for f in goles)
+
+
+def test_el_markdown_ensena_el_cambio_entero(cliente):
+    texto = to_markdown(_informe(cliente))
+    assert "Frenkie de Jong ← Marc Casadó" in texto
+    assert "asist. Raphinha" in texto

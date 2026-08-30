@@ -1,0 +1,84 @@
+name: tests
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+  # Para poder lanzarlo a mano desde la pestaña Actions.
+  workflow_dispatch:
+
+# Si llegan dos pushes seguidos, se cancela el anterior: no interesa el
+# resultado de un commit que ya está superado.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: ${{ matrix.os }} · Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Que falle uno no cancela los demás: interesa saber si es de una versión
+      # concreta o de todas.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          # El framework se usa desde Windows, así que se prueba en Windows.
+          - os: windows-latest
+            python: "3.12"
+          - os: macos-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Instalar con las dependencias opcionales
+        run: python -m pip install --upgrade pip && pip install -e ".[dev]"
+
+      - name: Tests
+        run: python -m pytest -q
+
+  sin-dependencias:
+    # El framework promete funcionar solo con la biblioteca estándar. Esto lo
+    # comprueba: se instala sin extras y los tests tienen que pasar igual (los
+    # que necesitan pandas se saltan solos).
+    name: sin dependencias opcionales
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --upgrade pip && pip install -e . pytest
+      - name: Comprobar que no ha entrado ninguna dependencia
+        run: |
+          python - <<'EOF'
+          import importlib.util, sys
+          colados = [m for m in ("pandas", "httpx", "curl_cffi")
+                     if importlib.util.find_spec(m) is not None]
+          if colados:
+              sys.exit(f"Se han instalado dependencias que deberían ser opcionales: {colados}")
+          print("Solo biblioteca estándar, como debe ser.")
+          EOF
+      - run: python -m pytest -q
+
+  estilo:
+    name: estilo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install ruff
+      # La configuración vive en pyproject.toml, para que aquí y en tu máquina
+      # se aplique exactamente lo mismo.
+      - run: ruff check .

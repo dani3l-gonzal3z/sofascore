@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import sys
 
-from sofascore import MatchNotFound, get_match
+from cancha import MatchNotFound, get_match
 
 
 def main(argv: list[str]) -> int:
