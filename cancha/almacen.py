@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 1
+VERSION_ESQUEMA = 2
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS partidos (
@@ -53,6 +53,8 @@ CREATE TABLE IF NOT EXISTS partidos (
     estado          TEXT,
     arbitro         TEXT,
     sede            TEXT,
+    formacion_local     TEXT,
+    formacion_visitante TEXT,
     visto_en        TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_partidos_fecha ON partidos(fecha);
@@ -156,7 +158,21 @@ class Almacen:
         self._conexion.row_factory = sqlite3.Row
         self._conexion.executescript(ESQUEMA)
         self._conexion.execute("PRAGMA foreign_keys = ON")
+        self._migrar()
         self.anotar("version_esquema", str(VERSION_ESQUEMA))
+
+    def _migrar(self) -> None:
+        """Añade las columnas que falten en una base creada por una versión vieja.
+
+        SQLite no tiene un ALTER que sea idempotente, así que se mira antes qué
+        columnas hay: nadie debería tener que borrar su memoria y volver a
+        barrer porque el esquema creció.
+        """
+        columnas = {f["name"] for f in self.consulta("PRAGMA table_info(partidos)")}
+        for columna in ("formacion_local", "formacion_visitante"):
+            if columna not in columnas:
+                self._conexion.execute(f"ALTER TABLE partidos ADD COLUMN {columna} TEXT")
+        self._conexion.commit()
 
     # --- contexto ---
 
@@ -195,6 +211,22 @@ class Almacen:
         )
         return evento.id
 
+    def guardar_formaciones(self, partido_id: int, alineaciones: dict | None) -> None:
+        """Guarda con qué dibujo salió cada equipo, si las alineaciones lo traen."""
+        if not isinstance(alineaciones, dict):
+            return
+        local = (alineaciones.get("home") or {}).get("formation")
+        visitante = (alineaciones.get("away") or {}).get("formation")
+        if not (local or visitante):
+            return
+        self._conexion.execute(
+            """UPDATE partidos SET
+                   formacion_local = COALESCE(?, formacion_local),
+                   formacion_visitante = COALESCE(?, formacion_visitante)
+               WHERE id = ?""",
+            (local, visitante, partido_id),
+        )
+
     def guardar_informe(self, informe) -> dict:
         """Guarda todo lo que traiga un informe de partido.
 
@@ -216,6 +248,8 @@ class Almacen:
                  str(fila.get("local", "")), str(fila.get("visitante", ""))),
             )
             cuenta["estadisticas"] += 1
+
+        self.guardar_formaciones(evento.id, informe.get("lineups"))
 
         for jugador in informe.players():
             if not jugador.id:

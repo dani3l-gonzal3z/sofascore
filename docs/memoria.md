@@ -115,6 +115,16 @@ juega, y `previa_de_partido` sobre cada uno.
 - **Un jugador con mala racha es un jugador con mala racha.** Si eso le hace
   esforzarse más o menos es una hipótesis tuya: aquí solo se ve la racha.
 
+## Y con esto, la pregunta buena
+
+Todo lo anterior es contexto. La pregunta por la que merece la pena guardar
+tantos partidos es **cómo rinde un jugador según a qué se enfrenta**, y tiene
+página propia: [Jugador contra sistema](sistemas.md).
+
+```bash
+cancha duelo "Vinicius" "Getafe"
+```
+
 ---
 
 [← Volver al índice](../README.md)

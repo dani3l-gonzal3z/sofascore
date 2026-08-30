@@ -57,6 +57,10 @@ class Fuente:
     ttl: int = 24 * 3600
     #: Segundos de espera por petición. Hay sitios lentos que necesitan más.
     timeout: float = 0.0
+    #: Transporte que quiere esta fuente. Vacío = el de los ajustes.
+    #: No todas quieren el que imita a Chrome: una API pública de CSV no tiene
+    #: anti-bot que sortear, y el disfraz solo añade formas de fallar.
+    transporte_preferido: str = ""
     #: Cabeceras propias de la fuente.
     headers: dict[str, str] = field(default_factory=dict)
     #: Qué trae, en una línea, para que se pueda listar (y para la IA).
@@ -73,7 +77,7 @@ class Fuente:
         self.settings = self.settings or Settings.from_env()
         self.transport = preparar_transporte(
             self.transport or build_transport(
-                self.settings.transport,
+                self.transporte_preferido or self.settings.transport,
                 timeout=self.timeout or self.settings.timeout,
             ),
             self.settings,
@@ -83,7 +87,11 @@ class Fuente:
                 self.settings.cache_dir / "fuentes" if self.settings.cache_dir else None,
                 self.ttl,
             )
-        self._limiter = self._limiter or RateLimiter(self.rate_limit)
+        # Cada fuente pone su propio ritmo, más suave que el de Sofascore. Pero
+        # si alguien pide expresamente que no haya límite (`--rate 0`), se le
+        # hace caso: si no, la opción existía y no hacía nada aquí.
+        sin_limite = self.settings.rate_limit == 0
+        self._limiter = self._limiter or RateLimiter(0 if sin_limite else self.rate_limit)
 
     # --- lo que puede redefinir cada fuente ---
 

@@ -4,6 +4,51 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.4.0
+
+La memoria ya guardaba muchos partidos. Lo que faltaba era la pregunta que
+justifica guardarlos: **cómo rinde un jugador según a qué se enfrenta**.
+
+### Novedades
+
+- **Jugador contra sistema** (`cancha/sistemas.py`, `cancha contra`,
+  `cancha duelo`, `cancha sistema`): agrupa los partidos de un jugador por el
+  sistema que le puso delante el rival y compara cada grupo con la media del
+  propio jugador. Con tres cuidados que son el módulo entero:
+  - **el sistema se mide, no se supone**: se caracteriza cada partido por lo
+    que pasó en él —formación, presión al estilo del PPDA, posesión—, porque el
+    mismo equipo no plantea igual en casa que fuera;
+  - **se compara contra su liga**: los cortes salen de los terciles de la propia
+    competición, así que «presiona alto» significa alto *para ahí*, y si no hay
+    muestra para calcularlos no se etiqueta;
+  - **si no hay muestra, se dice**: todo por 90 minutos, y cada diferencia
+    contrastada contra el azar con una Poisson de una cola. Por debajo de tres
+    partidos o 180 minutos el veredicto es `sin muestra`, por bonito que sea el
+    número.
+- **La memoria guarda las alineaciones** (esquema v2): sin la formación no hay
+  línea de cinco que valga. Las bases viejas se migran solas al abrirlas; nadie
+  tiene que repetir un barrido de una semana porque el esquema creció.
+- **Tres herramientas más para la IA** (32 en total): `sistema_de_equipo`,
+  `jugador_contra_sistema` —con `solo_lo_relevante`, para que al modelo le
+  lleguen los hallazgos y no cien números— y `duelo_jugador_rival`.
+- **[Documentación](docs/sistemas.md)** de todo esto, incluido un apartado
+  entero de lo que **no** dice: el sesgo de selección (a los bloques bajos se
+  les juega sobre todo siendo favorito) está escrito también en cada respuesta.
+
+### Arreglos
+
+- **El barrido se caía con un 404**: la ruta global de partidos del día
+  (`/sport/football/scheduled-events/{fecha}`) ha dejado de existir. Ahora se
+  intenta y, si no está, se pide competición por competición, que es más lento
+  pero funciona.
+- **`--rate 0` no llegaba a las fuentes**: cada una imponía su propio ritmo
+  pasara lo que pasara, así que la opción existía y no hacía nada ahí. De paso,
+  la batería de tests baja de dieciséis segundos a menos de tres.
+- **ClubElo no contestaba nunca**: con el transporte que imita a Chrome se
+  quedaba en treinta segundos y cero bytes por http y por https. Es una API
+  pública que sirve CSV, sin anti-bot que sortear, así que ahora se le habla
+  con `urllib`. De paso, cada fuente puede pedir el transporte que le convenga.
+
 ## 0.3.0
 
 El framework sabía traer los datos de **un** partido. Ahora se acuerda de

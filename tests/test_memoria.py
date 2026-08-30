@@ -131,6 +131,61 @@ def test_la_agenda_filtra_por_competicion(cliente):
     assert agenda(cliente, "2024-10-26", ["americas"]) == []
 
 
+def _cliente_con(rutas):
+    return SofascoreClient(
+        Settings(rate_limit=0, retries=0, cache_ttl=0, fallback_base_urls=()),
+        transport=FakeTransport(rutas), cache=MemoryCache(), sleep=lambda _s: None,
+    )
+
+
+def test_si_el_calendario_global_se_cae_se_pregunta_liga_por_liga():
+    """La ruta del día devolvió 404 de verdad, y llevaba tiempo fallando sola."""
+    partido = {"id": 77, "startTimestamp": 1729900800,
+               "tournament": {"uniqueTournament": {"id": 8, "name": "LaLiga"}},
+               "homeTeam": {"id": 2829, "name": "Real Madrid"},
+               "awayTeam": {"id": 2817, "name": "Barcelona"},
+               "status": {"type": "finished"}}
+    cliente = _cliente_con({
+        # El calendario global ya no existe: 404.
+        "/unique-tournament/8/seasons": {"seasons": [{"id": 61643}]},
+        "/unique-tournament/8/season/61643/events/last/0": {"events": [partido]},
+        "/unique-tournament/8/season/61643/events/next/0": {"events": []},
+    })
+    fecha = Event.from_api(partido).date
+    partidos = agenda(cliente, fecha, ["laliga"])
+    assert [e.id for e in partidos] == [77]
+
+
+def test_por_liga_solo_devuelve_los_de_ese_dia():
+    otro_dia = {"id": 78, "startTimestamp": 1729900800 + 7 * 86400,
+                "tournament": {"uniqueTournament": {"id": 8}},
+                "homeTeam": {"id": 1, "name": "A"}, "awayTeam": {"id": 2, "name": "B"},
+                "status": {"type": "notstarted"}}
+    cliente = _cliente_con({
+        "/unique-tournament/8/seasons": {"seasons": [{"id": 61643}]},
+        "/unique-tournament/8/season/61643/events/next/0": {"events": [otro_dia]},
+    })
+    assert agenda(cliente, "2024-10-26", ["laliga"]) == []
+
+
+def test_por_liga_no_repite_un_partido_que_salga_por_las_dos_vias():
+    partido = {"id": 79, "startTimestamp": 1729900800,
+               "tournament": {"uniqueTournament": {"id": 8}},
+               "homeTeam": {"id": 1, "name": "A"}, "awayTeam": {"id": 2, "name": "B"},
+               "status": {"type": "finished"}}
+    cliente = _cliente_con({
+        "/unique-tournament/8/seasons": {"seasons": [{"id": 61643}]},
+        "/unique-tournament/8/season/61643/events/last/0": {"events": [partido]},
+        "/unique-tournament/8/season/61643/events/next/0": {"events": [partido]},
+    })
+    assert len(agenda(cliente, Event.from_api(partido).date, ["laliga"])) == 1
+
+
+def test_una_liga_que_no_responde_no_tumba_la_agenda():
+    cliente = _cliente_con({})  # todo 404
+    assert agenda(cliente, "2024-10-26", ["grandes"]) == []
+
+
 def test_un_partido_ya_guardado_no_se_vuelve_a_pedir(almacen, cliente):
     evento = cliente.event(EVENT_ID)
     progreso = Progreso()
@@ -317,3 +372,45 @@ def test_una_herramienta_de_memoria_sin_barrido_lo_dice(tmp_path):
         assert salida.get("disponible") is False or "error" in salida
     finally:
         sesion.close()
+
+
+# ------------------------------------------------------------------ el esquema
+
+def test_las_formaciones_se_guardan_con_el_informe(almacen, cliente):
+    almacen.guardar_informe(build_report(cliente, EVENT_ID, sections=["all"]))
+    partido = almacen.consulta("SELECT * FROM partidos WHERE id = ?", (EVENT_ID,))[0]
+    assert partido["formacion_local"] and partido["formacion_visitante"]
+
+
+def test_una_base_vieja_se_migra_sin_tener_que_borrarla(tmp_path):
+    """Nadie debería perder un barrido de una semana porque el esquema creció."""
+    import sqlite3
+
+    ruta = tmp_path / "vieja.db"
+    antiguo = sqlite3.connect(str(ruta))
+    # El esquema de la versión 1: igual que el de ahora menos las formaciones.
+    antiguo.execute("""
+        CREATE TABLE partidos (
+            id INTEGER PRIMARY KEY, custom_id TEXT, fecha TEXT, momento INTEGER,
+            deporte TEXT, liga_id INTEGER, liga TEXT, temporada_id INTEGER,
+            jornada INTEGER, local_id INTEGER, local TEXT, visitante_id INTEGER,
+            visitante TEXT, goles_local INTEGER, goles_visitante INTEGER,
+            estado TEXT, arbitro TEXT, sede TEXT,
+            visto_en TEXT DEFAULT CURRENT_TIMESTAMP)""")
+    antiguo.execute(
+        "INSERT INTO partidos (id, local, estado) VALUES (1, 'Un equipo', 'finished')")
+    antiguo.commit()
+    antiguo.close()
+
+    with Almacen(ruta) as base:
+        columnas = {f["name"] for f in base.consulta("PRAGMA table_info(partidos)")}
+        assert {"formacion_local", "formacion_visitante"} <= columnas
+        assert base.consulta("SELECT local FROM partidos")[0]["local"] == "Un equipo"
+
+
+def test_migrar_dos_veces_no_rompe_nada(tmp_path):
+    ruta = tmp_path / "dos-veces.db"
+    with Almacen(ruta) as base:
+        base.anotar("hola", "que tal")
+    with Almacen(ruta) as base:
+        assert base.nota("hola") == "que tal"

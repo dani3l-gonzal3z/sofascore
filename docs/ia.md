@@ -1,12 +1,12 @@
 # Para una IA local
 
 El framework trae una capa de herramientas pensada para que un modelo analice
-partidos por su cuenta: 23 funciones con su esquema JSON, descripciones
+partidos por su cuenta: 32 funciones con su esquema JSON, descripciones
 escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
 aplanadas y **recortadas** para que no le revienten el contexto.
 
 ```bash
-cancha tools          # las 23, con sus parámetros
+cancha tools          # las 32, con sus parámetros
 cancha tools --json   # los esquemas completos
 cancha mcp            # arranca el servidor MCP
 ```
@@ -70,7 +70,17 @@ tirando del hilo:
    `ficha_jugador`, `clasificacion`, `partidos`. Y sobre todo
    **`contexto_externo`**, que cruza las fuentes: los dos modelos de xG con su
    diferencia, y el Elo de ambos equipos.
-5. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
+5. Cuando hay **memoria** (un [barrido](memoria.md) previo), se abre lo que un
+   partido suelto no contesta: `agenda_del_dia` y `previa_de_partido` para el
+   repaso diario, `estilo_de_equipo`, `forma_de_jugador` y `perfil_de_arbitro`
+   para el contexto de quién llega cómo.
+6. Y la pregunta buena: **`duelo_jugador_rival`** —qué le ha pasado a este
+   jugador contra lo que ese rival suele plantear—, con `sistema_de_equipo` y
+   `jugador_contra_sistema` por debajo si quiere abrirla. Cada diferencia viene
+   con su veredicto (`señal`, `indicio`, `sin muestra`) para que el modelo no
+   presente como hallazgo lo que son tres partidos. Ver
+   [Jugador contra sistema](sistemas.md).
+7. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
    catálogo en crudo. Y `catalogo` le dice qué nombres son válidos.
 
 Toda respuesta pasa por un tope de caracteres: si algo no cabe, se corta y se

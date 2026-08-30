@@ -23,6 +23,21 @@ cancha doctor                          # qué transporte usa y si la API contest
 cancha cache [--clear]                 # estado de la caché
 ```
 
+Los que necesitan [memoria](memoria.md) —hay que hacer un barrido antes—:
+
+```bash
+cancha barrido [--grupos grandes]      # trae los partidos del día y el historial
+cancha memoria                         # qué hay guardado
+cancha agenda [--date AAAA-MM-DD]      # qué se juega en las ligas que importan
+cancha estilo "Girona"                 # cómo juega un equipo, contra su liga
+cancha forma "Vinicius"                # cómo está y qué rachas lleva
+cancha arbitro "César Soto Grado"      # cómo pita, según sus partidos guardados
+cancha previa "Girona vs Osasuna"      # todo lo que se sabe antes de jugarse
+cancha sistema "Getafe"                # con qué plantea: dibujo, presión, posesión
+cancha contra "Vinicius" [--eje linea] # cómo rinde según lo que le pongan delante
+cancha duelo "Vinicius" "Getafe"       # el jugador contra el sistema de ese rival
+```
+
 Opciones más usadas de `match`:
 
 | Opción | Para qué |
@@ -37,10 +52,10 @@ Opciones más usadas de `match`:
 | `--offline` / `--no-cache` | Solo caché / ignorar caché |
 | `--parallel N` | Secciones a la vez (`1` las pide de una en una) |
 | `--transport curl` | Forzar transporte (`auto`, `curl`, `httpx`, `urllib`) |
+| `--debug` | Contadores de peticiones y ajustes en uso |
 
 `--debug`, `--offline`, `--no-cache`, `--parallel` y `--transport` valen en
 **todos** los comandos, no solo en `match`.
-| `--debug` | Contadores de peticiones y ajustes en uso |
 
 ```bash
 cancha match 11352550 --all --json partido.json --csv datos/

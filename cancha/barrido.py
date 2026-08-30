@@ -112,13 +112,64 @@ def agenda(
 ) -> list[Event]:
     """Qué se juega ese día en las competiciones elegidas.
 
-    Una sola petición para todo el fútbol del mundo, y el filtro se hace aquí:
-    sale más barato que preguntar liga por liga.
+    Hay dos caminos y se usan en este orden:
+
+    1. **El calendario global** del día: una sola petición para todo el fútbol
+       del mundo y el filtro se hace aquí. Es lo barato.
+    2. **Liga por liga**, si el primero no contesta. Cuesta un par de
+       peticiones por competición, pero funciona.
+
+    El segundo existe porque el primero devolvió 404 en una ejecución real
+    —y llevaba tiempo fallando en silencio, que es peor—. Cuando una ruta que
+    no controlamos se cae, tener otra por la que ir vale más que tener la
+    barata.
     """
     dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     ligas = ligas_de(grupos)
-    eventos = [Event.from_api(e) for e in cliente.scheduled_events(dia)]
-    return [e for e in eventos if e.unique_tournament_id in ligas]
+
+    try:
+        eventos = [Event.from_api(e) for e in cliente.scheduled_events(dia)]
+        if eventos:
+            return [e for e in eventos if e.unique_tournament_id in ligas]
+    except SofascoreError:
+        pass
+    return agenda_por_liga(cliente, dia, ligas)
+
+
+def agenda_por_liga(
+    cliente: SofascoreClient,
+    fecha: str,
+    ligas: dict[int, str],
+) -> list[Event]:
+    """La agenda preguntando a cada competición por sus próximos partidos.
+
+    Más caro que el calendario global, pero se apoya en rutas que sí sabemos
+    que responden. Los partidos ya jugados de ese día se piden también, para
+    que un barrido de un día pasado no salga vacío.
+    """
+    salida: list[Event] = []
+    for liga_id in ligas:
+        try:
+            temporada = cliente.latest_season_id(liga_id)
+        except SofascoreError:
+            continue
+        if not temporada:
+            continue
+        for cuando in ("next", "last"):
+            try:
+                datos = cliente.get(
+                    f"/unique-tournament/{liga_id}/season/{temporada}/events/{cuando}/0",
+                    ttl=1800,
+                )
+            except SofascoreError:
+                continue
+            for crudo in (datos or {}).get("events", []) or []:
+                evento = Event.from_api(crudo)
+                if evento.date == fecha:
+                    salida.append(evento)
+    # Un partido puede salir por las dos vías: se queda uno.
+    unicos = {e.id: e for e in salida}
+    return sorted(unicos.values(), key=lambda e: e.start_timestamp or 0)
 
 
 def guardar_partido(

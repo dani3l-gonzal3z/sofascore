@@ -369,3 +369,28 @@ def test_un_timeout_no_se_confunde_con_un_nombre_mal_escrito():
         cruce.ClubElo = original
     assert salida["estado"] == "sin_respuesta"
     assert "No es el nombre del equipo" in salida["nota"]
+
+
+def test_clubelo_no_usa_el_transporte_que_imita_a_chrome():
+    """Con curl_cffi no contestaba; es un CSV público, no hace falta disfraz."""
+    from cancha.transport import UrllibTransport
+
+    fuente = ClubElo(settings=Settings(transport="curl", rate_limit=0))
+    assert fuente.transporte_preferido == "urllib"
+    assert isinstance(fuente.transport, UrllibTransport)
+
+
+def test_una_fuente_sin_preferencia_usa_el_de_los_ajustes():
+    fuente = Understat(settings=Settings(transport="urllib", rate_limit=0))
+    from cancha.transport import UrllibTransport
+
+    assert fuente.transporte_preferido == ""
+    assert isinstance(fuente.transport, UrllibTransport)
+
+
+def test_pedir_que_no_haya_limite_de_ritmo_se_respeta_en_las_fuentes():
+    """`--rate 0` existía y aquí no hacía nada: cada fuente imponía el suyo."""
+    assert ClubElo(settings=Settings(rate_limit=0))._limiter.min_intervalo == 0
+    assert Understat(settings=Settings(rate_limit=0))._limiter.min_intervalo == 0
+    # Sin pedirlo, cada fuente sigue con su ritmo suave.
+    assert ClubElo(settings=Settings())._limiter.min_intervalo > 0

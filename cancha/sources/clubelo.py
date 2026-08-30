@@ -35,6 +35,10 @@ class ClubElo(Fuente):
     rate_limit: float = 2.0
     #: Tarda lo suyo en contestar: 15 segundos se le quedan cortos.
     timeout: float = 30.0
+    #: Con el transporte que imita a Chrome no contestaba ni por http ni por
+    #: https: treinta segundos y cero bytes. Es una API pública que sirve CSV,
+    #: sin anti-bot que sortear, así que se le habla con urllib y en paz.
+    transporte_preferido: str = "urllib"
     #: El Elo cambia como mucho una vez al día.
     ttl: int = 12 * 3600
     descripcion: str = (
