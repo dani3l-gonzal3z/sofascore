@@ -184,6 +184,112 @@ def estilo_de_equipo(
     }
 
 
+#: A partir de qué cambio relativo entre dos tramos se dice que algo ha
+#: cambiado. Más exigente que el rasgo, porque compara dos muestras cortas.
+UMBRAL_CAMBIO = 0.20
+
+
+def evolucion_de_estilo(
+    almacen: Almacen,
+    equipo_id: int,
+    ultimos: int = 5,
+    anteriores: int = 10,
+) -> dict:
+    """Cómo está jugando un equipo **ahora** comparado con cómo jugaba antes.
+
+    El estilo dice cómo juega; esto dice si ha cambiado. Se cogen sus últimos
+    ``ultimos`` partidos y los ``anteriores`` de antes de esos, y se comparan
+    dimensión a dimensión. Un equipo que ha pasado de tener el balón a
+    esperar atrás sale aquí antes de que lo diga nadie.
+
+    Con muestras tan cortas, un cambio del 20 % es la vara mínima para
+    mencionarlo, y aun así se dice cuántos partidos hay a cada lado.
+    """
+    partidos = almacen.partidos_de_equipo(equipo_id, ultimos=ultimos + anteriores)
+    if len(partidos) < 4:
+        return {"disponible": False,
+                "nota": "Hacen falta al menos cuatro partidos guardados para ver una evolución."}
+    recientes, previos = partidos[:ultimos], partidos[ultimos:]
+    if len(previos) < 2:
+        return {"disponible": False,
+                "nota": f"Solo hay {len(partidos)} partidos: no hay un 'antes' con el "
+                        "que comparar."}
+
+    def retrato(lista: list[dict]) -> dict:
+        ids = [p["id"] for p in lista]
+        filas = almacen.estadisticas_de_partidos(ids)
+        propias = _medias(filas, equipo_id)
+        concedidas = _concedidas(filas, equipo_id)
+        formaciones: dict[str, int] = {}
+        for partido in lista:
+            dibujo = (partido.get("formacion_local") if partido["local_id"] == equipo_id
+                      else partido.get("formacion_visitante"))
+            if dibujo:
+                formaciones[dibujo] = formaciones.get(dibujo, 0) + 1
+        resultados = _resultados(lista, equipo_id)
+        jugados = resultados["ganados"] + resultados["empatados"] + resultados["perdidos"]
+        puntos = 3 * resultados["ganados"] + resultados["empatados"]
+        return {
+            "partidos": len(lista),
+            "desde": lista[-1]["fecha"],
+            "hasta": lista[0]["fecha"],
+            "propias": propias,
+            "concedidas": concedidas,
+            "formacion": max(formaciones, key=formaciones.get) if formaciones else None,
+            "formaciones": formaciones,
+            "puntos_por_partido": round(puntos / jugados, 2) if jugados else None,
+            "racha": resultados["racha"],
+        }
+
+    ahora, antes = retrato(recientes), retrato(previos)
+
+    cambios = []
+    dimensiones = {}
+    for nombre, (clave, lectura) in DIMENSIONES.items():
+        reciente, previo = ahora["propias"].get(clave), antes["propias"].get(clave)
+        if reciente is None or previo is None:
+            continue
+        cambio = (reciente - previo) / previo if previo else None
+        dimensiones[nombre] = {"ahora": round(reciente, 2), "antes": round(previo, 2),
+                               "cambio": None if cambio is None else round(cambio, 3)}
+        if cambio is not None and abs(cambio) >= UMBRAL_CAMBIO:
+            cambios.append({
+                "dimension": nombre,
+                "lectura": (f"ahora {lectura} más" if cambio > 0 else f"ahora {lectura} menos"),
+                "cambio": f"{cambio:+.0%}",
+                "ahora": round(reciente, 2),
+                "antes": round(previo, 2),
+            })
+    cambios.sort(key=lambda c: -abs(float(c["cambio"].rstrip("%").replace("+", ""))))
+
+    concede = {}
+    for etiqueta, clave in (("xg", "expectedGoals"), ("tiros", "totalShotsOnGoal")):
+        reciente, previo = ahora["concedidas"].get(clave), antes["concedidas"].get(clave)
+        if reciente is not None and previo is not None:
+            concede[etiqueta] = {
+                "ahora": round(reciente, 2), "antes": round(previo, 2),
+                "cambio": round((reciente - previo) / previo, 3) if previo else None,
+            }
+
+    return {
+        "disponible": True,
+        "equipo_id": equipo_id,
+        "equipo": _nombre_equipo(partidos[0], equipo_id),
+        "ahora": {k: v for k, v in ahora.items() if k not in ("propias", "concedidas")},
+        "antes": {k: v for k, v in antes.items() if k not in ("propias", "concedidas")},
+        "dimensiones": dimensiones,
+        "lo_que_ha_cambiado": cambios[:6],
+        "concede": concede,
+        "cambio_de_dibujo": (ahora["formacion"] != antes["formacion"]
+                             if ahora["formacion"] and antes["formacion"] else None),
+        "como_leerlo": (
+            f"Los últimos {ahora['partidos']} partidos frente a los {antes['partidos']} de "
+            f"antes. Con muestras así, solo se menciona un cambio del {UMBRAL_CAMBIO:.0%} o "
+            "más, y aun así puede ser el calendario: mira contra quién fueron."
+        ),
+    }
+
+
 def _nombre_equipo(partido: dict, equipo_id: int) -> str:
     return partido["local"] if partido["local_id"] == equipo_id else partido["visitante"]
 
@@ -410,6 +516,7 @@ def perfil_de_arbitro(almacen: Almacen, nombre: str, ultimos: int = 20) -> dict:
 
 
 __all__ = [
-    "estilo_de_equipo", "forma_de_jugador", "rachas", "perfil_de_arbitro",
-    "medias_de_liga", "DIMENSIONES", "METRICAS_JUGADOR",
+    "estilo_de_equipo", "evolucion_de_estilo", "forma_de_jugador", "rachas",
+    "perfil_de_arbitro", "medias_de_liga", "DIMENSIONES", "METRICAS_JUGADOR",
+    "UMBRAL_RASGO", "UMBRAL_CAMBIO",
 ]

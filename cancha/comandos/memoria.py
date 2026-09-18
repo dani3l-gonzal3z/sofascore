@@ -13,7 +13,12 @@ import json
 from ..almacen import Almacen
 from ..barrido import GRUPOS, agenda, barrer, ligas_de
 from ..entities import find_entity
-from ..perfiles import estilo_de_equipo, forma_de_jugador, perfil_de_arbitro
+from ..perfiles import (
+    estilo_de_equipo,
+    evolucion_de_estilo,
+    forma_de_jugador,
+    perfil_de_arbitro,
+)
 from ..previa import previa, texto
 from ..resolve import normalizar
 from ..sistemas import (
@@ -157,6 +162,9 @@ def cmd_estilo(args: argparse.Namespace) -> int:
             imprimir(f"No encuentro '{args.consulta}' en la memoria.")
             imprimir("Prueba con --buscar para preguntárselo a la API, o haz un barrido.")
             return 1
+        if args.evolucion:
+            return _imprimir_evolucion(
+                evolucion_de_estilo(almacen, equipo_id, ultimos=args.ultimos), args)
         datos = estilo_de_equipo(almacen, equipo_id, ultimos=args.ultimos)
         if args.stdout_json:
             imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
@@ -185,6 +193,42 @@ def cmd_estilo(args: argparse.Namespace) -> int:
         almacen.close()
         if cliente:
             cliente.close()
+
+
+def _imprimir_evolucion(datos: dict, args: argparse.Namespace) -> int:
+    """Cómo está jugando ahora frente a cómo jugaba antes."""
+    if args.stdout_json:
+        imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+        return 0
+    if not datos["disponible"]:
+        imprimir(datos["nota"])
+        return 1
+    ahora, antes = datos["ahora"], datos["antes"]
+    imprimir(f"{datos['equipo']} — ¿ha cambiado?\n")
+    imprimir(f"  Ahora  ({ahora['desde']} → {ahora['hasta']}): {ahora['partidos']} partidos, "
+             f"{ahora['racha']}, {ahora['puntos_por_partido']} puntos/partido"
+             + (f", dibujo {ahora['formacion']}" if ahora.get("formacion") else ""))
+    imprimir(f"  Antes  ({antes['desde']} → {antes['hasta']}): {antes['partidos']} partidos, "
+             f"{antes['racha']}, {antes['puntos_por_partido']} puntos/partido"
+             + (f", dibujo {antes['formacion']}" if antes.get("formacion") else ""))
+    imprimir("")
+    if datos["lo_que_ha_cambiado"]:
+        imprimir("  Lo que ha cambiado")
+        for cambio in datos["lo_que_ha_cambiado"]:
+            imprimir(f"    · {cambio['lectura']:<34} {cambio['cambio']:>6}  "
+                     f"({cambio['antes']} → {cambio['ahora']})")
+    else:
+        imprimir("  Juega igual que antes en todo lo que se mide aquí.")
+    if datos.get("cambio_de_dibujo"):
+        imprimir(f"\n  Ha cambiado de dibujo: {antes['formacion']} → {ahora['formacion']}")
+    concede = datos.get("concede") or {}
+    if concede:
+        imprimir("\n  Concede: " + " · ".join(
+            f"{k} {v['antes']} → {v['ahora']}" for k, v in concede.items()))
+    imprimir("")
+    for linea in envolver(datos["como_leerlo"], 74):
+        imprimir(f"  {linea}")
+    return 0
 
 
 def cmd_forma(args: argparse.Namespace) -> int:
@@ -527,6 +571,8 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_estilo.add_argument("consulta", help="Nombre o id del equipo.")
     p_estilo.add_argument("--buscar", action="store_true",
                           help="Preguntar a la API si no está en la memoria.")
+    p_estilo.add_argument("--evolucion", action="store_true",
+                          help="Cómo juega ahora frente a cómo jugaba antes.")
     p_estilo.set_defaults(func=cmd_estilo)
 
     p_forma = sub.add_parser("forma", parents=[comun_p, base],

@@ -45,6 +45,33 @@ def _estilo_de_equipo(sesion, equipo: str, ultimos: int = 6):
 
 
 @herramienta(
+    "evolucion_de_equipo",
+    "SI UN EQUIPO HA CAMBIADO su forma de jugar: sus últimos partidos frente a "
+    "los de antes, dimensión a dimensión (posesión, presión, juego en largo, "
+    "lo que concede...) y si ha cambiado de dibujo. Contesta a '¿cómo están "
+    "jugando ahora?' y a '¿el nuevo entrenador ha cambiado algo?'. Con "
+    "muestras cortas: mira contra quién fueron esos partidos antes de "
+    "concluir.",
+    {
+        "equipo": {"type": "string", "description": "Nombre o id del equipo."},
+        "ultimos": {"type": "integer",
+                    "description": "Cuántos partidos son 'ahora' (por defecto 5)."},
+        "anteriores": {"type": "integer",
+                       "description": "Cuántos partidos son 'antes' (por defecto 10)."},
+    },
+    ["equipo"],
+)
+def _evolucion_de_equipo(sesion, equipo: str, ultimos: int = 5, anteriores: int = 10):
+    from ..perfiles import evolucion_de_estilo
+
+    equipo_id, nombre = _equipo(sesion, equipo)
+    if equipo_id is None:
+        return {"error": f"No encuentro el equipo '{equipo}'."}
+    return evolucion_de_estilo(sesion.almacen, equipo_id, ultimos=ultimos,
+                               anteriores=anteriores)
+
+
+@herramienta(
     "forma_de_jugador",
     "CÓMO ESTÁ un jugador y qué RACHAS lleva: cuántos partidos sin marcar, sin "
     "tirar entre palos, sin ser titular, o cuántos seguidos marcando. Las "
