@@ -105,7 +105,11 @@ def _mercado(almacen: Almacen, evento: Event, cliente: SofascoreClient | None) -
     mercado = extraer_1x2(crudo)
     if not mercado:
         return {"disponible": False, "nota": "La API no trae un 1X2 para este partido."}
+    # Un partido por jugar puede no estar aún en la memoria, y las cuotas
+    # cuelgan de él: se guarda antes la cabecera para que no queden huérfanas.
+    almacen.guardar_evento(evento)
     almacen.guardar_cuotas(evento.id, mercado)
+    almacen._conexion.commit()
     return {"disponible": True, "origen": "api", **mercado,
             "favorito": favorito(mercado["probabilidades"])}
 

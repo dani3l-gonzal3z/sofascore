@@ -534,6 +534,40 @@ def cmd_duelo(args: argparse.Namespace) -> int:
             cliente.close()
 
 
+def cmd_briefing(args: argparse.Namespace) -> int:
+    """El documento de la mañana: todos los partidos del día, analizados."""
+    from ..barrido import barrer
+    from ..briefing import a_markdown, briefing, guardar
+
+    cliente = comun.construir_cliente(args)
+    almacen = _almacen(args)
+    try:
+        grupos = args.grupos.split(",") if args.grupos else None
+        if args.barrer:
+            imprimir("Barriendo antes de escribir el briefing…")
+            resumen = barrer(cliente, almacen, fecha=args.date, grupos=grupos,
+                             ultimos=args.ultimos, maximo_peticiones=args.max,
+                             avisar=imprimir if not args.quiet else None)
+            imprimir(f"Guardados {resumen['guardados']} partidos nuevos "
+                     f"({resumen['peticiones']} peticiones).\n")
+        datos = briefing(almacen, cliente, fecha=args.date, grupos=grupos,
+                         ultimos=args.ultimos, jugadores=args.jugadores)
+        if args.stdout_json:
+            imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+            return 0
+        texto_md = a_markdown(datos)
+        if not args.quiet:
+            imprimir(texto_md)
+        if not args.no_guardar:
+            rutas = guardar(datos, args.carpeta)
+            imprimir(f"Escrito en {rutas['markdown']} y {rutas['json']}")
+        depuracion(args, cliente)
+        return 0
+    finally:
+        almacen.close()
+        cliente.close()
+
+
 def registrar(sub, comun_p, informe, listado) -> None:
     """Añade los comandos de la memoria."""
     base = argparse.ArgumentParser(add_help=False)
@@ -636,3 +670,24 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_duelo.add_argument("--buscar", action="store_true",
                          help="Preguntar a la API si no está en la memoria.")
     p_duelo.set_defaults(func=cmd_duelo)
+
+    p_briefing = sub.add_parser(
+        "briefing", parents=[comun_p, base],
+        help="El documento de la mañana: todos los partidos del día, analizados.",
+        description="Agenda, cómo llega cada equipo, si ha cambiado, quién lleva "
+                    "racha, qué le pasa a sus jugadores contra el sistema del rival, "
+                    "el mercado y el árbitro. En Markdown y JSON, uno por día.",
+    )
+    p_briefing.add_argument("--date", help="AAAA-MM-DD (por defecto, hoy).")
+    p_briefing.add_argument("--grupos", help="Competiciones, separadas por comas.")
+    p_briefing.add_argument("--barrer", action="store_true",
+                            help="Hacer el barrido antes, para que salga con datos frescos.")
+    p_briefing.add_argument("--max", type=int, default=0,
+                            help="Tope de peticiones del barrido previo.")
+    p_briefing.add_argument("--jugadores", type=int, default=3,
+                            help="Jugadores a seguir por equipo.")
+    p_briefing.add_argument("--carpeta", default="datos/briefings",
+                            help="Dónde guardarlo (por defecto: datos/briefings).")
+    p_briefing.add_argument("--no-guardar", action="store_true", help="Solo por pantalla.")
+    p_briefing.add_argument("--quiet", action="store_true", help="Sin volcarlo por pantalla.")
+    p_briefing.set_defaults(func=cmd_briefing)

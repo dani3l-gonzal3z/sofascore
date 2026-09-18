@@ -162,6 +162,41 @@ def _agenda_del_dia(sesion, fecha: str | None = None, grupos: str | None = None)
 
 
 @herramienta(
+    "briefing_del_dia",
+    "EL REPASO DIARIO ENTERO en una llamada: todos los partidos del día en las "
+    "competiciones que importan, y de cada uno cómo llegan los dos equipos, si "
+    "han cambiado su forma de jugar, quién lleva racha, qué le pasa a sus "
+    "jugadores contra el sistema que van a tener enfrente, lo que dice el "
+    "mercado y cómo pita el árbitro. Empieza por aquí cuando te pidan 'qué hay "
+    "hoy'. Si ya se generó ese día, devuelve el guardado sin volver a calcular.",
+    {
+        "fecha": {"type": "string", "description": "AAAA-MM-DD (por defecto, hoy)."},
+        "grupos": {"type": "string",
+                   "description": "Grupos separados por comas: grandes, uefa, europeas, "
+                                  "americas, arabia."},
+        "recalcular": {"type": "boolean",
+                       "description": "Volver a generarlo aunque exista el de ese día."},
+    },
+)
+def _briefing_del_dia(sesion, fecha: str | None = None, grupos: str | None = None,
+                      recalcular: bool = False):
+    from datetime import datetime, timezone
+
+    from ..briefing import briefing, cargar, guardar
+
+    dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not recalcular and not grupos:
+        guardado = cargar(dia)
+        if guardado:
+            return guardado
+    datos = briefing(sesion.almacen, sesion.cliente, fecha=dia,
+                     grupos=grupos.split(",") if grupos else None)
+    if not grupos:
+        guardar(datos)
+    return datos
+
+
+@herramienta(
     "estado_de_la_memoria",
     "Qué hay guardado en la memoria local: cuántos partidos, de qué "
     "competiciones y de cuándo es el último barrido. Míralo si alguna de las "
