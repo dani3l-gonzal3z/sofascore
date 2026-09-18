@@ -39,6 +39,30 @@ def _texto(cuerpo: str) -> Response:
     return Response(200, "x", cuerpo.encode("utf-8"))
 
 
+CSV_FUTBOLDATA = (
+    "Div,Date,Time,HomeTeam,AwayTeam,FTHG,FTAG,FTR,HTHG,HTAG,Referee,HS,AS,HST,AST,"
+    "HF,AF,HC,AC,HY,AY,HR,AR,B365H,B365D,B365A,PSH,PSD,PSA,AvgH,AvgD,AvgA,"
+    "B365CH,B365CD,B365CA,AvgCH,AvgCD,AvgCA,Avg>2.5,AvgC>2.5\n"
+    "SP1,26/10/2024,20:00,Real Madrid,Barcelona,0,4,A,0,0,C Soto Grado,9,13,3,8,"
+    "12,10,4,6,2,3,0,0,2.20,3.60,3.10,2.25,3.70,3.15,2.21,3.62,3.08,"
+    "2.10,3.75,3.30,3.10,3.70,1.90,1.70,1.68\n"
+    "SP1,27/10/2024,14:00,Sevilla,Osasuna,2,1,H,1,0,J Munuera,11,8,4,2,"
+    "15,13,5,3,3,2,0,0,1.90,3.40,4.20,1.92,3.45,4.30,1.91,3.42,4.15,"
+    ",,,,,,1.85,\n"
+    "SP1,03/11/2024,16:15,Ath Madrid,Las Palmas,2,0,H,1,0,A Cordero,14,4,6,1,"
+    "10,12,7,2,1,2,0,0,1.30,5.50,10.0,1.31,5.60,10.5,1.30,5.45,10.2,"
+    ",,,,,,1.60,\n"
+)
+
+
+def _futboldata(rutas=None):
+    from cancha.sources import FutbolData
+
+    rutas = rutas or {"/mmz4281/2425/SP1.csv": _texto(CSV_FUTBOLDATA)}
+    return FutbolData(settings=Settings(rate_limit=0), transport=FakeTransport(rutas),
+                      cache=MemoryCache())
+
+
 def _elo(rutas=None):
     rutas = rutas or {
         "/2026-08-23": _texto(CSV_DIA),
@@ -52,7 +76,7 @@ def _elo(rutas=None):
 # ------------------------------------------------------------------- registro
 
 def test_las_fuentes_se_registran_solas():
-    assert set(FUENTES) == {"clubelo", "understat"}
+    assert set(FUENTES) == {"clubelo", "understat", "futboldata", "espn"}
     assert isinstance(construir("clubelo"), ClubElo)
 
 
@@ -224,6 +248,7 @@ def test_contexto_junta_las_fuentes_y_contrasta_los_modelos(monkeypatch, tmp_pat
 
     monkeypatch.setattr("cancha.sources.cruce.Understat", _understat)
     monkeypatch.setattr("cancha.sources.cruce.ClubElo", _elo)
+    monkeypatch.setattr("cancha.sources.futboldata.FutbolData", _futboldata)
 
     cliente = SofascoreClient(
         Settings(cache_dir=tmp_path / "c", rate_limit=0, retries=0),
@@ -235,6 +260,9 @@ def test_contexto_junta_las_fuentes_y_contrasta_los_modelos(monkeypatch, tmp_pat
     assert salida["partido"]["local"] == "Real Madrid"
     assert salida["fuentes"]["understat"]["estado"] == "ok"
     assert salida["fuentes"]["clubelo"]["estado"] == "ok"
+    assert salida["fuentes"]["futboldata"]["estado"] == "ok"
+    assert salida["fuentes"]["futboldata"]["favorito"]["lado"] == "visitante"
+    assert salida["sofascore"]["mercado"]["favorito"]["lado"] == "visitante"
     contraste = salida["contraste_xg"]
     assert contraste["posible"] is True
     assert "local" in contraste["por_equipo"]
@@ -280,6 +308,8 @@ def test_una_fuente_que_falla_no_tumba_las_demas(monkeypatch, tmp_path):
 
     monkeypatch.setattr("cancha.sources.cruce.Understat", _understat)
     monkeypatch.setattr("cancha.sources.cruce.ClubElo", elo_roto)
+    monkeypatch.setattr("cancha.sources.futboldata.FutbolData",
+                        lambda: _futboldata({"/mmz4281/2425/SP1.csv": Response(500, "x", b"")}))
 
     cliente = SofascoreClient(
         Settings(cache_dir=tmp_path / "c", rate_limit=0, retries=0),
@@ -290,6 +320,7 @@ def test_una_fuente_que_falla_no_tumba_las_demas(monkeypatch, tmp_path):
     # Un 500 en todas sus raíces: la fuente no ha contestado, no es el nombre.
     assert salida["fuentes"]["clubelo"]["estado"] == "sin_respuesta"
     assert salida["fuentes"]["understat"]["estado"] == "ok"
+    assert salida["fuentes"]["futboldata"]["estado"] == "error"
 
 
 # ------------------------------------ que una raíz no conteste no es el final

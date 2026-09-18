@@ -73,7 +73,7 @@ def contexto_partido(
     cliente: SofascoreClient,
     partido: str | int,
     fecha: str | None = None,
-    fuentes: tuple[str, ...] = ("understat", "clubelo"),
+    fuentes: tuple[str, ...] = ("understat", "clubelo", "futboldata"),
 ) -> dict:
     """Reúne lo que dicen todas las fuentes sobre un mismo partido.
 
@@ -81,7 +81,7 @@ def contexto_partido(
     escrito, igual que hacen las secciones de un informe.
     """
     evento = resolve_event(cliente, partido, date=fecha).event
-    informe = build_report(cliente, evento, sections=["statistics", "shotmap"])
+    informe = build_report(cliente, evento, sections=["statistics", "shotmap", "odds_featured"])
 
     salida: dict[str, Any] = {
         "partido": {
@@ -92,7 +92,8 @@ def contexto_partido(
             "fecha": evento.date,
             "competicion": evento.tournament,
         },
-        "sofascore": {"xg": _xg_de_sofascore(informe), "tiros": len(informe.shots())},
+        "sofascore": {"xg": _xg_de_sofascore(informe), "tiros": len(informe.shots()),
+                      "mercado": _mercado_de_sofascore(informe)},
         "fuentes": {},
     }
 
@@ -100,12 +101,44 @@ def contexto_partido(
         salida["fuentes"]["understat"] = _understat(evento)
     if "clubelo" in fuentes:
         salida["fuentes"]["clubelo"] = _clubelo(evento)
+    if "futboldata" in fuentes:
+        salida["fuentes"]["futboldata"] = _futboldata(evento)
 
     salida["contraste_xg"] = _contrastar(
         salida["sofascore"].get("xg"),
         (salida["fuentes"].get("understat") or {}).get("xg"),
     )
     return salida
+
+
+def _mercado_de_sofascore(informe) -> dict | None:
+    from ..cuotas import extraer_1x2, favorito
+
+    mercado = extraer_1x2(informe.get("odds_featured"))
+    if not mercado:
+        return None
+    return {**mercado, "favorito": favorito(mercado["probabilidades"])}
+
+
+def _futboldata(evento: Event) -> dict:
+    """Las cuotas de cierre y el árbitro según football-data.co.uk."""
+    from .futboldata import CODIGOS, FutbolData
+
+    if (evento.unique_tournament_id or 0) not in CODIGOS:
+        return {"estado": "no_cubierta",
+                "nota": f"football-data.co.uk no cubre '{evento.tournament}'."}
+    fuente = FutbolData()
+    try:
+        bloque = fuente.cuotas_de(evento)
+        if not bloque:
+            return {"estado": "no_encontrado",
+                    "nota": "No hay partido equivalente en el CSV de esa temporada "
+                            "(o todavía no lo han publicado)."}
+        return {"estado": "ok", **bloque}
+    except SofascoreError as exc:
+        return {"estado": "error", "nota": str(exc)}
+    finally:
+        fuente.close()
 
 
 def _understat(evento: Event) -> dict:

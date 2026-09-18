@@ -17,6 +17,11 @@ curl = ["curl_cffi>=0.7"]
 http = ["httpx>=0.27"]
 # Tablas: informe.frames() devuelve DataFrames en vez de listas de diccionarios.
 pandas = ["pandas>=2.0"]
+# Las librerías de referencia, para FBref, Transfermarkt y Capology a través de
+# sus lectores (cancha/sources/externas.py). Pesan y abren navegadores: solo si
+# las quieres.
+scraperfc = ["ScraperFC>=4.0"]
+soccerdata = ["soccerdata>=1.8"]
 dev = ["pytest>=8.0", "pandas>=2.0", "curl_cffi>=0.7"]
 
 [project.scripts]

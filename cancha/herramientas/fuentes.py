@@ -102,13 +102,170 @@ def _tiros_understat(sesion, partido_understat: int):
 
 
 @herramienta(
+    "noticias",
+    "TITULARES de una liga o de un equipo, de ESPN: lesiones, sanciones, "
+    "destituciones, fichajes. Es el contexto que ningún número trae. Úsala "
+    "antes de una previa para saber si falta alguien o si el entrenador es "
+    "nuevo. Cubre las grandes ligas, MLS, Arabia y las copas europeas.",
+    {
+        "liga": {"type": "string", "description": "'laliga', 'premier', 'mls', 'champions'..."},
+        "equipo": {"type": "string", "description": "Solo las que mencionen a este equipo."},
+        "cuantas": {"type": "integer", "description": "Cuántas (por defecto 15)."},
+    },
+    ["liga"],
+)
+def _noticias(sesion, liga: str, equipo: str | None = None, cuantas: int = 15):
+    from ..sources import ESPN
+
+    fuente = ESPN()
+    try:
+        return {"liga": liga, "equipo": equipo,
+                "noticias": fuente.noticias(liga, cuantas=cuantas, equipo=equipo)}
+    finally:
+        fuente.close()
+
+
+@herramienta(
+    "agenda_espn",
+    "La agenda de un día según ESPN, con su línea de apuestas (favorito y "
+    "más/menos de goles) y, en partidos acabados, el marcador. Es una fuente "
+    "independiente de Sofascore: úsala para contrastar la agenda o cuando la "
+    "otra no conteste. Sus ids no son los de Sofascore.",
+    {
+        "fecha": {"type": "string", "description": "AAAA-MM-DD (por defecto, hoy)."},
+        "liga": {"type": "string",
+                 "description": "Una liga concreta; sin ella, todas las que cubre."},
+    },
+)
+def _agenda_espn(sesion, fecha: str | None = None, liga: str | None = None):
+    from ..sources import ESPN
+
+    fuente = ESPN()
+    try:
+        partidos = fuente.agenda(liga, fecha) if liga else fuente.agenda_del_dia(fecha)
+        return {"fecha": fecha or "hoy", "total": len(partidos), "partidos": partidos}
+    finally:
+        fuente.close()
+
+
+@herramienta(
+    "historial_de_liga",
+    "TODOS LOS PARTIDOS de una liga en una temporada según football-data.co.uk: "
+    "resultado, tiros, córners, tarjetas, árbitro y cuotas de cierre. Desde "
+    "1993, sin límite. Con `equipo`, solo los suyos. Es de donde sale el "
+    "historial largo (veinte temporadas) y quién era favorito en cada partido. "
+    "Cubre las cinco grandes, sus segundas, Países Bajos, Portugal y Turquía.",
+    {
+        "liga": {"type": "string", "description": "'laliga', 'premier', 'SP1', 'E0'..."},
+        "temporada": {"type": "integer",
+                      "description": "Año de inicio: 2024 para la 24/25."},
+        "equipo": {"type": "string", "description": "Solo los partidos de este equipo."},
+        "cuantos": {"type": "integer", "description": "Tope de partidos (por defecto 60)."},
+    },
+    ["liga", "temporada"],
+)
+def _historial_de_liga(sesion, liga: str, temporada: int, equipo: str | None = None,
+                       cuantos: int = 60):
+    from ..sources import FutbolData
+
+    fuente = FutbolData()
+    try:
+        partidos = (fuente.equipo(liga, temporada, equipo) if equipo
+                    else fuente.temporada(liga, temporada))
+        return {"liga": fuente.codigo(liga), "temporada": temporada, "equipo": equipo,
+                "total": len(partidos), "partidos": partidos[:cuantos]}
+    finally:
+        fuente.close()
+
+
+@herramienta(
+    "rellenar_cuotas",
+    "Pone QUIÉN ERA FAVORITO a los partidos guardados en la memoria que no "
+    "tienen cuotas, con las de cierre de football-data.co.uk. Hazlo antes de "
+    "usar sistema_o_contexto si la memoria se barrió sin cuotas. Tarda: un CSV "
+    "por liga y temporada.",
+    {
+        "maximo": {"type": "integer", "description": "Tope de partidos a rellenar."},
+    },
+)
+def _rellenar_cuotas(sesion, maximo: int = 0):
+    from ..sources import rellenar_cuotas
+
+    return rellenar_cuotas(sesion.almacen, maximo=maximo)
+
+
+@herramienta(
+    "datos_externos",
+    "FBref, Transfermarkt, Capology y SoFIFA a través de ScraperFC o soccerdata, "
+    "si están instaladas (mira `fuentes`). `que` es: fbref_equipos, "
+    "fbref_jugadores, fbref_calendario (soccerdata, sin navegador, cinco grandes "
+    "ligas) o fbref_estadisticas, transfermarkt_valores, capology_salarios "
+    "(ScraperFC; FBref abre un navegador). Tarda y necesita red: pide poco y "
+    "concreto. Si la librería no está, la respuesta dice qué instalar.",
+    {
+        "que": {"type": "string",
+                "enum": ["fbref_equipos", "fbref_jugadores", "fbref_calendario",
+                         "fbref_estadisticas", "transfermarkt_valores", "capology_salarios",
+                         "sofifa_valoraciones", "temporadas"],
+                "description": "Qué tabla."},
+        "liga": {"type": "string", "description": "'laliga', 'premier'..."},
+        "temporada": {"type": "string",
+                      "description": "soccerdata: 2024 o '24-25'. ScraperFC: como diga "
+                                     "`temporadas` ('2024-2025', '24/25')."},
+        "tipo": {"type": "string",
+                 "description": "Categoría de FBref: standard, shooting, passing, "
+                                "defense, possession, misc, keeper..."},
+        "maximo": {"type": "integer", "description": "Tope de filas (por defecto 60)."},
+    },
+    ["que", "liga"],
+)
+def _datos_externos(sesion, que: str, liga: str, temporada: str | None = None,
+                    tipo: str = "standard", maximo: int = 60):
+    from ..sources import AdaptadorNoDisponible, adaptador
+
+    try:
+        if que in ("fbref_equipos", "fbref_jugadores", "fbref_calendario", "sofifa_valoraciones"):
+            sd = adaptador("soccerdata")
+            temporada_sd: int | str = int(temporada) if temporada and temporada.isdigit() \
+                else (temporada or 2024)
+            if que == "fbref_equipos":
+                filas = sd.fbref_equipos(liga, temporada_sd, tipo=tipo, maximo=maximo)
+            elif que == "fbref_jugadores":
+                filas = sd.fbref_jugadores(liga, temporada_sd, tipo=tipo, maximo=maximo)
+            elif que == "fbref_calendario":
+                filas = sd.fbref_calendario(liga, temporada_sd, maximo=maximo)
+            else:
+                filas = sd.sofifa_valoraciones(liga, temporada_sd, maximo=maximo)
+            return {"libreria": "soccerdata", "que": que, "filas": filas}
+        sfc = adaptador("scraperfc")
+        if que == "temporadas":
+            return {"libreria": "scraperfc", "temporadas": {
+                modulo: sfc.temporadas(modulo, liga)
+                for modulo in ("fbref", "transfermarkt", "capology")}}
+        if not temporada:
+            return {"error": "Hace falta `temporada`; pide `que: temporadas` para ver el formato."}
+        if que == "fbref_estadisticas":
+            return {"libreria": "scraperfc", "que": que,
+                    "tablas": sfc.fbref_estadisticas(liga, temporada, tipo, maximo=maximo)}
+        if que == "transfermarkt_valores":
+            return {"libreria": "scraperfc", "que": que,
+                    "filas": sfc.transfermarkt_valores(liga, temporada, maximo=maximo)}
+        return {"libreria": "scraperfc", "que": que,
+                "filas": sfc.capology_salarios(liga, temporada, maximo=maximo)}
+    except AdaptadorNoDisponible as exc:
+        return {"error": str(exc), "instalar": "pip install ScraperFC soccerdata"}
+    except (ValueError, KeyError) as exc:
+        return {"error": str(exc)}
+
+
+@herramienta(
     "fuentes",
     "Qué fuentes de datos hay además de Sofascore y qué aporta cada una. "
     "Consúltalo si no sabes de dónde puede salir un dato.",
     {},
 )
 def _fuentes(sesion):
-    from ..sources import FUENTES, construir
+    from ..sources import FUENTES, construir, disponibles
 
     return {
         "principal": {
@@ -116,6 +273,7 @@ def _fuentes(sesion):
                          "Es la fuente de todas las demás herramientas."
         },
         "adicionales": {n: construir(n).descripcion for n in sorted(FUENTES)},
+        "librerias_externas": disponibles(),
         "cruzarlas": "contexto_externo junta todas sobre un mismo partido y "
                      "calcula la diferencia entre los dos modelos de xG.",
     }

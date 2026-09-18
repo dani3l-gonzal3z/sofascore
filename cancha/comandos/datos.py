@@ -169,8 +169,65 @@ def cmd_fuentes(args: argparse.Namespace) -> int:
         for linea in envolver(fuente.descripcion, 74):
             imprimir(f"      {linea}")
         imprimir(f"      {fuente.base_url} · {fuente.rate_limit}/s · caché {fuente.ttl // 3600} h")
+    from ..sources import disponibles
+
+    imprimir("\nLibrerías externas (se usan si están instaladas):\n")
+    for nombre, info in disponibles().items():
+        marca = "✓" if info["instalado"] else "·"
+        version = f" {info['version']}" if info.get("version") else ""
+        imprimir(f"  {marca} {nombre}{version}")
+        for linea in envolver(info["aporta"], 70):
+            imprimir(f"      {linea}")
+        if not info["instalado"]:
+            imprimir(f"      {info['instalar']}")
     imprimir("\nJúntalas todas sobre un partido con: cancha contexto <partido>")
     return 0
+
+
+def cmd_noticias(args: argparse.Namespace) -> int:
+    """Los titulares de una liga (o de un equipo), de ESPN."""
+    from ..sources import ESPN
+
+    fuente = ESPN()
+    try:
+        noticias = fuente.noticias(args.liga, cuantas=args.limit, equipo=args.equipo)
+        if args.stdout_json:
+            imprimir(json.dumps(noticias, ensure_ascii=False, indent=2, default=str))
+            return 0
+        if not noticias:
+            imprimir("Sin noticias" + (f" que mencionen a {args.equipo}." if args.equipo else "."))
+            return 0
+        for noticia in noticias:
+            fecha = (noticia.get("fecha") or "")[:10]
+            imprimir(f"{fecha}  {noticia['titulo']}")
+            for linea in envolver(noticia.get("resumen") or "", 72):
+                imprimir(f"            {linea}")
+            if noticia.get("enlace"):
+                imprimir(f"            {noticia['enlace']}")
+            imprimir("")
+        return 0
+    finally:
+        fuente.close()
+
+
+def cmd_cuotas(args: argparse.Namespace) -> int:
+    """Rellena las cuotas de la memoria con las de cierre de football-data.co.uk."""
+    from ..almacen import Almacen
+    from ..sources import rellenar_cuotas
+
+    almacen = Almacen(args.db or "datos/cancha.db")
+    try:
+        imprimir("Rellenando cuotas desde football-data.co.uk…")
+        resumen = rellenar_cuotas(almacen, liga_id=args.liga_id, maximo=args.max,
+                                  avisar=None if args.quiet else imprimir)
+        imprimir(f"\nRellenados {resumen['rellenados']} de {resumen['candidatos']} candidatos · "
+                 f"sin cobertura: {resumen['sin_cobertura']} · "
+                 f"no encontrados: {resumen['no_encontrados']}")
+        for fallo in resumen["fallos"][:5]:
+            imprimir(f"    {fallo}")
+        return 0
+    finally:
+        almacen.close()
 
 
 def registrar(sub, comun, informe, listado) -> None:
@@ -212,3 +269,22 @@ def registrar(sub, comun, informe, listado) -> None:
 
     p_fuentes = sub.add_parser("fuentes", help="Qué fuentes de datos hay y qué aporta cada una.")
     p_fuentes.set_defaults(func=cmd_fuentes)
+
+    p_noticias = sub.add_parser("noticias", parents=[comun],
+                                help="Titulares de una liga o de un equipo (ESPN).")
+    p_noticias.add_argument("liga", help="'laliga', 'premier', 'mls'... o el código de ESPN.")
+    p_noticias.add_argument("--equipo", help="Solo las que mencionen a este equipo.")
+    p_noticias.add_argument("--limit", type=int, default=15, help="Cuántas.")
+    p_noticias.add_argument("--stdout-json", action="store_true")
+    p_noticias.set_defaults(func=cmd_noticias)
+
+    p_cuotas = sub.add_parser(
+        "cuotas", parents=[comun],
+        help="Rellena las cuotas de los partidos guardados (football-data.co.uk).",
+        description="Pone quién era favorito a los partidos barridos sin cuotas, para "
+                    "que el desglose por favorito funcione con todo lo guardado.")
+    p_cuotas.add_argument("--db", help="Fichero de la memoria.")
+    p_cuotas.add_argument("--liga-id", type=int, help="Solo esa competición (id de Sofascore).")
+    p_cuotas.add_argument("--max", type=int, default=0, help="Tope de partidos a rellenar.")
+    p_cuotas.add_argument("--quiet", action="store_true")
+    p_cuotas.set_defaults(func=cmd_cuotas)

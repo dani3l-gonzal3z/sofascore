@@ -198,6 +198,22 @@ def cmd_contexto(args: argparse.Namespace) -> int:
             imprimir("\n  Elo               – no disponible")
             for linea in envolver(elo.get("nota", ""), 70):
                 imprimir(f"    {linea}")
+
+        mercado = datos["sofascore"].get("mercado")
+        cierre = datos["fuentes"].get("futboldata") or {}
+        if mercado or cierre.get("estado") == "ok":
+            imprimir("")
+        if mercado:
+            p = mercado["probabilidades"]
+            imprimir(f"  Mercado Sofascore {p.get('local', 0):.0%} · {p.get('empate', 0):.0%} · "
+                     f"{p.get('visitante', 0):.0%}  ({mercado['favorito']['lectura']})")
+        if cierre.get("estado") == "ok":
+            p = cierre["probabilidades"]
+            imprimir(f"  Cierre {cierre['mercado']:<11} {p.get('local', 0):.0%} · "
+                     f"{p.get('empate', 0):.0%} · {p.get('visitante', 0):.0%}"
+                     + (f"  · árbitro {cierre['arbitro']}" if cierre.get("arbitro") else ""))
+        elif cierre.get("nota"):
+            imprimir(f"  Cierre            – {cierre['nota']}")
         depuracion(args, cliente)
         return 0
     finally:

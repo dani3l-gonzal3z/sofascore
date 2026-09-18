@@ -216,7 +216,15 @@ def construir(nombre: str, **kwargs) -> Fuente:
 
 
 def _numero(valor: Any) -> Any:
-    """Convierte a número lo que lo parezca; deja el resto como está."""
+    """Convierte a número lo que lo parezca; deja el resto como está.
+
+    Un número que ya lo es se devuelve tal cual: ``int(3.5)`` da 3 sin avisar,
+    y así es como una línea de 3,5 goles se convertía en 3.
+    """
+    if isinstance(valor, bool):
+        return valor
+    if isinstance(valor, (int, float)):
+        return valor
     if valor in (None, "", "None", "NA", "-"):
         return None
     try:
