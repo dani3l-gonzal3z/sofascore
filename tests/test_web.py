@@ -26,7 +26,7 @@ def servidor(cliente, tmp_path):
     sesion.almacen.guardar_informe(build_report(cliente, EVENT_ID, sections=["all"]))
     app = Servidor(sesion=sesion, carpeta_briefings=str(tmp_path / "briefings"))
     http = construir(app, "127.0.0.1", 0)
-    hilo = threading.Thread(target=http.serve_forever, daemon=True)
+    hilo = threading.Thread(target=lambda: http.serve_forever(poll_interval=0.02), daemon=True)
     hilo.start()
     app.puerto = http.server_address[1]
     try:
