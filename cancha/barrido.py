@@ -32,8 +32,10 @@ from .models import Event
 
 #: Lo que hace falta guardar de un partido para poder analizarlo después.
 #: El mapa de tiros y las alineaciones son los caros; sin ellos no hay ni xG ni
-#: rendimiento por jugador, que es justo lo que se quiere mirar.
-SECCIONES = ["statistics", "lineups", "incidents", "shotmap"]
+#: rendimiento por jugador, que es justo lo que se quiere mirar. Las cuotas
+#: son baratas y valen oro: dicen quién era favorito, que es lo que separa
+#: «rinde mal contra bloque bajo» de «rinde mal cuando su equipo es favorito».
+SECCIONES = ["statistics", "lineups", "incidents", "shotmap", "odds_featured"]
 
 #: Grupos de competiciones, para no tener que escribir ids.
 GRUPOS: dict[str, tuple[str, ...]] = {

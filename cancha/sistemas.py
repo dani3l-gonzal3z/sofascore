@@ -33,6 +33,7 @@ import math
 from typing import Any
 
 from .almacen import Almacen
+from .cuotas import UMBRAL_FAVORITO
 
 #: Métricas de conteo: se puede contrastar con Poisson porque son sucesos
 #: discretos y más o menos independientes dentro de un partido.
@@ -282,16 +283,36 @@ def _agregar(actuaciones: list[dict]) -> dict:
     }
 
 
+def _era_favorito(fila: dict, equipo_id: int) -> str | None:
+    """``favorito``, ``no_favorito`` o ``None`` si el partido no tiene cuotas.
+
+    Se mira desde el equipo del jugador: si su equipo era el favorito del
+    mercado o no lo era. Un partido parejo cuenta como ``no_favorito``: lo
+    que se quiere aislar es la situación de «mi equipo debía ganar».
+    """
+    if fila.get("prob_local") is None:
+        return None
+    es_local = fila["local_id"] == equipo_id
+    propia = fila["prob_local"] if es_local else fila["prob_visitante"]
+    return "favorito" if (propia or 0) >= UMBRAL_FAVORITO else "no_favorito"
+
+
 def jugador_contra_sistema(
     almacen: Almacen,
     jugador_id: int,
     eje: str = "presion",
     minimo_minutos: int = 20,
+    solo: str | None = None,
 ) -> dict:
     """Cómo rinde un jugador según el sistema del rival.
 
     ``eje`` es por qué se agrupa: ``presion`` (alto / medio / bloque bajo),
     ``linea`` (de 4 o de 5 defensas) o ``balon`` (quién domina la pelota).
+
+    ``solo`` restringe a los partidos en que su equipo era ``favorito`` o
+    ``no_favorito`` según el mercado. Es la forma de separar el sistema del
+    contexto: si «rinde peor contra bloque bajo» sigue saliendo cuando solo se
+    miran partidos de favorito, es el sistema; si desaparece, era el contexto.
 
     Cada grupo se compara con **su propia media**, no con la de otros
     jugadores, y la diferencia se contrasta contra el azar. Un grupo con dos
@@ -300,8 +321,10 @@ def jugador_contra_sistema(
     """
     actuaciones = almacen.consulta(
         """SELECT a.*, p.id AS partido, p.liga_id, p.local_id, p.visitante_id,
-                  p.local, p.visitante, p.fecha
+                  p.local, p.visitante, p.fecha,
+                  c.prob_local, c.prob_visitante
            FROM actuaciones a JOIN partidos p ON p.id = a.partido_id
+           LEFT JOIN cuotas c ON c.partido_id = p.id
            WHERE a.jugador_id = ? AND p.estado = 'finished'
            ORDER BY p.momento DESC""",
         (jugador_id,),
@@ -310,11 +333,21 @@ def jugador_contra_sistema(
     if not actuaciones:
         return {"disponible": False,
                 "nota": "No hay actuaciones guardadas de ese jugador. Haz un barrido."}
+    equipo_del_jugador = actuaciones[0]["equipo_id"]
+    con_cuotas = sum(1 for a in actuaciones if a.get("prob_local") is not None)
+    if solo:
+        if solo not in ("favorito", "no_favorito"):
+            raise ValueError("solo debe ser 'favorito', 'no_favorito' o None")
+        actuaciones = [a for a in actuaciones
+                       if _era_favorito(a, equipo_del_jugador) == solo]
+        if not actuaciones:
+            return {"disponible": False,
+                    "nota": f"No hay partidos con cuotas en los que su equipo fuera "
+                            f"{solo.replace('_', ' ')}. Barre con `odds_featured`."}
 
     umbrales_por_liga: dict[int, dict] = {}
     grupos: dict[str, list[dict]] = {}
     sin_clasificar = 0
-    equipo_del_jugador = actuaciones[0]["equipo_id"]
 
     for fila in actuaciones:
         rival_id = (fila["visitante_id"] if fila["local_id"] == equipo_del_jugador
@@ -332,7 +365,8 @@ def jugador_contra_sistema(
             continue
         entrada = _actuacion(fila)
         entrada.update({"rival": sistema["rival"], "fecha": sistema["fecha"],
-                        "formacion_rival": sistema["formacion"]})
+                        "formacion_rival": sistema["formacion"],
+                        "favorito": _era_favorito(fila, equipo_del_jugador)})
         grupos.setdefault(etiqueta, []).append(entrada)
 
     todas = [_actuacion(f) for f in actuaciones]
@@ -345,8 +379,9 @@ def jugador_contra_sistema(
         bloque = _agregar(lista)
         bloque["contra"] = [
             {"rival": a["rival"], "fecha": a["fecha"], "formacion": a["formacion_rival"],
-             "minutos": a["minutos"]} for a in lista
+             "minutos": a["minutos"], "favorito": a.get("favorito")} for a in lista
         ]
+        bloque["siendo_favorito"] = _reparto_favorito(lista)
         bloque["comparado_con_su_media"] = _comparar(bloque, base)
         salida_grupos[etiqueta] = bloque
 
@@ -355,6 +390,8 @@ def jugador_contra_sistema(
         "jugador_id": jugador_id,
         "jugador": actuaciones[0]["jugador"],
         "eje": eje,
+        "solo": solo,
+        "partidos_con_cuotas": con_cuotas,
         "su_media": base,
         "grupos": salida_grupos,
         "partidos_sin_clasificar": sin_clasificar,
@@ -370,6 +407,60 @@ def jugador_contra_sistema(
             "circunstancias: a bloques bajos, sobre todo cuando su equipo es "
             "favorito. Parte de lo que se vea aquí es el contexto del partido y "
             "no él."
+            + (" Para separarlos, mira el desglose por favorito "
+               "(`desglose_por_favorito`)." if con_cuotas and not solo else "")
+        ),
+    }
+
+
+def _reparto_favorito(lista: list[dict]) -> dict:
+    """En cuántos de los partidos del grupo el equipo del jugador era favorito."""
+    cuenta = {"favorito": 0, "no_favorito": 0, "sin_cuotas": 0}
+    for entrada in lista:
+        cuenta[entrada.get("favorito") or "sin_cuotas"] += 1
+    return cuenta
+
+
+def desglose_por_favorito(almacen: Almacen, jugador_id: int, eje: str = "presion") -> dict:
+    """El mismo análisis hecho dos veces: siendo favorito y sin serlo.
+
+    Es la comprobación que separa el sistema del contexto. Un hallazgo que
+    aparece en los dos desgloses es del sistema; uno que solo aparece cuando su
+    equipo era favorito es, casi seguro, del contexto —y decirlo vale más que
+    la cifra.
+    """
+    favorito = jugador_contra_sistema(almacen, jugador_id, eje=eje, solo="favorito")
+    no_favorito = jugador_contra_sistema(almacen, jugador_id, eje=eje, solo="no_favorito")
+    hallazgos_fav = {(h["contra"], h["metrica"]): h for h in lo_relevante(favorito)}
+    hallazgos_no = {(h["contra"], h["metrica"]): h for h in lo_relevante(no_favorito)}
+
+    lectura = []
+    for clave in sorted(set(hallazgos_fav) | set(hallazgos_no)):
+        contra, metrica = clave
+        en_fav, en_no = clave in hallazgos_fav, clave in hallazgos_no
+        if en_fav and en_no:
+            veredicto = "aparece en los dos: es el sistema, no el contexto"
+        elif en_fav:
+            veredicto = "solo cuando su equipo es favorito: puede ser el contexto"
+        else:
+            veredicto = "solo cuando su equipo no es favorito: puede ser el contexto"
+        lectura.append({"contra": contra, "metrica": metrica, "veredicto": veredicto,
+                        "favorito": hallazgos_fav.get(clave),
+                        "no_favorito": hallazgos_no.get(clave)})
+
+    return {
+        "disponible": favorito.get("disponible") or no_favorito.get("disponible"),
+        "jugador_id": jugador_id,
+        "jugador": favorito.get("jugador") or no_favorito.get("jugador"),
+        "eje": eje,
+        "siendo_favorito": favorito,
+        "sin_ser_favorito": no_favorito,
+        "lectura": lectura,
+        "como_leerlo": (
+            "Un hallazgo que sale en los dos desgloses es del sistema. Uno que solo "
+            "sale en uno puede ser el contexto (a un bloque bajo se le juega sobre "
+            "todo siendo favorito). Los dos desgloses tienen la mitad de muestra "
+            "que el análisis entero: más 'sin muestra' es lo esperable."
         ),
     }
 
@@ -514,6 +605,7 @@ def duelo(almacen: Almacen, jugador_id: int, rival_id: int) -> dict:
                 ],
                 "todo": grupo["comparado_con_su_media"],
                 "contra": grupo["contra"],
+                "siendo_favorito": grupo.get("siendo_favorito"),
             },
             "su_media": analisis["su_media"]["por_90"],
         }
@@ -527,7 +619,8 @@ def duelo(almacen: Almacen, jugador_id: int, rival_id: int) -> dict:
 
 
 __all__ = [
-    "jugador_contra_sistema", "duelo", "sistema_habitual", "sistema_del_rival",
+    "jugador_contra_sistema", "desglose_por_favorito", "duelo", "sistema_habitual",
+    "sistema_del_rival",
     "clasificar", "umbrales_de_liga", "presion_aproximada", "lo_relevante",
     "probabilidad_de_azar", "poisson_cdf",
     "METRICAS_CONTEO", "METRICAS_CONTINUAS",

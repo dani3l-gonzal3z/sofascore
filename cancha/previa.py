@@ -74,6 +74,7 @@ def previa(
         salida["jugadores"][lado] = _a_seguir(
             almacen, equipo.id, cuantos=jugadores_por_equipo, ultimos=ultimos)
 
+    salida["mercado"] = _mercado(almacen, evento, cliente)
     salida["donde_se_hacen_dano"] = _cruces(salida["equipos"])
     salida["arbitro"] = (
         perfil_de_arbitro(almacen, evento.referee) if evento.referee
@@ -81,6 +82,32 @@ def previa(
     )
     salida["memoria"] = _cobertura(salida)
     return salida
+
+
+def _mercado(almacen: Almacen, evento: Event, cliente: SofascoreClient | None) -> dict:
+    """Quién es favorito según las cuotas: guardadas si las hay, y si no, pedidas.
+
+    No es para apostar: es la mejor previsión pública de un partido, y lo que
+    permite leer el resto de la previa sabiendo quién *debería* ganar.
+    """
+    from .cuotas import extraer_1x2, favorito
+    from .errors import SofascoreError
+
+    guardadas = almacen.cuotas_de(evento.id)
+    if guardadas:
+        return {"disponible": True, "origen": "memoria", **guardadas}
+    if cliente is None:
+        return {"disponible": False, "nota": "Sin cuotas guardadas de este partido."}
+    try:
+        crudo = cliente.section("odds_featured", evento.id, ttl=1800)
+    except SofascoreError as exc:
+        return {"disponible": False, "nota": f"Sin cuotas: {exc}"}
+    mercado = extraer_1x2(crudo)
+    if not mercado:
+        return {"disponible": False, "nota": "La API no trae un 1X2 para este partido."}
+    almacen.guardar_cuotas(evento.id, mercado)
+    return {"disponible": True, "origen": "api", **mercado,
+            "favorito": favorito(mercado["probabilidades"])}
 
 
 def _resolver(almacen: Almacen, partido: str | int,
@@ -218,6 +245,15 @@ def texto(datos: dict, ancho: int = 76) -> list[str]:
         for jugador in jugadores:
             if jugador["rachas"]:
                 lineas.append(f"    {jugador['jugador']}: {', '.join(jugador['rachas'])}")
+        lineas.append("")
+
+    mercado = datos.get("mercado") or {}
+    if mercado.get("disponible"):
+        probs = mercado["probabilidades"]
+        lineas.append(
+            f"Mercado: {probs.get('local', 0):.0%} local · {probs.get('empate', 0):.0%} "
+            f"empate · {probs.get('visitante', 0):.0%} visitante "
+            f"({mercado['favorito']['lectura']})")
         lineas.append("")
 
     cruces = datos.get("donde_se_hacen_dano") or []

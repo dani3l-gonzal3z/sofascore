@@ -17,6 +17,7 @@ from ..perfiles import estilo_de_equipo, forma_de_jugador, perfil_de_arbitro
 from ..previa import previa, texto
 from ..resolve import normalizar
 from ..sistemas import (
+    desglose_por_favorito,
     duelo,
     jugador_contra_sistema,
     lo_relevante,
@@ -332,7 +333,10 @@ def cmd_contra(args: argparse.Namespace) -> int:
         if jugador_id is None:
             imprimir(f"No encuentro '{args.consulta}' en la memoria. Prueba con --buscar.")
             return 1
-        datos = jugador_contra_sistema(almacen, jugador_id, eje=args.eje)
+        if args.desglose:
+            return _imprimir_desglose(desglose_por_favorito(almacen, jugador_id, eje=args.eje),
+                                      args)
+        datos = jugador_contra_sistema(almacen, jugador_id, eje=args.eje, solo=args.solo)
         if args.stdout_json:
             imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
             return 0
@@ -341,12 +345,19 @@ def cmd_contra(args: argparse.Namespace) -> int:
             return 1
 
         media = datos["su_media"]
-        imprimir(f"{datos['jugador']} — agrupado por {EJES.get(args.eje, args.eje)}")
-        imprimir(f"  {media['partidos']} partidos, {media['minutos']} minutos en total\n")
+        imprimir(f"{datos['jugador']} — agrupado por {EJES.get(args.eje, args.eje)}"
+                 + (f", solo siendo {args.solo.replace('_', ' ')}" if args.solo else ""))
+        imprimir(f"  {media['partidos']} partidos, {media['minutos']} minutos en total"
+                 + (f" · {datos['partidos_con_cuotas']} con cuotas"
+                    if datos.get("partidos_con_cuotas") else ""))
+        imprimir("")
 
         for etiqueta, grupo in datos["grupos"].items():
+            reparto = grupo.get("siendo_favorito") or {}
+            favorito = (f", favorito en {reparto['favorito']}"
+                        if reparto.get("favorito") or reparto.get("no_favorito") else "")
             imprimir(f"  Contra {etiqueta}  ({grupo['partidos']} partidos, "
-                     f"{grupo['minutos']} min, nota {grupo.get('rating') or '—'})")
+                     f"{grupo['minutos']} min, nota {grupo.get('rating') or '—'}{favorito})")
             for metrica in args.metricas.split(",") if args.metricas else _destacadas(grupo):
                 fila = grupo["comparado_con_su_media"].get(metrica.strip())
                 if fila:
@@ -374,6 +385,39 @@ def cmd_contra(args: argparse.Namespace) -> int:
         almacen.close()
         if cliente:
             cliente.close()
+
+
+def _imprimir_desglose(datos: dict, args: argparse.Namespace) -> int:
+    """El análisis partido en dos: siendo favorito y sin serlo."""
+    if args.stdout_json:
+        imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+        return 0
+    if not datos.get("disponible"):
+        imprimir(datos["siendo_favorito"].get("nota") or datos["sin_ser_favorito"].get("nota"))
+        return 1
+    imprimir(f"{datos['jugador']} — ¿es el sistema o es el contexto?\n")
+    for clave, titulo in (("siendo_favorito", "Siendo favorito"),
+                          ("sin_ser_favorito", "Sin ser favorito")):
+        bloque = datos[clave]
+        if not bloque.get("disponible"):
+            imprimir(f"  {titulo}: {bloque.get('nota')}\n")
+            continue
+        imprimir(f"  {titulo}: {bloque['su_media']['partidos']} partidos")
+        for etiqueta, grupo in bloque["grupos"].items():
+            imprimir(f"    contra {etiqueta:<16} {grupo['partidos']} partidos, "
+                     f"{grupo['por_90'].get('tiros', 0):.2f} tiros/90, "
+                     f"{grupo['por_90'].get('goles', 0):.2f} goles/90")
+        imprimir("")
+    if datos["lectura"]:
+        imprimir("  Lo que se sale de su media, y de dónde viene")
+        for fila in datos["lectura"]:
+            imprimir(f"    · contra {fila['contra']}, {fila['metrica']}: {fila['veredicto']}")
+    else:
+        imprimir("  Nada se sale de su media en ninguno de los dos desgloses.")
+    imprimir("")
+    for linea in envolver(datos["como_leerlo"], 74):
+        imprimir(f"  {linea}")
+    return 0
 
 
 def _destacadas(grupo: dict) -> list[str]:
@@ -525,6 +569,11 @@ def registrar(sub, comun_p, informe, listado) -> None:
                           default="presion", help="Por qué se agrupa (por defecto: presion).")
     p_contra.add_argument("--metricas",
                           help="Métricas a enseñar, separadas por comas.")
+    p_contra.add_argument("--solo", choices=["favorito", "no_favorito"],
+                          help="Solo los partidos en que su equipo era (o no) favorito.")
+    p_contra.add_argument("--desglose", action="store_true",
+                          help="El análisis dos veces, siendo favorito y sin serlo: "
+                               "separa el sistema del contexto.")
     p_contra.add_argument("--buscar", action="store_true",
                           help="Preguntar a la API si no está en la memoria.")
     p_contra.set_defaults(func=cmd_contra)

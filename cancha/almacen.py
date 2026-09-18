@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 2
+VERSION_ESQUEMA = 3
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS partidos (
@@ -126,6 +126,19 @@ CREATE TABLE IF NOT EXISTS incidencias (
     FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_incidencias_tipo ON incidencias(tipo);
+
+CREATE TABLE IF NOT EXISTS cuotas (
+    partido_id      INTEGER PRIMARY KEY,
+    fuente          TEXT,
+    mercado         TEXT,
+    local           REAL,
+    empate          REAL,
+    visitante       REAL,
+    prob_local      REAL,
+    prob_empate     REAL,
+    prob_visitante  REAL,
+    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
+);
 
 CREATE TABLE IF NOT EXISTS anotaciones (
     clave  TEXT PRIMARY KEY,
@@ -227,6 +240,36 @@ class Almacen:
             (local, visitante, partido_id),
         )
 
+    def guardar_cuotas(self, partido_id: int, datos: Any, fuente: str = "sofascore") -> bool:
+        """Guarda el 1X2 de un partido, si la respuesta trae uno.
+
+        Lo que se guarda son las cuotas y su probabilidad ya sin margen: es lo
+        que hace falta para saber quién era favorito, que es para lo que sirven.
+        """
+        from .cuotas import extraer_1x2
+
+        mercado = extraer_1x2(datos) if not (isinstance(datos, dict) and "cuotas" in datos
+                                             and "probabilidades" in datos) else datos
+        if not mercado:
+            return False
+        cuotas, probs = mercado["cuotas"], mercado["probabilidades"]
+        self._conexion.execute(
+            """INSERT OR REPLACE INTO cuotas
+               (partido_id, fuente, mercado, local, empate, visitante,
+                prob_local, prob_empate, prob_visitante) VALUES (?,?,?,?,?,?,?,?,?)""",
+            (partido_id, fuente, mercado.get("mercado"),
+             cuotas.get("local"), cuotas.get("empate"), cuotas.get("visitante"),
+             probs.get("local"), probs.get("empate"), probs.get("visitante")),
+        )
+        return True
+
+    def cuotas_de(self, partido_id: int) -> dict | None:
+        """El 1X2 guardado de un partido, con quién era favorito."""
+        from .cuotas import desde_fila
+
+        filas = self.consulta("SELECT * FROM cuotas WHERE partido_id = ?", (partido_id,))
+        return desde_fila(filas[0]) if filas else None
+
     def guardar_informe(self, informe) -> dict:
         """Guarda todo lo que traiga un informe de partido.
 
@@ -235,7 +278,8 @@ class Almacen:
         """
         evento = informe.event
         self.guardar_evento(evento)
-        cuenta = {"estadisticas": 0, "actuaciones": 0, "tiros": 0, "incidencias": 0}
+        cuenta = {"estadisticas": 0, "actuaciones": 0, "tiros": 0, "incidencias": 0,
+                  "cuotas": 0}
 
         for fila in informe.statistics_table(periodo=""):
             self._conexion.execute(
@@ -250,6 +294,10 @@ class Almacen:
             cuenta["estadisticas"] += 1
 
         self.guardar_formaciones(evento.id, informe.get("lineups"))
+        for seccion in ("odds_featured", "odds"):
+            if self.guardar_cuotas(evento.id, informe.get(seccion)):
+                cuenta["cuotas"] = 1
+                break
 
         for jugador in informe.players():
             if not jugador.id:
@@ -389,6 +437,7 @@ class Almacen:
                 "SELECT COUNT(DISTINCT partido_id) AS n FROM estadisticas")[0]["n"],
             "actuaciones": cuantos("actuaciones"),
             "tiros": cuantos("tiros"),
+            "con_cuotas": cuantos("cuotas"),
             "desde": rango["desde"],
             "hasta": rango["hasta"],
             "ligas": {f["liga"]: f["partidos"] for f in ligas},

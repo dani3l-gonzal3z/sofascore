@@ -51,6 +51,7 @@ PATRONES = {
     "temporadas_jugador": r"^sofascore_player_\d+_statistics_seasons\.json$",
     "clasificacion": r"^sofascore_unique_tournament_\d+_season_\d+_standings_total\.json$",
     "historico": r"^sofascore_event_[A-Za-z]\w*_h2h_events\.json$",
+    "cuotas": r"^sofascore_event_\d+_odds_1_featured\.json$",
 }
 
 
@@ -256,3 +257,14 @@ def test_esta_carpeta_no_lleva_grabaciones_inventadas():
             f"Grabación con una URL que no parece real: {grabacion.url}"
         )
         assert grabacion.grabado_en, "una grabación sin fecha: ¿de dónde ha salido?"
+
+
+def test_las_cuotas_destacadas_traen_un_1x2_en_fraccion():
+    """De aquí sale quién era favorito: si el formato cambia, se sabe aquí."""
+    from cancha.cuotas import extraer_1x2
+
+    mercado = extraer_1x2(_una("cuotas"))
+    assert mercado, "la respuesta real no trae un 1X2 con las tres cuotas"
+    assert set(mercado["cuotas"]) == {"local", "empate", "visitante"}
+    assert all(v > 1 for v in mercado["cuotas"].values())
+    assert sum(mercado["probabilidades"].values()) == pytest.approx(1.0, abs=1e-3)

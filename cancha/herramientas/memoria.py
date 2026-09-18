@@ -187,18 +187,21 @@ def _sistema_de_equipo(sesion, equipo: str, ultimos: int = 8):
             "type": "boolean",
             "description": "Si es cierto, devuelve solo lo que pasa el filtro "
                            "estadístico en vez de todas las métricas."},
+        "solo": {"type": "string", "enum": ["favorito", "no_favorito"],
+                 "description": "Restringir a los partidos en que su equipo era "
+                                "(o no era) favorito según el mercado."},
     },
     ["jugador"],
 )
 def _jugador_contra_sistema(sesion, jugador: str, eje: str = "presion",
-                            solo_lo_relevante: bool = False):
+                            solo_lo_relevante: bool = False, solo: str | None = None):
     from ..comandos.memoria import _jugador_id
     from ..sistemas import jugador_contra_sistema, lo_relevante
 
     jugador_id, nombre = _jugador_id(sesion.almacen, jugador, sesion.cliente)
     if jugador_id is None:
         return {"error": f"No encuentro al jugador '{jugador}'."}
-    analisis = jugador_contra_sistema(sesion.almacen, jugador_id, eje=eje)
+    analisis = jugador_contra_sistema(sesion.almacen, jugador_id, eje=eje, solo=solo)
     if solo_lo_relevante and analisis.get("disponible"):
         return {
             "jugador": analisis["jugador"], "eje": eje,
@@ -235,3 +238,28 @@ def _duelo_jugador_rival(sesion, jugador: str, rival: str):
     if rival_id is None:
         return {"error": f"No encuentro el equipo '{rival}'."}
     return duelo(sesion.almacen, jugador_id, rival_id)
+
+
+@herramienta(
+    "sistema_o_contexto",
+    "¿ES EL SISTEMA O ES EL CONTEXTO? Repite jugador_contra_sistema dos veces: "
+    "solo con los partidos en que su equipo era favorito según el mercado, y "
+    "solo con los que no. Un hallazgo que sale en los dos es del sistema; uno "
+    "que solo sale siendo favorito es casi seguro el contexto (a un bloque bajo "
+    "se le juega sobre todo siendo favorito). Úsala antes de afirmar que a un "
+    "jugador 'se le da mal' un tipo de rival.",
+    {
+        "jugador": {"type": "string", "description": "Nombre o id del jugador."},
+        "eje": {"type": "string", "enum": ["presion", "linea", "balon"],
+                "description": "Por qué se agrupa (por defecto, presion)."},
+    },
+    ["jugador"],
+)
+def _sistema_o_contexto(sesion, jugador: str, eje: str = "presion"):
+    from ..comandos.memoria import _jugador_id
+    from ..sistemas import desglose_por_favorito
+
+    jugador_id, _ = _jugador_id(sesion.almacen, jugador, sesion.cliente)
+    if jugador_id is None:
+        return {"error": f"No encuentro al jugador '{jugador}'."}
+    return desglose_por_favorito(sesion.almacen, jugador_id, eje=eje)

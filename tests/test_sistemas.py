@@ -127,18 +127,38 @@ def base():
         yield almacen
 
 
-def _poblar(almacen: Almacen) -> None:
+def _fecha(n: int) -> str:
+    from datetime import date, timedelta
+
+    return (date(2026, 2, 1) + timedelta(days=n)).isoformat()
+
+
+def _mete_cuota(base, pid, prob_local, prob_visitante):
+    base._conexion.execute(
+        """INSERT OR REPLACE INTO cuotas
+           (partido_id, fuente, mercado, prob_local, prob_empate, prob_visitante)
+           VALUES (?,?,?,?,?,?)""",
+        (pid, "test", "Full time", prob_local,
+         round(1 - prob_local - prob_visitante, 3), prob_visitante))
+    base._conexion.commit()
+
+
+def _poblar(almacen: Almacen, repeticiones: int = 1, favorito_alterno: bool = False) -> None:
+    """La liga inventada. Con ``repeticiones`` el guion se repite, y con
+    ``favorito_alterno`` cada partido impar tiene a nuestro equipo de favorito
+    y cada par no, de modo que los dos desgloses contengan el guion entero."""
+    guion = GUION * repeticiones
     for n, (rival_id, rival, presion, posesion, formacion, tiros, a_puerta) in enumerate(
-            GUION, start=1):
+            guion, start=1):
         en_casa = n % 2 == 1
         if en_casa:
-            _mete_partido(almacen, n, f"2026-02-{n:02d}", 100, "Nuestro CF",
+            _mete_partido(almacen, n, _fecha(n), 100, "Nuestro CF",
                           rival_id, rival,
                           presion_local=10.0, presion_visitante=presion,
                           posesion_local=100 - posesion,
                           formacion_local="4-3-3", formacion_visitante=formacion)
         else:
-            _mete_partido(almacen, n, f"2026-02-{n:02d}", rival_id, rival,
+            _mete_partido(almacen, n, _fecha(n), rival_id, rival,
                           100, "Nuestro CF",
                           presion_local=presion, presion_visitante=10.0,
                           posesion_local=posesion,
@@ -150,9 +170,18 @@ def _poblar(almacen: Almacen) -> None:
         minutos = 30 if rival_id == 301 else 90
         _mete_actuacion(almacen, n, 998, "El Suplente", 100, minutos,
                         totalShots=1, onTargetScoringAttempt=1, keyPass=1)
+        if favorito_alterno:
+            # En la primera pasada del guion somos favoritos; en la segunda, no.
+            somos = ((n - 1) // len(GUION)) % 2 == 0
+            propia, ajena = (0.65, 0.15) if somos else (0.25, 0.50)
+            if en_casa:
+                _mete_cuota(almacen, n, propia, ajena)
+            else:
+                _mete_cuota(almacen, n, ajena, propia)
 
-    for n, (presion_local, presion_visitante, posesion) in enumerate(RELLENO, start=10):
-        _mete_partido(almacen, n, f"2026-03-{n:02d}", 400 + n, f"Relleno {n}",
+    inicio = len(guion) + 1
+    for n, (presion_local, presion_visitante, posesion) in enumerate(RELLENO, start=inicio):
+        _mete_partido(almacen, n, _fecha(n), 400 + n, f"Relleno {n}",
                       500 + n, f"Comparsa {n}",
                       presion_local=presion_local, presion_visitante=presion_visitante,
                       posesion_local=posesion)
