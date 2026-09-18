@@ -167,7 +167,11 @@ class Almacen:
         self.ruta = Path(self.ruta)
         if str(self.ruta) != ":memory:":
             self.ruta.parent.mkdir(parents=True, exist_ok=True)
-        self._conexion = sqlite3.connect(str(self.ruta))
+        # Sin atar la conexión al hilo que la abrió: la interfaz web atiende
+        # cada petición en un hilo y serializa el acceso con un cerrojo. Quien
+        # use el almacén desde varios hilos sin cerrojo se lleva lo que se
+        # merece, y aquí nadie lo hace.
+        self._conexion = sqlite3.connect(str(self.ruta), check_same_thread=False)
         self._conexion.row_factory = sqlite3.Row
         self._conexion.executescript(ESQUEMA)
         self._conexion.execute("PRAGMA foreign_keys = ON")

@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>cancha</title>
+<meta name="description" content="Le dices un partido y te da todos sus datos: memoria, previas, jugador contra sistema.">
+<meta name="theme-color" content="#1d6b4a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="cancha">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icono-180.png">
+<link rel="icon" href="/icono-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+:root {
+  --bg: #f4f5f2;
+  --surface: #ffffff;
+  --surface-2: #eceeea;
+  --text: #17201b;
+  --muted: #66716b;
+  --line: #dfe4e0;
+  --accent: #1d6b4a;
+  --accent-ink: #0f4a32;
+  --accent-soft: #dcefe4;
+  --local: #1d6b4a;
+  --visitante: #8a5a1c;
+  --senal: #b8322f;
+  --senal-soft: #f7e3e2;
+  --indicio: #b8781a;
+  --indicio-soft: #f8ecd6;
+  --ok: #2e7d5b;
+  --ok-soft: #dff0e7;
+  --info: #2f5f9e;
+  --info-soft: #e1e9f5;
+  --radio: 10px;
+  --display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #101412; --surface: #181e1b; --surface-2: #202824; --text: #e8ece9;
+    --muted: #98a29c; --line: #2a332e; --accent: #4fbf8a; --accent-ink: #8fdcb9;
+    --accent-soft: #1c3428; --local: #4fbf8a; --visitante: #d9a35b;
+    --senal: #ef7a75; --senal-soft: #3a1f1e; --indicio: #e3aa4d; --indicio-soft: #3a2d15;
+    --ok: #5fcf9c; --ok-soft: #1b3328; --info: #7fa9e6; --info-soft: #1c2a3d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #101412; --surface: #181e1b; --surface-2: #202824; --text: #e8ece9;
+  --muted: #98a29c; --line: #2a332e; --accent: #4fbf8a; --accent-ink: #8fdcb9;
+  --accent-soft: #1c3428; --local: #4fbf8a; --visitante: #d9a35b;
+  --senal: #ef7a75; --senal-soft: #3a1f1e; --indicio: #e3aa4d; --indicio-soft: #3a2d15;
+  --ok: #5fcf9c; --ok-soft: #1b3328; --info: #7fa9e6; --info-soft: #1c2a3d;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 16px/1.45 var(--body); -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+a { color: var(--accent-ink); }
+button, input, select { font: inherit; color: inherit; }
+h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: .01em; text-wrap: balance; margin: 0; }
+h1 { font-size: 30px; line-height: 1.05; }
+h2 { font-size: 22px; line-height: 1.1; }
+h3 { font-size: 17px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.mono, .num { font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.peq { font-size: 14px; }
+
+/* --- armazón --- */
+.app { display: grid; grid-template-rows: auto 1fr auto; min-height: 100%; }
+.cabecera {
+  position: sticky; top: 0; z-index: 5; background: var(--accent); color: #f2f7f4;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
+  display: flex; align-items: baseline; gap: 12px;
+}
+.cabecera .marca { font-family: var(--display); font-size: 26px; font-weight: 700; letter-spacing: .02em; }
+.cabecera .estado { margin-left: auto; font-size: 13px; opacity: .9; display: flex; gap: 8px; align-items: center; }
+.punto { width: 8px; height: 8px; border-radius: 50%; background: #b7e4cc; display: inline-block; }
+.punto.vacio { background: #f3c26b; }
+main { padding: 16px 16px 24px; max-width: 1080px; width: 100%; margin: 0 auto; min-width: 0; }
+.tarjeta, .pila > *, .desliza { min-width: 0; max-width: 100%; }
+.pestanas {
+  position: sticky; bottom: 0; z-index: 5; background: var(--surface); border-top: 1px solid var(--line);
+  display: grid; grid-template-columns: repeat(6, 1fr);
+  padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
+}
+.pestanas a {
+  text-decoration: none; color: var(--muted); font-size: 11px; text-align: center; padding: 6px 2px 4px;
+  border-radius: 8px; display: grid; gap: 2px; justify-items: center; letter-spacing: .04em; text-transform: uppercase;
+}
+.pestanas a svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pestanas a.activa { color: var(--accent-ink); background: var(--accent-soft); }
+@media (min-width: 900px) {
+  .app { grid-template-columns: 200px 1fr; grid-template-rows: auto 1fr; }
+  .cabecera { grid-column: 1 / -1; }
+  .pestanas {
+    grid-row: 2; grid-column: 1; position: sticky; top: 56px; bottom: auto; align-self: start;
+    display: flex; flex-direction: column; gap: 4px; border: none; border-right: 1px solid var(--line);
+    padding: 16px 12px; min-height: calc(100vh - 56px); background: transparent;
+  }
+  .pestanas a { flex-direction: row; display: flex; align-items: center; gap: 10px; font-size: 14px; text-transform: none; letter-spacing: 0; padding: 8px 10px; }
+  main { grid-column: 2; padding: 24px 32px 48px; }
+}
+
+/* --- piezas --- */
+.tarjeta { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radio); padding: 14px 16px; }
+.pila { display: grid; gap: 14px; }
+.fila { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rejilla { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.buscador { display: flex; gap: 8px; flex-wrap: wrap; }
+.buscador input, .buscador select, input.campo, select.campo {
+  flex: 1 1 200px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--text);
+}
+input:focus-visible, select:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.boton {
+  padding: 10px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: #f2f7f4;
+  cursor: pointer; font-weight: 600; white-space: nowrap;
+}
+.boton.secundario { background: transparent; color: var(--accent-ink); }
+.boton.peq { padding: 6px 10px; font-size: 14px; }
+.boton:disabled { opacity: .55; cursor: wait; }
+.aviso { border-left: 3px solid var(--indicio); background: var(--indicio-soft); padding: 10px 12px; border-radius: 6px; font-size: 14px; }
+.aviso.error { border-color: var(--senal); background: var(--senal-soft); }
+.aviso.info { border-color: var(--info); background: var(--info-soft); }
+.nota { font-size: 13px; color: var(--muted); font-style: italic; }
+.cargando { color: var(--muted); padding: 24px 0; text-align: center; }
+.cargando::before { content: ""; display: inline-block; width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; margin-right: 10px; vertical-align: -4px; animation: gira .9s linear infinite; }
+@keyframes gira { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cargando::before { animation: none; } }
+
+.pildora { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; }
+.pildora.senal { background: var(--senal-soft); color: var(--senal); }
+.pildora.indicio { background: var(--indicio-soft); color: var(--indicio); }
+.pildora.normal { background: var(--surface-2); color: var(--muted); }
+.pildora.muestra { background: var(--surface-2); color: var(--muted); border: 1px dashed var(--line); }
+.pildora.ok { background: var(--ok-soft); color: var(--ok); }
+.pildora.info { background: var(--info-soft); color: var(--info); }
+
+.lista { list-style: none; margin: 0; padding: 0; display: grid; }
+.lista li { padding: 10px 0; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.lista li:first-child { border-top: none; }
+.lista li.clic { cursor: pointer; }
+.lista li.clic:hover { background: var(--surface-2); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: 6px; }
+.hora { font-family: var(--display); font-size: 18px; min-width: 52px; color: var(--muted); }
+.equipos { flex: 1 1 200px; font-weight: 600; }
+
+/* marcador */
+.marcador { display: grid; grid-template-columns: 1fr auto 1fr; gap: 12px; align-items: center; text-align: center; }
+.marcador .equipo { font-family: var(--display); font-size: 24px; line-height: 1.05; }
+.marcador .goles { font-family: var(--display); font-size: 44px; font-weight: 700; line-height: 1; letter-spacing: .02em; }
+
+/* barras comparativas */
+.comparar { display: grid; gap: 8px; }
+.comparar .metrica { display: grid; grid-template-columns: 52px 1fr 52px; align-items: center; gap: 8px; font-size: 14px; }
+.comparar .metrica .nombre { grid-column: 1 / -1; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: -4px; }
+.comparar .pista { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--surface-2); }
+.comparar .pista i { display: block; height: 100%; }
+.comparar .pista .l { background: var(--local); }
+.comparar .pista .v { background: var(--visitante); }
+.comparar .num.izq { text-align: right; }
+
+/* rasgos con barra con signo */
+.rasgos { display: grid; gap: 6px; }
+.rasgo { display: grid; grid-template-columns: 1fr 120px 56px; gap: 10px; align-items: center; font-size: 14px; }
+.rasgo .eje { position: relative; height: 8px; background: var(--surface-2); border-radius: 4px; }
+.rasgo .eje::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--line); }
+.rasgo .eje i { position: absolute; top: 0; height: 100%; background: var(--accent); border-radius: 4px; }
+.rasgo .eje i.neg { background: var(--visitante); }
+.rasgo .cuanto { text-align: right; font-weight: 600; }
+
+/* tablas */
+.tabla { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tabla th, .tabla td { padding: 7px 8px; text-align: left; border-top: 1px solid var(--line); vertical-align: top; }
+.tabla th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; border-top: none; }
+.tabla td.num, .tabla th.num { text-align: right; }
+.desliza { overflow-x: auto; }
+
+/* probabilidades 1X2 */
+.tres { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; text-align: center; }
+.tres .caja { background: var(--surface-2); border-radius: 8px; padding: 8px 6px; }
+.tres .caja b { display: block; font-family: var(--display); font-size: 26px; font-weight: 700; }
+.tres .caja span { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+
+/* gráfico */
+.grafico svg { width: 100%; height: auto; display: block; }
+.grafico text { font: 11px var(--body); fill: var(--muted); }
+.leyenda { display: flex; gap: 14px; font-size: 13px; flex-wrap: wrap; }
+.leyenda i { display: inline-block; width: 12px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+
+.registro { font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; }
+details summary { cursor: pointer; color: var(--accent-ink); font-weight: 600; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 13px; background: var(--surface); cursor: pointer; }
+.chip.activo { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+.cifra { font-family: var(--display); font-size: 28px; font-weight: 700; line-height: 1; }
+.cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.cifras .caja { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; }
+.cifras .caja span { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 2px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="cabecera">
+    <span class="marca">cancha</span>
+    <span class="peq" id="cab-sub">interfaz</span>
+    <span class="estado" id="cab-estado"><span class="punto"></span><span>…</span></span>
+  </header>
+  <main id="vista" aria-live="polite"></main>
+  <nav class="pestanas" id="nav"></nav>
+</div>
+
+<script>
+/* ============================================================ utilidades */
+const $ = (sel, raiz = document) => raiz.querySelector(sel);
+function el(tag, attrs = {}, ...hijos) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k === "html") n.innerHTML = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const h of hijos.flat()) {
+    if (h == null || h === false) continue;
+    n.append(h.nodeType ? h : document.createTextNode(String(h)));
+  }
+  return n;
+}
+const num = (v, d = 2) => (v == null || isNaN(v) ? "—" : Number(v).toFixed(d));
+const pct = (v) => (v == null ? "—" : Math.round(v * 100) + "%");
+const hoy = () => new Date().toISOString().slice(0, 10);
+const guardar = (k, v) => { try { localStorage.setItem("cancha." + k, JSON.stringify(v)); } catch (e) {} };
+const leer = (k, d) => { try { const v = localStorage.getItem("cancha." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
+
+const api = {
+  clave: leer("clave", ""),
+  cabeceras() { const h = { "Content-Type": "application/json" }; if (this.clave) h["X-Clave"] = this.clave; return h; },
+  async get(ruta) {
+    const r = await fetch(ruta, { headers: this.cabeceras() });
+    const datos = await r.json().catch(() => ({ error: "Respuesta que no es JSON." }));
+    if (r.status === 401) datos.necesita_clave = true;
+    return datos;
+  },
+  async post(ruta, cuerpo) {
+    const r = await fetch(ruta, { method: "POST", headers: this.cabeceras(), body: JSON.stringify(cuerpo || {}) });
+    const datos = await r.json().catch(() => ({ error: "Respuesta que no es JSON." }));
+    if (r.status === 401) datos.necesita_clave = true;
+    return datos;
+  },
+  herramienta(nombre, args) { return this.post("/api/herramienta/" + nombre, args); },
+};
+
+function aviso(texto, tipo = "") { return el("div", { class: "aviso " + tipo }, texto); }
+function cargando(texto = "Cargando…") { return el("div", { class: "cargando" }, texto); }
+function pildora(veredicto) {
+  const clase = { "señal": "senal", "indicio": "indicio", "sin muestra": "muestra", "dentro de lo normal": "normal", "solo descriptivo": "normal" }[veredicto] || "normal";
+  return el("span", { class: "pildora " + clase }, veredicto);
+}
+function seccion(titulo, ...hijos) { return el("section", { class: "tarjeta pila" }, el("h3", {}, titulo), ...hijos); }
+function errorDe(datos) {
+  if (!datos) return aviso("Sin respuesta.", "error");
+  if (datos.necesita_clave) return el("div", { class: "aviso error" }, "Hace falta la clave del servidor. ", el("a", { href: "#/memoria" }, "Ponla en Memoria."));
+  if (datos.error) return aviso(datos.error, "error");
+  if (datos.disponible === false) return aviso(datos.nota || "Sin datos.", "info");
+  return null;
+}
+function nota(texto) { return texto ? el("p", { class: "nota" }, texto) : null; }
+
+/* --------------------------------------------------------- componentes */
+function marcador(p) {
+  const local = p.home || { name: p.local, score: p.goles_local }, visitante = p.away || { name: p.visitante, score: p.goles_visitante };
+  const goles = local.score == null && visitante.score == null ? "vs" : `${local.score ?? "-"} – ${visitante.score ?? "-"}`;
+  return el("div", { class: "marcador" },
+    el("div", { class: "equipo" }, local.name), el("div", { class: "goles" }, goles), el("div", { class: "equipo" }, visitante.name));
+}
+function comparar(filas) {
+  /* filas: [{nombre, local, visitante}] con números */
+  const cont = el("div", { class: "comparar" });
+  for (const f of filas) {
+    const a = Number(String(f.local ?? "").replace("%", "")) || 0, b = Number(String(f.visitante ?? "").replace("%", "")) || 0;
+    const total = a + b || 1;
+    cont.append(el("div", { class: "metrica" },
+      el("div", { class: "nombre" }, f.nombre),
+      el("div", { class: "num izq" }, f.local ?? "—"),
+      el("div", { class: "pista" }, el("i", { class: "l", style: `width:${(a / total) * 100}%` }), el("i", { class: "v", style: `width:${(b / total) * 100}%` })),
+      el("div", { class: "num" }, f.visitante ?? "—")));
+  }
+  return cont;
+}
+function rasgos(dimensiones, limite = 8) {
+  /* dimensiones: {nombre: {valor, media_liga, diferencia}} */
+  const filas = Object.entries(dimensiones || {}).filter(([, d]) => d.diferencia != null)
+    .sort((x, y) => Math.abs(y[1].diferencia) - Math.abs(x[1].diferencia)).slice(0, limite);
+  if (!filas.length) return nota("Sin media de liga con la que comparar.");
+  const cont = el("div", { class: "rasgos" });
+  for (const [nombre, d] of filas) {
+    const v = Math.max(-1, Math.min(1, d.diferencia));
+    const ancho = Math.abs(v) * 50, izq = v < 0 ? 50 - ancho : 50;
+    cont.append(el("div", { class: "rasgo" },
+      el("span", {}, nombre.replace(/_/g, " "), " ", el("span", { class: "muted peq" }, `${d.valor} · liga ${d.media_liga}`)),
+      el("div", { class: "eje" }, el("i", { class: v < 0 ? "neg" : "", style: `left:${izq}%;width:${ancho}%` })),
+      el("span", { class: "cuanto num" }, (v > 0 ? "+" : "") + Math.round(d.diferencia * 100) + "%")));
+  }
+  return cont;
+}
+function tabla(columnas, filas, clave = (f, c) => f[c.clave]) {
+  const t = el("table", { class: "tabla" },
+    el("thead", {}, el("tr", {}, ...columnas.map((c) => el("th", { class: c.num ? "num" : "" }, c.titulo)))),
+    el("tbody", {}, ...filas.map((f) => el("tr", {}, ...columnas.map((c) => {
+      const v = clave(f, c);
+      return el("td", { class: c.num ? "num" : "" }, v && v.nodeType ? v : (v ?? "—"));
+    })))));
+  return el("div", { class: "desliza" }, t);
+}
+function carreraXg(carrera) {
+  if (!carrera || !carrera.disponible || !carrera.serie?.length) return null;
+  const nombres = Object.keys(carrera.total);
+  const W = 600, H = 200, m = { l: 34, r: 12, t: 12, b: 24 };
+  const maxX = Math.max(90, ...carrera.serie.map((p) => p.minuto || 0));
+  const maxY = Math.max(0.5, ...nombres.map((n) => carrera.total[n])) * 1.1;
+  const x = (min) => m.l + (min / maxX) * (W - m.l - m.r), y = (v) => H - m.b - (v / maxY) * (H - m.t - m.b);
+  const colores = ["var(--local)", "var(--visitante)"];
+  let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="xG acumulado minuto a minuto">`;
+  for (let v = 0; v <= maxY; v += maxY > 2 ? 1 : 0.5) {
+    svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)" stroke-width="1"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v.toFixed(1)}</text>`;
+  }
+  for (const min of [0, 15, 30, 45, 60, 75, 90]) svg += `<text x="${x(min)}" y="${H - 6}" text-anchor="middle">${min}'</text>`;
+  nombres.forEach((n, i) => {
+    const puntos = [[0, 0], ...carrera.serie.map((p) => [p.minuto || 0, p[n] || 0])];
+    const d = puntos.map(([a, b], j) => `${j ? "L" : "M"}${x(a).toFixed(1)},${y(b).toFixed(1)}`).join(" ");
+    const ultimo = puntos[puntos.length - 1];
+    svg += `<path d="${d}" fill="none" stroke="${colores[i]}" stroke-width="2.5" stroke-linejoin="round"/>`;
+    svg += `<circle cx="${x(ultimo[0])}" cy="${y(ultimo[1])}" r="4" fill="${colores[i]}"/>`;
+  });
+  svg += "</svg>";
+  const leyenda = el("div", { class: "leyenda" }, ...nombres.map((n, i) => el("span", {}, el("i", { style: `background:${colores[i]}` }), `${n} ${num(carrera.total[n])}`)));
+  return el("div", { class: "grafico pila" }, el("div", { html: svg }), leyenda,
+    carrera.manda_en_xg ? nota(`Manda en xG ${carrera.manda_en_xg}${carrera.desde_el_minuto ? " desde el minuto " + carrera.desde_el_minuto : ""}.`) : null);
+}
+function mercado(m) {
+  if (!m || (!m.probabilidades && !m.disponible)) return null;
+  const p = m.probabilidades || {};
+  return el("div", { class: "pila" },
+    el("div", { class: "tres" },
+      el("div", { class: "caja" }, el("b", {}, pct(p.local)), el("span", {}, "local")),
+      el("div", { class: "caja" }, el("b", {}, pct(p.empate)), el("span", {}, "empate")),
+      el("div", { class: "caja" }, el("b", {}, pct(p.visitante)), el("span", {}, "visitante"))),
+    nota(m.favorito?.lectura ? `Según el mercado: ${m.favorito.lectura}.` : null));
+}
+function buscador(placeholder, valor, alEnviar, extra = []) {
+  const entrada = el("input", { class: "campo", type: "search", placeholder, value: valor || "", autocomplete: "off", enterkeyhint: "search", id: "buscador-" + placeholder.replace(/\W+/g, "-").toLowerCase() });
+  const form = el("form", { class: "buscador", onsubmit: (e) => { e.preventDefault(); if (entrada.value.trim()) alEnviar(entrada.value.trim()); } },
+    entrada, ...extra, el("button", { class: "boton", type: "submit" }, "Buscar"));
+  return form;
+}
+
+/* ============================================================== vistas */
+const vistas = {};
+
+/* ---- Hoy ---- */
+vistas.hoy = async (raiz, [fecha]) => {
+  fecha = fecha || leer("fecha", hoy());
+  const grupos = leer("grupos", "");
+  const controles = el("div", { class: "buscador" },
+    el("input", { class: "campo", type: "date", value: fecha, id: "hoy-fecha", onchange: (e) => { guardar("fecha", e.target.value); ir(`#/hoy/${e.target.value}`); } }),
+    el("select", { class: "campo", id: "hoy-grupos", onchange: (e) => { guardar("grupos", e.target.value); ir(`#/hoy/${fecha}`); } },
+      ...[["", "Todas las competiciones"], ["grandes", "Las cinco grandes"], ["uefa", "UEFA"], ["europeas", "Europeas menores"], ["americas", "Américas"], ["arabia", "Arabia"]]
+        .map(([v, t]) => el("option", { value: v, selected: v === grupos }, t))),
+    el("button", { class: "boton secundario", onclick: () => generarBriefing(fecha, raiz) }, "Generar briefing"));
+  raiz.replaceChildren(el("h1", {}, fecha === hoy() ? "Hoy" : fecha), controles, cargando("Buscando la agenda…"));
+
+  let briefing = await api.get("/api/briefing/" + fecha);
+  let partidos;
+  if (briefing.error || (grupos && briefing.total)) {
+    briefing = null;
+    const agenda = await api.herramienta("agenda_del_dia", { fecha, grupos: grupos || undefined });
+    if (errorDe(agenda)) { raiz.lastChild.replaceWith(errorDe(agenda)); return; }
+    partidos = [];
+    for (const [liga, lista] of Object.entries(agenda.por_competicion || {}))
+      for (const p of lista) partidos.push({ competicion: liga, id: p.id, local: p.partido.split(" - ")[0], visitante: p.partido.split(" - ").slice(1).join(" - "), hora: p.hora_utc, arbitro: p.arbitro });
+  } else {
+    partidos = briefing.partidos.map((p) => ({ competicion: p.partido.competicion, id: p.partido.id, local: p.partido.local, visitante: p.partido.visitante, hora: p.partido.hora_utc, datos: p }));
+  }
+  raiz.lastChild.remove();
+  if (!partidos.length) { raiz.append(aviso("No hay partidos ese día en esas competiciones.", "info")); return; }
+  raiz.append(briefing ? aviso(`Briefing generado a las ${(briefing.generado || "").slice(11, 16)} UTC con ${briefing.memoria?.partidos ?? 0} partidos en memoria.`, "info")
+                       : nota("Agenda en directo. Genera el briefing para tener cada partido analizado."));
+  const porLiga = {};
+  for (const p of partidos) (porLiga[p.competicion] ||= []).push(p);
+  for (const [liga, lista] of Object.entries(porLiga).sort()) {
+    raiz.append(seccion(liga, el("ul", { class: "lista" }, ...lista.map((p) => el("li", { class: "clic", onclick: () => ir(`#/previa/${p.id}`) },
+      el("span", { class: "hora" }, p.hora || "—"),
+      el("span", { class: "equipos" }, `${p.local} – ${p.visitante}`),
+      p.datos?.mercado?.disponible ? el("span", { class: "pildora info" }, p.datos.mercado.favorito?.lectura) : null,
+      p.datos?.duelos?.length ? el("span", { class: "pildora senal" }, `${p.datos.duelos.length} duelos`) : null)))));
+  }
+};
+async function generarBriefing(fecha, raiz) {
+  const grupos = leer("grupos", "");
+  raiz.append(cargando("Generando el briefing (puede tardar un par de minutos)…"));
+  const datos = await api.herramienta("briefing_del_dia", { fecha, grupos: grupos || undefined, recalcular: true });
+  if (errorDe(datos)) raiz.append(errorDe(datos)); else ir(`#/hoy/${fecha}`, true);
+}
+
+/* ---- Previa ---- */
+vistas.previa = async (raiz, [id]) => {
+  raiz.replaceChildren(el("a", { href: "#/hoy" }, "← agenda"), cargando("Montando la previa…"));
+  const [pv, duelosDatos] = await Promise.all([
+    api.herramienta("previa_de_partido", { partido: String(id) }),
+    (async () => { const f = leer("fecha", hoy()); const b = await api.get("/api/briefing/" + f); return b?.partidos?.find((p) => String(p.partido.id) === String(id)) || null; })(),
+  ]);
+  raiz.lastChild.remove();
+  if (errorDe(pv)) { raiz.append(errorDe(pv)); return; }
+  const p = pv.partido;
+  raiz.append(el("div", { class: "tarjeta pila" },
+    el("div", { class: "muted peq" }, [p.competicion, p.fecha, p.sede].filter(Boolean).join(" · ")),
+    marcador({ local: p.local, visitante: p.visitante }),
+    pv.mercado?.disponible ? mercado(pv.mercado) : nota(pv.mercado?.nota)));
+  const evol = duelosDatos?.evolucion || {};
+  for (const lado of ["local", "visitante"]) {
+    const e = pv.equipos?.[lado];
+    if (!e) continue;
+    const cont = seccion(p[lado]);
+    if (!e.disponible) { cont.append(aviso(e.nota, "info")); raiz.append(cont); continue; }
+    const r = e.resultados;
+    cont.append(el("div", { class: "fila" }, el("span", { class: "cifra" }, r.racha || "—"), el("span", { class: "muted" }, `${e.partidos_mirados} últimos · ${r.goles_favor}-${r.goles_contra}`),
+      el("a", { href: `#/equipo/${encodeURIComponent(p[lado])}`, class: "peq" }, "ver equipo →")));
+    cont.append(rasgos(e.dimensiones, 6));
+    for (const c of evol[lado] || []) cont.append(el("div", { class: "peq" }, el("span", { class: "pildora indicio" }, "ha cambiado"), " ", `${c.lectura} (${c.cambio})`));
+    const jugadores = (pv.jugadores?.[lado] || []).filter((j) => j.rachas?.length);
+    if (jugadores.length) cont.append(el("ul", { class: "lista" }, ...jugadores.map((j) => el("li", {}, el("a", { href: `#/jugador/${encodeURIComponent(j.jugador)}` }, j.jugador), el("span", { class: "muted peq" }, j.rachas.join(" · "))))));
+    raiz.append(cont);
+  }
+  if (pv.donde_se_hacen_dano?.length) raiz.append(seccion("Dónde se pueden hacer daño", el("ul", { class: "lista" }, ...pv.donde_se_hacen_dano.map((c) => el("li", {}, c.aviso)))));
+  if (duelosDatos?.duelos?.length) raiz.append(seccion("Jugador contra sistema", el("ul", { class: "lista" }, ...duelosDatos.duelos.slice(0, 8).map((d) => el("li", {},
+    pildora(d.veredicto), el("span", {}, el("a", { href: `#/duelo/${encodeURIComponent(d.jugador)}/${encodeURIComponent(d.rival)}` }, d.jugador), ` contra ${d.el_rival_es}: ${d.metrica.replace(/_/g, " ")} `, el("b", {}, d.por_90), `/90 frente a su media de ${d.su_media} (${d.partidos} partidos)`))))));
+  const a = pv.arbitro || {};
+  raiz.append(seccion("Árbitro", a.disponible
+    ? el("div", { class: "pila" }, el("div", {}, el("b", {}, a.arbitro), el("span", { class: "muted" }, ` · ${a.partidos_mirados} partidos vistos`)),
+        el("div", { class: "cifras" }, ...[["amarillas", a.por_partido.amarillas], ["rojas", a.por_partido.rojas], ["penaltis", a.por_partido.penaltis], ["faltas", a.por_partido.faltas]].map(([k, v]) => el("div", { class: "caja" }, el("span", { class: "cifra" }, v), el("span", {}, k + " / partido")))),
+        nota(a.aviso))
+    : nota(a.nota || "Sin árbitro designado.")));
+  if (pv.memoria?.consejo) raiz.append(aviso(pv.memoria.consejo, "info"));
+  raiz.append(el("div", { class: "fila" }, el("a", { href: `#/partido/${id}`, class: "boton secundario" }, "Ver el partido")));
+};
+
+/* ---- Partido ---- */
+vistas.partido = async (raiz, [id]) => {
+  raiz.replaceChildren(el("h1", {}, "Partido"),
+    buscador("Real Madrid vs Barcelona, una URL o un id", "", async (q) => {
+      const cont = $("#candidatos");
+      cont.replaceChildren(cargando("Buscando…"));
+      const r = await api.herramienta("buscar_partido", { consulta: q, limite: 10 });
+      if (errorDe(r)) { cont.replaceChildren(errorDe(r)); return; }
+      cont.replaceChildren(el("ul", { class: "lista" }, ...r.candidatos.map((c) => el("li", { class: "clic", onclick: () => ir(`#/partido/${c.id}`) },
+        el("span", { class: "hora" }, c.fecha?.slice(5) || ""), el("span", { class: "equipos" }, `${c.partido} `, el("span", { class: "muted" }, c.marcador)), el("span", { class: "muted peq" }, c.competicion)))));
+    }),
+    el("div", { id: "candidatos" }));
+  if (!id) return;
+  raiz.append(cargando("Trayendo el partido…"));
+  const [resumen, analisis, stats, tiros] = await Promise.all([
+    api.herramienta("resumen_partido", { partido: String(id) }),
+    api.herramienta("analisis_partido", { partido: String(id) }),
+    api.herramienta("estadisticas_partido", { partido: String(id) }),
+    api.herramienta("tiros_partido", { partido: String(id) }),
+  ]);
+  raiz.lastChild.remove();
+  if (errorDe(resumen)) { raiz.append(errorDe(resumen)); return; }
+  const p = resumen.partido;
+  raiz.append(el("div", { class: "tarjeta pila" },
+    el("div", { class: "muted peq" }, [p.tournament, p.round ? "jornada " + p.round : null, p.date, p.venue, p.referee ? "árbitro " + p.referee : null].filter(Boolean).join(" · ")),
+    marcador(p),
+    resumen.goles?.length ? el("div", { class: "peq muted", style: "text-align:center" }, resumen.goles.map((g) => `${g.minuto}' ${g.jugador} (${g.marcador})`).join(" · ")) : null,
+    el("div", { class: "fila" }, el("a", { href: `#/previa/${p.id}`, class: "peq" }, "previa →"), el("a", { href: `#/equipo/${encodeURIComponent(p.home.name)}`, class: "peq" }, p.home.name + " →"), el("a", { href: `#/equipo/${encodeURIComponent(p.away.name)}`, class: "peq" }, p.away.name + " →"))));
+
+  const claves = new Map([["ballPossession", "Posesión"], ["expectedGoals", "xG"], ["totalShotsOnGoal", "Tiros"], ["shotsOnGoal", "A puerta"], ["bigChanceCreated", "Ocasiones claras"], ["cornerKicks", "Córners"], ["passes", "Pases"], ["accuratePasses", "Pases buenos"], ["fouls", "Faltas"], ["yellowCards", "Amarillas"], ["totalTackle", "Entradas"], ["interceptionWon", "Intercepciones"]]);
+  const filas = (stats.estadisticas || []).filter((f) => claves.has(f.clave)).map((f) => ({ nombre: claves.get(f.clave), local: f.local, visitante: f.visitante }));
+  if (filas.length) raiz.append(seccion("Estadísticas", el("div", { class: "leyenda" }, el("span", {}, el("i", { style: "background:var(--local)" }), p.home.name), el("span", {}, el("i", { style: "background:var(--visitante)" }), p.away.name)), comparar(filas)));
+
+  const pe = analisis?.puntos_esperados;
+  if (pe?.disponible) {
+    const [g1, e, g2] = Object.values(pe.probabilidades);
+    raiz.append(seccion("¿Ganó el que mereció?",
+      el("div", { class: "tres" }, el("div", { class: "caja" }, el("b", {}, pct(g1)), el("span", {}, "gana " + p.home.name)), el("div", { class: "caja" }, el("b", {}, pct(e)), el("span", {}, "empate")), el("div", { class: "caja" }, el("b", {}, pct(g2)), el("span", {}, "gana " + p.away.name))),
+      el("div", { class: "peq" }, "Puntos esperados: ", Object.entries(pe.puntos_esperados).map(([k, v]) => `${k} ${v}`).join(" · ")),
+      nota(pe.lectura)));
+  } else if (pe) raiz.append(seccion("¿Ganó el que mereció?", nota(pe.nota)));
+  const cx = carreraXg(analisis?.carrera_xg);
+  if (cx) raiz.append(seccion("Carrera de xG", cx));
+  const cal = analisis?.calidad_de_tiro;
+  if (cal?.disponible) raiz.append(seccion("Calidad de las ocasiones", el("div", { class: "rejilla" }, ...Object.entries(cal.por_equipo).map(([eq, b]) => el("div", { class: "pila" }, el("b", {}, eq),
+    el("div", { class: "cifras" }, el("div", { class: "caja" }, el("span", { class: "cifra" }, b.tiros ?? 0), el("span", {}, "tiros")), el("div", { class: "caja" }, el("span", { class: "cifra" }, num(b.xg_total)), el("span", {}, "xG")), el("div", { class: "caja" }, el("span", { class: "cifra" }, b.ocasiones_claras ?? 0), el("span", {}, "claras")), el("div", { class: "caja" }, el("span", { class: "cifra" }, b.tiros_lejanos ?? 0), el("span", {}, "lejanos"))),
+    nota(b.lectura))))));
+  if (tiros?.tiros?.length) raiz.append(seccion("Tiros", tabla([{ titulo: "'", clave: "minuto", num: true }, { titulo: "Jugador", clave: "jugador" }, { titulo: "Equipo", clave: "equipo" }, { titulo: "xG", clave: "xg", num: true }, { titulo: "Resultado", clave: "resultado" }, { titulo: "Situación", clave: "situacion" }], tiros.tiros, (f, c) => c.clave === "xg" ? num(f.xg) : c.clave === "resultado" ? (f.resultado === "goal" ? el("span", { class: "pildora ok" }, "gol") : f.resultado) : f[c.clave])));
+  if (resumen.mejores_valoraciones?.length) raiz.append(seccion("Mejores valoraciones", el("ul", { class: "lista" }, ...resumen.mejores_valoraciones.map((j) => el("li", {}, el("span", { class: "cifra", style: "font-size:22px" }, j.rating), el("a", { href: `#/jugador/${encodeURIComponent(j.jugador)}` }, j.jugador), el("span", { class: "muted peq" }, j.posicion))))));
+  const contexto = el("div", { class: "pila" }, el("button", { class: "boton secundario", onclick: async (e) => {
+    e.target.disabled = true; contexto.append(cargando("Preguntando a Understat, ClubElo y football-data…"));
+    const c = await api.herramienta("contexto_externo", { partido: String(id) });
+    contexto.lastChild.remove();
+    if (errorDe(c)) { contexto.append(errorDe(c)); return; }
+    const filas = [];
+    if (c.sofascore?.xg) filas.push({ nombre: "xG Sofascore", local: c.sofascore.xg.local, visitante: c.sofascore.xg.visitante });
+    const u = c.fuentes?.understat; if (u?.estado === "ok" && u.xg) filas.push({ nombre: "xG Understat", local: u.xg.local, visitante: u.xg.visitante });
+    contexto.append(filas.length ? comparar(filas) : null, nota(c.contraste_xg?.lectura || u?.nota));
+    const elo = c.fuentes?.clubelo; contexto.append(elo?.estado === "ok" ? el("div", { class: "peq" }, `Elo: ${elo.local.equipo} ${elo.local.elo} (#${elo.local.puesto}) · ${elo.visitante.equipo} ${elo.visitante.elo} (#${elo.visitante.puesto}) · local ${pct(elo.probabilidad_local)}`) : nota(elo?.nota));
+    if (c.sofascore?.mercado) contexto.append(el("div", { class: "peq" }, "Mercado Sofascore: "), mercado(c.sofascore.mercado));
+    const fd = c.fuentes?.futboldata; if (fd?.estado === "ok") contexto.append(el("div", { class: "peq" }, `Cierre (${fd.mercado}): ${pct(fd.probabilidades.local)} · ${pct(fd.probabilidades.empate)} · ${pct(fd.probabilidades.visitante)}${fd.arbitro ? " · árbitro " + fd.arbitro : ""}`)); else if (fd?.nota) contexto.append(nota(fd.nota));
+  } }, "Contexto externo: Understat, ClubElo, football-data"));
+  raiz.append(seccion("Otras fuentes", contexto));
+};
+
+/* ---- Equipo ---- */
+vistas.equipo = async (raiz, [nombre]) => {
+  nombre = nombre ? decodeURIComponent(nombre) : "";
+  raiz.replaceChildren(el("h1", {}, "Equipo"), buscador("Getafe, Real Madrid, un id…", nombre, (q) => ir(`#/equipo/${encodeURIComponent(q)}`)));
+  if (!nombre) { raiz.append(nota("Cómo juega, con qué plantea y si ha cambiado. Necesita un barrido previo.")); return; }
+  raiz.append(cargando("Leyendo la memoria…"));
+  const [estilo, sistema, evolucion] = await Promise.all([
+    api.herramienta("estilo_de_equipo", { equipo: nombre }), api.herramienta("sistema_de_equipo", { equipo: nombre }), api.herramienta("evolucion_de_equipo", { equipo: nombre })]);
+  raiz.lastChild.remove();
+  if (errorDe(estilo)) { raiz.append(errorDe(estilo)); return; }
+  const r = estilo.resultados;
+  raiz.append(el("div", { class: "tarjeta pila" }, el("h2", {}, estilo.equipo), el("div", { class: "muted peq" }, `${estilo.liga} · ${estilo.partidos_mirados} últimos partidos (${estilo.desde} → ${estilo.hasta})`),
+    el("div", { class: "cifras" }, el("div", { class: "caja" }, el("span", { class: "cifra" }, r.racha || "—"), el("span", {}, "racha")), el("div", { class: "caja" }, el("span", { class: "cifra" }, `${r.goles_favor}-${r.goles_contra}`), el("span", {}, "goles")), el("div", { class: "caja" }, el("span", { class: "cifra" }, num(estilo.concede?.xg)), el("span", {}, "xG concedido")), el("div", { class: "caja" }, el("span", { class: "cifra" }, num(estilo.concede?.tiros, 1)), el("span", {}, "tiros concedidos")))));
+  raiz.append(seccion("Lo que le distingue de su liga", rasgos(estilo.dimensiones, 10), nota(estilo.aviso)));
+  if (sistema?.disponible) raiz.append(seccion("Con qué plantea",
+    el("div", { class: "chips" }, ...Object.entries(sistema.formaciones || {}).map(([f, n]) => el("span", { class: "chip" }, `${f} ×${n}`))),
+    el("div", { class: "cifras" }, el("div", { class: "caja" }, el("span", { class: "cifra" }, num(sistema.posesion, 0) + "%"), el("span", {}, "posesión")), el("div", { class: "caja" }, el("span", { class: "cifra" }, num(sistema.presion, 1)), el("span", {}, "pases concedidos por acción defensiva"))),
+    el("div", { class: "chips" }, ...Object.entries(sistema.asi_juega || {}).map(([eje, v]) => el("span", { class: "pildora info" }, `${eje}: ${v}`))),
+    nota("Etiquetas relativas a los terciles de su liga: «presiona alto» es alto para esa competición."))); else raiz.append(seccion("Con qué plantea", nota(sistema?.nota)));
+  if (evolucion?.disponible) raiz.append(seccion("¿Ha cambiado?",
+    el("div", { class: "peq muted" }, `Ahora (${evolucion.ahora.partidos}): ${evolucion.ahora.racha}, ${evolucion.ahora.puntos_por_partido} pts/partido${evolucion.ahora.formacion ? ", " + evolucion.ahora.formacion : ""} · Antes (${evolucion.antes.partidos}): ${evolucion.antes.racha}, ${evolucion.antes.puntos_por_partido} pts/partido${evolucion.antes.formacion ? ", " + evolucion.antes.formacion : ""}`),
+    evolucion.lo_que_ha_cambiado?.length ? el("ul", { class: "lista" }, ...evolucion.lo_que_ha_cambiado.map((c) => el("li", {}, el("b", { class: "num" }, c.cambio), `${c.lectura} (${c.antes} → ${c.ahora})`))) : nota("Juega igual que antes en todo lo que se mide aquí."),
+    evolucion.cambio_de_dibujo ? el("span", { class: "pildora indicio" }, `dibujo: ${evolucion.antes.formacion} → ${evolucion.ahora.formacion}`) : null,
+    nota(evolucion.como_leerlo))); else raiz.append(seccion("¿Ha cambiado?", nota(evolucion?.nota)));
+  const noticias = el("div", { class: "pila" }, el("button", { class: "boton secundario", onclick: async (e) => {
+    e.target.disabled = true; noticias.append(cargando("Pidiendo titulares a ESPN…"));
+    const n = await api.herramienta("noticias", { liga: estilo.liga || "", equipo: estilo.equipo, cuantas: 12 });
+    noticias.lastChild.remove();
+    if (errorDe(n)) { noticias.append(errorDe(n)); return; }
+    noticias.append(n.noticias?.length ? el("ul", { class: "lista" }, ...n.noticias.map((x) => el("li", {}, el("span", { class: "muted peq" }, (x.fecha || "").slice(0, 10)), el("a", { href: x.enlace, target: "_blank", rel: "noopener" }, x.titulo)))) : nota("Sin titulares que mencionen al equipo."));
+  } }, "Noticias del equipo (ESPN)"));
+  raiz.append(seccion("Contexto", noticias));
+};
+
+/* ---- Jugador ---- */
+vistas.jugador = async (raiz, [nombre, eje]) => {
+  nombre = nombre ? decodeURIComponent(nombre) : ""; eje = eje || leer("eje", "presion");
+  raiz.replaceChildren(el("h1", {}, "Jugador"), buscador("Vinicius, Lewandowski, un id…", nombre, (q) => ir(`#/jugador/${encodeURIComponent(q)}`)));
+  if (!nombre) { raiz.append(nota("Cómo está, qué rachas lleva y cómo rinde según el sistema que le pongan delante.")); return; }
+  raiz.append(cargando("Leyendo la memoria…"));
+  const [forma, contra] = await Promise.all([api.herramienta("forma_de_jugador", { jugador: nombre }), api.herramienta("jugador_contra_sistema", { jugador: nombre, eje })]);
+  raiz.lastChild.remove();
+  if (errorDe(forma)) { raiz.append(errorDe(forma)); return; }
+  raiz.append(el("div", { class: "tarjeta pila" }, el("h2", {}, forma.jugador), el("div", { class: "muted peq" }, `${forma.partidos_mirados} partidos · ${forma.titularidades} de titular · ${forma.minutos_totales} minutos`),
+    el("div", { class: "cifras" }, el("div", { class: "caja" }, el("span", { class: "cifra" }, forma.rating_medio ?? "—"), el("span", {}, "nota media")), ...["goles", "tiros", "tiros_a_puerta", "xg", "pases_clave"].map((k) => el("div", { class: "caja" }, el("span", { class: "cifra" }, forma.por_partido?.[k] ?? "—"), el("span", {}, k.replace(/_/g, " ") + " / partido")))),
+    forma.rachas?.length ? el("div", { class: "chips" }, ...forma.rachas.map((x) => el("span", { class: "pildora " + (/marcando|asistiendo/.test(x.racha) ? "ok" : "senal") }, x.racha))) : nota("Sin rachas que destacar.")));
+  if (forma.partido_a_partido?.length) raiz.append(seccion("Partido a partido", tabla([{ titulo: "Fecha", clave: "fecha" }, { titulo: "Partido", clave: "partido" }, { titulo: "Min", clave: "minutos", num: true }, { titulo: "Nota", clave: "rating", num: true }, { titulo: "G", clave: "goles", num: true }, { titulo: "A", clave: "asistencias", num: true }, { titulo: "Tiros", clave: "tiros", num: true }, { titulo: "xG", clave: "xg", num: true }], forma.partido_a_partido, (f, c) => c.clave === "xg" ? num(f.xg) : f[c.clave])));
+
+  const ejes = el("div", { class: "chips" }, ...[["presion", "presión del rival"], ["linea", "línea defensiva"], ["balon", "quién domina el balón"]].map(([v, t]) => el("button", { class: "chip " + (v === eje ? "activo" : ""), type: "button", onclick: () => { guardar("eje", v); ir(`#/jugador/${encodeURIComponent(nombre)}/${v}`); } }, t)));
+  const cont = seccion("Contra sistema", ejes);
+  if (errorDe(contra)) cont.append(errorDe(contra)); else {
+    cont.append(el("div", { class: "muted peq" }, `Su media: ${contra.su_media.partidos} partidos, ${contra.su_media.minutos} minutos${contra.partidos_con_cuotas ? ` · ${contra.partidos_con_cuotas} con cuotas` : ""}`));
+    const metricas = ["tiros", "tiros_a_puerta", "goles", "asistencias", "pases_clave", "regates", "duelos_ganados", "xg"];
+    for (const [etiqueta, g] of Object.entries(contra.grupos || {})) {
+      const rep = g.siendo_favorito || {};
+      const filas = metricas.map((m) => ({ m, d: g.comparado_con_su_media[m] })).filter(({ d }) => d && (d.por_90 || d.su_media_por_90));
+      cont.append(el("details", { open: true }, el("summary", {}, `Contra ${etiqueta} `, el("span", { class: "muted peq", style: "font-weight:400" }, `${g.partidos} partidos, ${g.minutos} min${rep.favorito || rep.no_favorito ? `, favorito en ${rep.favorito}` : ""}`)),
+        tabla([{ titulo: "Métrica", clave: "m" }, { titulo: "/90", clave: "por_90", num: true }, { titulo: "Su media", clave: "media", num: true }, { titulo: "Dif.", clave: "dif", num: true }, { titulo: "p", clave: "p", num: true }, { titulo: "", clave: "v" }], filas,
+          (f, c) => ({ m: f.m.replace(/_/g, " "), por_90: num(f.d.por_90), media: num(f.d.su_media_por_90), dif: (f.d.diferencia > 0 ? "+" : "") + num(f.d.diferencia), p: f.d.p != null ? num(f.d.p, 3) : "—", v: pildora(f.d.veredicto) })[c.clave]),
+        el("div", { class: "muted peq" }, "Contra: " + g.contra.map((c) => `${c.rival} (${c.fecha.slice(5)})`).join(", "))));
+    }
+    if (!Object.keys(contra.grupos || {}).length) cont.append(nota("Ningún partido clasificable: faltan estadísticas o alineaciones de los rivales."));
+    cont.append(nota(contra.lo_que_no_dice));
+    if (contra.partidos_con_cuotas) {
+      const desg = el("div", { class: "pila" }, el("button", { class: "boton secundario", onclick: async (e) => {
+        e.target.disabled = true; desg.append(cargando("Partiendo el análisis en dos…"));
+        const d = await api.herramienta("sistema_o_contexto", { jugador: nombre, eje });
+        desg.lastChild.remove();
+        if (errorDe(d)) { desg.append(errorDe(d)); return; }
+        desg.append(d.lectura?.length ? el("ul", { class: "lista" }, ...d.lectura.map((f) => el("li", {}, el("b", {}, `contra ${f.contra}, ${f.metrica.replace(/_/g, " ")}: `), f.veredicto))) : nota("Nada se sale de su media en ninguno de los dos desgloses."), nota(d.como_leerlo));
+      } }, "¿Es el sistema o el contexto? (siendo favorito / sin serlo)"));
+      cont.append(desg);
+    }
+  }
+  raiz.append(cont);
+};
+
+/* ---- Duelo ---- */
+vistas.duelo = async (raiz, [jugador, rival]) => {
+  jugador = jugador ? decodeURIComponent(jugador) : ""; rival = rival ? decodeURIComponent(rival) : "";
+  const j = el("input", { class: "campo", placeholder: "Jugador", value: jugador, id: "duelo-jugador", autocomplete: "off" });
+  const r = el("input", { class: "campo", placeholder: "Equipo rival", value: rival, id: "duelo-rival", autocomplete: "off" });
+  raiz.replaceChildren(el("h1", {}, "Duelo"),
+    el("form", { class: "buscador", onsubmit: (e) => { e.preventDefault(); if (j.value && r.value) ir(`#/duelo/${encodeURIComponent(j.value)}/${encodeURIComponent(r.value)}`); } }, j, r, el("button", { class: "boton", type: "submit" }, "Ver")),
+    nota("Qué le ha pasado a este jugador contra lo que ese rival suele plantear."));
+  if (!jugador || !rival) return;
+  raiz.append(cargando("Midiendo al rival y buscando al jugador…"));
+  const d = await api.herramienta("duelo_jugador_rival", { jugador, rival });
+  raiz.lastChild.remove();
+  if (errorDe(d)) { raiz.append(errorDe(d)); return; }
+  const rv = d.rival;
+  raiz.append(el("div", { class: "tarjeta pila" }, el("h2", {}, `${d.jugador} contra ${rv.equipo}`),
+    el("div", { class: "muted peq" }, `${rv.equipo} en sus últimos ${rv.partidos} partidos: ${Object.entries(rv.formaciones || {}).map(([f, n]) => `${f} ×${n}`).join(", ") || "sin alineaciones"} · ${num(rv.posesion, 0)}% posesión · presión ${num(rv.presion, 1)} · concede ${num(rv.xg_concedido)} xG`)));
+  for (const [eje, b] of Object.entries(d.por_eje || {})) {
+    const cont = seccion(`${eje}: ${b.el_rival_es}`);
+    if (!b.resumen) { cont.append(nota("Este jugador no se ha medido nunca a eso, de lo que hay guardado.")); raiz.append(cont); continue; }
+    const s = b.resumen;
+    cont.append(el("div", { class: "muted peq" }, `${s.partidos} partidos · ${s.minutos} min · nota ${s.rating ?? "—"}${s.siendo_favorito?.favorito != null ? ` · favorito en ${s.siendo_favorito.favorito}` : ""}`));
+    cont.append(s.relevante?.length ? el("ul", { class: "lista" }, ...s.relevante.map((h) => el("li", {}, pildora(h.veredicto), `${h.metrica.replace(/_/g, " ")}: `, el("b", {}, h.por_90), `/90 frente a su media de ${h.su_media} (p=${h.p})`))) : nota("Nada que no explique el azar."));
+    cont.append(el("div", { class: "muted peq" }, "Contra: " + s.contra.map((c) => `${c.rival} (${c.fecha.slice(5)})`).join(", ")));
+    raiz.append(cont);
+  }
+  raiz.append(nota(d.lo_que_no_dice));
+};
+
+/* ---- Memoria ---- */
+vistas.memoria = async (raiz) => {
+  raiz.replaceChildren(el("h1", {}, "Memoria"), cargando());
+  const estado = await api.get("/api/estado");
+  raiz.lastChild.remove();
+  if (errorDe(estado)) { raiz.append(errorDe(estado)); }
+  const m = estado.memoria || {};
+  raiz.append(el("div", { class: "tarjeta pila" },
+    el("div", { class: "cifras" }, el("div", { class: "caja" }, el("span", { class: "cifra" }, m.partidos ?? 0), el("span", {}, "partidos")), el("div", { class: "caja" }, el("span", { class: "cifra" }, m.con_estadisticas ?? 0), el("span", {}, "con estadísticas")), el("div", { class: "caja" }, el("span", { class: "cifra" }, m.con_cuotas ?? 0), el("span", {}, "con cuotas")), el("div", { class: "caja" }, el("span", { class: "cifra" }, m.actuaciones ?? 0), el("span", {}, "actuaciones"))),
+    el("div", { class: "muted peq" }, `${m.ruta || ""} · del ${m.desde || "—"} al ${m.hasta || "—"} · último barrido: ${m.ultimo_barrido || "nunca"}`),
+    Object.keys(m.ligas || {}).length ? el("div", { class: "chips" }, ...Object.entries(m.ligas).slice(0, 14).map(([l, n]) => el("span", { class: "chip" }, `${l} ${n}`))) : null));
+
+  const registro = el("div", { class: "registro", hidden: true });
+  const fecha = el("input", { class: "campo", type: "date", value: hoy(), id: "barrido-fecha" });
+  const grupos = el("select", { class: "campo", id: "barrido-grupos" }, ...[["", "Todas"], ["grandes", "Las cinco grandes"], ["uefa", "UEFA"], ["europeas", "Europeas menores"], ["americas", "Américas"], ["arabia", "Arabia"]].map(([v, t]) => el("option", { value: v }, t)));
+  const max = el("input", { class: "campo", type: "number", min: 0, placeholder: "Tope de peticiones (0 = sin tope)", id: "barrido-max" });
+  const boton = el("button", { class: "boton", type: "submit" }, "Barrer");
+  async function vigilar() {
+    const b = await api.get("/api/barrido");
+    registro.hidden = false; registro.textContent = (b.lineas || []).join("\n") + (b.resumen ? "\n\n" + JSON.stringify(b.resumen, null, 1) : "");
+    registro.scrollTop = registro.scrollHeight;
+    boton.disabled = !!b.en_marcha;
+    if (b.en_marcha) setTimeout(vigilar, 2000);
+  }
+  raiz.append(seccion("Barrido", el("form", { class: "buscador", onsubmit: async (e) => { e.preventDefault(); boton.disabled = true; await api.post("/api/barrido", { fecha: fecha.value, grupos: grupos.value, max: Number(max.value || 0) }); vigilar(); } }, fecha, grupos, max, boton),
+    nota("Trae los partidos del día y el historial de quien juega. El primero es caro; los siguientes casi no. Se puede cortar y seguir."), registro));
+  const b0 = estado.barrido; if (b0?.en_marcha || b0?.lineas?.length) vigilar();
+
+  const arb = el("div", { id: "arbitro-salida" });
+  raiz.append(seccion("Árbitro", buscador("Nombre del árbitro", "", async (q) => {
+    arb.replaceChildren(cargando());
+    const a = await api.herramienta("perfil_de_arbitro", { arbitro: q });
+    if (errorDe(a)) { arb.replaceChildren(errorDe(a)); return; }
+    arb.replaceChildren(el("div", { class: "cifras" }, ...[["amarillas", a.por_partido.amarillas], ["rojas", a.por_partido.rojas], ["penaltis", a.por_partido.penaltis], ["faltas", a.por_partido.faltas]].map(([k, v]) => el("div", { class: "caja" }, el("span", { class: "cifra" }, v), el("span", {}, k + " / partido")))),
+      el("div", { class: "peq" }, `${a.partidos_mirados} partidos · tarjetas al local ${a.reparto_de_tarjetas.al_local}, al visitante ${a.reparto_de_tarjetas.al_visitante} · gana el local ${a.victorias_locales}`), nota(a.aviso));
+  }), arb));
+
+  const libs = estado.librerias || {};
+  raiz.append(seccion("Fuentes", el("div", { class: "chips" }, el("span", { class: "chip activo" }, "sofascore"), ...(estado.fuentes || []).map((f) => el("span", { class: "chip activo" }, f)), ...Object.entries(libs).map(([n, i]) => el("span", { class: "chip " + (i.instalado ? "activo" : "") }, `${n}${i.instalado ? " " + (i.version || "") : " (no instalada)"}`))),
+    nota("Las librerías externas dan FBref, Transfermarkt, Capology y SoFIFA si están instaladas: pip install ScraperFC soccerdata."),
+    el("div", { class: "peq" }, `${estado.briefings?.length || 0} briefings guardados`, estado.briefings?.length ? el("div", { class: "chips" }, ...estado.briefings.slice(0, 10).map((f) => el("a", { href: `#/hoy/${f}`, class: "chip" }, f))) : null)));
+
+  const clave = el("input", { class: "campo", type: "password", placeholder: "Clave del servidor (si arrancó con --clave)", value: api.clave, id: "clave" });
+  raiz.append(seccion("Acceso", el("form", { class: "buscador", onsubmit: (e) => { e.preventDefault(); api.clave = clave.value; guardar("clave", clave.value); ir("#/memoria", true); } }, clave, el("button", { class: "boton secundario", type: "submit" }, "Guardar")),
+    el("div", { class: "muted peq" }, `cancha ${estado.version || ""} · ${(estado.hora || "").replace("T", " ").slice(0, 16)} UTC`)));
+};
+
+/* ============================================================== rutas */
+const NAV = [
+  ["hoy", "Hoy", "M3 5h18v16H3zM3 10h18M8 3v4M16 3v4"],
+  ["partido", "Partido", "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18M3 12h18"],
+  ["equipo", "Equipo", "M4 6h16v12H4zM12 6v12M4 12h16"],
+  ["jugador", "Jugador", "M12 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zM4 21a8 8 0 0 1 16 0"],
+  ["duelo", "Duelo", "M5 4l6 6M19 4l-6 6M7 20l5-5 5 5M12 15V9"],
+  ["memoria", "Memoria", "M4 5a8 3 0 0 1 16 0v14a8 3 0 0 1-16 0zM4 5a8 3 0 0 0 16 0M4 12a8 3 0 0 0 16 0"],
+];
+function nav(activa) {
+  $("#nav").replaceChildren(...NAV.map(([id, t, d]) => el("a", { href: "#/" + id, class: id === activa ? "activa" : "" }, el("span", { html: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>` }), t)));
+}
+function ir(hash, forzar) { if (location.hash === hash && forzar) enrutar(); else location.hash = hash; }
+let ultima = "";
+async function enrutar() {
+  const partes = location.hash.replace(/^#\/?/, "").split("/");
+  const nombre = partes[0] || "hoy";
+  const vista = vistas[nombre] || vistas.hoy;
+  const activa = nombre === "previa" ? "hoy" : (vistas[nombre] ? nombre : "hoy");
+  nav(activa);
+  const raiz = $("#vista");
+  ultima = location.hash;
+  try { await vista(raiz, partes.slice(1)); } catch (e) { raiz.append(aviso("Algo ha fallado en la página: " + e.message, "error")); }
+  if (location.hash === ultima) window.scrollTo({ top: 0 });
+}
+async function cabecera() {
+  const e = await api.get("/api/estado").catch(() => null);
+  const punto = $("#cab-estado");
+  if (!e || e.error) { punto.replaceChildren(el("span", { class: "punto vacio" }), el("span", {}, e?.necesita_clave ? "clave" : "sin servidor")); return; }
+  const m = e.memoria || {};
+  punto.replaceChildren(el("span", { class: "punto " + (m.partidos ? "" : "vacio") }), el("span", {}, m.partidos ? `${m.partidos} partidos en memoria` : "memoria vacía"));
+  $("#cab-sub").textContent = "v" + (e.version || "");
+}
+window.addEventListener("hashchange", enrutar);
+enrutar(); cabecera();
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("/sw.js").catch(() => {});
+</script>
+</body>
+</html>

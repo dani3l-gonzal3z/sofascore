@@ -1,0 +1,332 @@
+"""El servidor de la interfaz: una API JSON sobre las herramientas, y estáticos.
+
+Todo cuelga de :mod:`cancha.herramientas`: ``POST /api/herramienta/<nombre>``
+ejecuta una con los argumentos del cuerpo, con la misma sesión para toda la
+vida del servidor (lo ya traído no se vuelve a pedir). Encima hay cuatro
+rutas de conveniencia —estado, briefings, el barrido en segundo plano— y los
+ficheros de la página.
+
+Es un servidor para **una persona en su red**: un hilo por petición, las
+herramientas en serie (la memoria es SQLite y no le gustan los hilos) y una
+clave opcional para cuando se abre a la wifi.
+"""
+
+from __future__ import annotations
+
+import json
+import socket
+import struct
+import threading
+import zlib
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
+
+from .. import __version__
+from ..sesion import Sesion
+
+ESTATICO = Path(__file__).parent / "estatico"
+TIPOS = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+         ".css": "text/css; charset=utf-8", ".webmanifest": "application/manifest+json",
+         ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json"}
+#: La página puede con mucho más que el contexto de un modelo.
+MAX_CHARS_WEB = 2_000_000
+
+
+class Servidor:
+    """Lo que comparten las peticiones: la sesión, el barrido y la clave."""
+
+    def __init__(self, sesion: Sesion | None = None, ruta_almacen: str = "datos/cancha.db",
+                 clave: str = "", carpeta_briefings: str = "datos/briefings") -> None:
+        self.sesion = sesion or Sesion(ruta_almacen=ruta_almacen)
+        self.clave = clave
+        self.carpeta_briefings = carpeta_briefings
+        self.cerrojo = threading.Lock()
+        self.barrido = {"en_marcha": False, "lineas": [], "resumen": None,
+                        "empezado": None, "terminado": None}
+        self._hilo_barrido: threading.Thread | None = None
+
+    # --- herramientas ---
+
+    def ejecutar(self, nombre: str, argumentos: dict) -> Any:
+        from ..herramientas import ejecutar
+
+        with self.cerrojo:
+            return ejecutar(nombre, argumentos, sesion=self.sesion, max_chars=MAX_CHARS_WEB)
+
+    def esquemas(self) -> list[dict]:
+        from ..herramientas import esquemas
+
+        return esquemas()
+
+    def estado(self) -> dict:
+        from ..briefing import guardados
+        from ..sources import FUENTES, disponibles
+
+        with self.cerrojo:
+            memoria = self.sesion.almacen.resumen()
+        return {
+            "version": __version__,
+            "memoria": memoria,
+            "briefings": guardados(self.carpeta_briefings)[:30],
+            "fuentes": sorted(FUENTES),
+            "librerias": disponibles(),
+            "barrido": self.estado_barrido(),
+            "hora": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        }
+
+    # --- briefings ---
+
+    def briefing(self, fecha: str) -> dict | None:
+        from ..briefing import cargar
+
+        return cargar(fecha, self.carpeta_briefings)
+
+    # --- barrido en segundo plano ---
+
+    def estado_barrido(self) -> dict:
+        return {k: (v[-40:] if k == "lineas" else v) for k, v in self.barrido.items()}
+
+    def lanzar_barrido(self, fecha: str | None, grupos: list[str] | None, maximo: int,
+                       ultimos: int = 6) -> dict:
+        if self.barrido["en_marcha"]:
+            return {"error": "Ya hay un barrido en marcha.", **self.estado_barrido()}
+        self.barrido.update({"en_marcha": True, "lineas": [], "resumen": None,
+                             "empezado": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                             "terminado": None})
+
+        def correr() -> None:
+            from ..barrido import barrer
+
+            try:
+                with self.cerrojo:
+                    resumen = barrer(self.sesion.cliente, self.sesion.almacen, fecha=fecha,
+                                     grupos=grupos, ultimos=ultimos, maximo_peticiones=maximo,
+                                     avisar=self.barrido["lineas"].append)
+                self.barrido["resumen"] = resumen
+            except Exception as exc:  # noqa: BLE001 - se enseña, no se esconde
+                self.barrido["lineas"].append(f"error: {exc}")
+                self.barrido["resumen"] = {"error": str(exc)}
+            finally:
+                self.barrido["en_marcha"] = False
+                self.barrido["terminado"] = datetime.now(timezone.utc).isoformat(
+                    timespec="seconds")
+
+        self._hilo_barrido = threading.Thread(target=correr, daemon=True)
+        self._hilo_barrido.start()
+        return self.estado_barrido()
+
+    def esperar_barrido(self, segundos: float = 30) -> None:
+        """Para los tests: espera a que el barrido acabe."""
+        if self._hilo_barrido:
+            self._hilo_barrido.join(segundos)
+
+    def close(self) -> None:
+        self.sesion.close()
+
+
+# ---------------------------------------------------------------------- icono
+
+def icono_png(lado: int = 192) -> bytes:
+    """Un icono dibujado a mano: campo verde, círculo central y línea de medio.
+
+    iOS exige un PNG para la pantalla de inicio y aquí no hay librerías de
+    imagen: se escribe el PNG con ``zlib`` y ``struct``, que siempre están.
+    """
+    fondo, linea = (26, 94, 62), (240, 244, 240)
+    centro, radio = lado / 2, lado * 0.22
+    filas = []
+    for y in range(lado):
+        fila = bytearray([0])
+        for x in range(lado):
+            dx, dy = x - centro + 0.5, y - centro + 0.5
+            distancia = (dx * dx + dy * dy) ** 0.5
+            en_circulo = abs(distancia - radio) < lado * 0.028
+            en_linea = abs(dx) < lado * 0.016 and lado * 0.12 < y < lado * 0.88
+            punto = distancia < lado * 0.035
+            fila += bytes(linea if (en_circulo or en_linea or punto) else fondo)
+        filas.append(bytes(fila))
+
+    def trozo(tipo: bytes, datos: bytes) -> bytes:
+        return (struct.pack(">I", len(datos)) + tipo + datos
+                + struct.pack(">I", zlib.crc32(tipo + datos) & 0xFFFFFFFF))
+
+    cabecera = struct.pack(">IIBBBBB", lado, lado, 8, 2, 0, 0, 0)
+    return (b"\x89PNG\r\n\x1a\n" + trozo(b"IHDR", cabecera)
+            + trozo(b"IDAT", zlib.compress(b"".join(filas), 9)) + trozo(b"IEND", b""))
+
+
+# ---------------------------------------------------------------- peticiones
+
+class Manejador(BaseHTTPRequestHandler):
+    """Una petición. El estado vive en ``self.server.app``."""
+
+    server_version = f"cancha/{__version__}"
+
+    @property
+    def app(self) -> Servidor:
+        return self.server.app  # type: ignore[attr-defined]
+
+    def log_message(self, formato: str, *args: Any) -> None:
+        if getattr(self.server, "callado", True):
+            return
+        super().log_message(formato, *args)
+
+    # --- respuestas ---
+
+    def _json(self, datos: Any, estado: int = 200) -> None:
+        cuerpo = json.dumps(datos, ensure_ascii=False, default=str).encode("utf-8")
+        self.send_response(estado)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
+    def _fichero(self, nombre: str) -> None:
+        ruta = (ESTATICO / nombre).resolve()
+        if not str(ruta).startswith(str(ESTATICO.resolve())) or not ruta.is_file():
+            self._json({"error": f"No existe {nombre}."}, 404)
+            return
+        cuerpo = ruta.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", TIPOS.get(ruta.suffix, "application/octet-stream"))
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
+    def _png(self, lado: int) -> None:
+        cuerpo = icono_png(lado)
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(cuerpo)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        self.wfile.write(cuerpo)
+
+    def _autorizado(self, consulta: dict) -> bool:
+        if not self.app.clave:
+            return True
+        dada = self.headers.get("X-Clave") or (consulta.get("clave") or [""])[0]
+        return dada == self.app.clave
+
+    def _cuerpo(self) -> dict:
+        largo = int(self.headers.get("Content-Length") or 0)
+        if not largo:
+            return {}
+        try:
+            datos = json.loads(self.rfile.read(largo).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            return {}
+        return datos if isinstance(datos, dict) else {}
+
+    # --- rutas ---
+
+    def do_GET(self) -> None:  # noqa: N802 - nombre que exige http.server
+        url = urlparse(self.path)
+        ruta, consulta = unquote(url.path), parse_qs(url.query)
+
+        if ruta in ("/", "/index.html"):
+            return self._fichero("index.html")
+        if ruta == "/icono-180.png":
+            return self._png(180)
+        if ruta == "/icono-192.png":
+            return self._png(192)
+        if ruta == "/icono-512.png":
+            return self._png(512)
+        if not ruta.startswith("/api/"):
+            return self._fichero(ruta.lstrip("/"))
+
+        if not self._autorizado(consulta):
+            return self._json({"error": "Hace falta la clave (cabecera X-Clave)."}, 401)
+        if ruta == "/api/estado":
+            return self._json(self.app.estado())
+        if ruta == "/api/herramientas":
+            return self._json(self.app.esquemas())
+        if ruta == "/api/barrido":
+            return self._json(self.app.estado_barrido())
+        if ruta.startswith("/api/briefing/"):
+            fecha = ruta.rsplit("/", 1)[-1]
+            datos = self.app.briefing(fecha)
+            if datos is None:
+                return self._json({"error": f"No hay briefing guardado del {fecha}."}, 404)
+            return self._json(datos)
+        return self._json({"error": f"No existe {ruta}."}, 404)
+
+    def do_POST(self) -> None:  # noqa: N802
+        url = urlparse(self.path)
+        ruta, consulta = unquote(url.path), parse_qs(url.query)
+        if not self._autorizado(consulta):
+            return self._json({"error": "Hace falta la clave (cabecera X-Clave)."}, 401)
+        cuerpo = self._cuerpo()
+
+        if ruta.startswith("/api/herramienta/"):
+            nombre = ruta.rsplit("/", 1)[-1]
+            resultado = self.app.ejecutar(nombre, cuerpo)
+            estado = 404 if (isinstance(resultado, dict) and "disponibles" in resultado
+                             and "error" in resultado) else 200
+            return self._json(resultado, estado)
+        if ruta == "/api/barrido":
+            grupos = cuerpo.get("grupos")
+            if isinstance(grupos, str):
+                grupos = [g for g in grupos.split(",") if g]
+            return self._json(self.app.lanzar_barrido(
+                cuerpo.get("fecha") or None, grupos or None,
+                int(cuerpo.get("max") or 0), int(cuerpo.get("ultimos") or 6)))
+        return self._json({"error": f"No existe {ruta}."}, 404)
+
+
+# ---------------------------------------------------------------- arrancar
+
+def ip_local() -> str:
+    """La IP de este ordenador en su red, para teclearla en el móvil."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("10.255.255.255", 1))  # no envía nada: solo elige interfaz
+            return s.getsockname()[0]
+    except OSError:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except OSError:
+            return "127.0.0.1"
+
+
+def construir(app: Servidor, host: str = "127.0.0.1", puerto: int = 8765,
+              callado: bool = True) -> ThreadingHTTPServer:
+    servidor = ThreadingHTTPServer((host, puerto), Manejador)
+    servidor.app = app  # type: ignore[attr-defined]
+    servidor.callado = callado  # type: ignore[attr-defined]
+    servidor.daemon_threads = True
+    return servidor
+
+
+def arrancar(app: Servidor, host: str = "127.0.0.1", puerto: int = 8765,
+             abrir: bool = False, avisar=print) -> int:
+    """Sirve hasta Ctrl+C."""
+    servidor = construir(app, host, puerto)
+    puerto_real = servidor.server_address[1]
+    avisar(f"cancha {__version__} · interfaz en http://127.0.0.1:{puerto_real}")
+    if host not in ("127.0.0.1", "localhost"):
+        avisar(f"  desde el móvil (misma wifi): http://{ip_local()}:{puerto_real}")
+        avisar("  en iOS: Safari → Compartir → «Añadir a pantalla de inicio»")
+        if not app.clave:
+            avisar("  (sin clave: cualquiera en tu red puede usarla; pon --clave si te importa)")
+    avisar("Ctrl+C para parar.")
+    if abrir:
+        import webbrowser
+
+        webbrowser.open(f"http://127.0.0.1:{puerto_real}")
+    try:
+        servidor.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        servidor.server_close()
+        app.close()
+    return 0
+
+
+__all__ = ["Servidor", "Manejador", "construir", "arrancar", "icono_png", "ip_local"]

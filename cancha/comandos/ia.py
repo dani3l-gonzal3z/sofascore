@@ -40,6 +40,19 @@ def cmd_tools(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_web(args: argparse.Namespace) -> int:
+    """La interfaz: un servidor local y una página que se instala como app."""
+    from ..sesion import Sesion
+    from ..web import Servidor, arrancar
+
+    cliente = comun.construir_cliente(args)
+    sesion = Sesion(cliente=cliente, ruta_almacen=args.db or "datos/cancha.db")
+    app = Servidor(sesion=sesion, clave=args.clave or "",
+                   carpeta_briefings=args.briefings or "datos/briefings")
+    host = "0.0.0.0" if args.lan else (args.host or "127.0.0.1")
+    return arrancar(app, host=host, puerto=args.port, abrir=args.abrir, avisar=imprimir)
+
+
 def registrar(sub, comun, informe, listado) -> None:
     """Añade los subcomandos de esta familia al parser."""
     p_mcp = sub.add_parser(
@@ -58,3 +71,20 @@ def registrar(sub, comun, informe, listado) -> None:
     )
     p_tools.add_argument("--json", action="store_true", help="Vuelca los esquemas completos.")
     p_tools.set_defaults(func=cmd_tools)
+
+    p_web = sub.add_parser(
+        "web", parents=[comun],
+        help="La interfaz: un servidor local y una página que se instala como app.",
+        description="Sirve la página en tu ordenador. Con --lan también desde el "
+                    "móvil en la misma wifi; en iOS, Safari → Compartir → «Añadir a "
+                    "pantalla de inicio». Sin dependencias: es la biblioteca estándar.",
+    )
+    p_web.add_argument("--port", type=int, default=8765, help="Puerto (por defecto 8765).")
+    p_web.add_argument("--host", help="Interfaz de red (por defecto solo este ordenador).")
+    p_web.add_argument("--lan", action="store_true",
+                       help="Escuchar en toda la red local, para abrirla desde el móvil.")
+    p_web.add_argument("--abrir", action="store_true", help="Abrir el navegador al arrancar.")
+    p_web.add_argument("--clave", help="Pedir esta clave a quien use la API (para --lan).")
+    p_web.add_argument("--db", help="Fichero de la memoria (por defecto: datos/cancha.db).")
+    p_web.add_argument("--briefings", help="Carpeta de los briefings guardados.")
+    p_web.set_defaults(func=cmd_web)
