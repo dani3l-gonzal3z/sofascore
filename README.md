@@ -2,12 +2,15 @@
 
 [![tests](https://github.com/dani3l-gonzal3z/sofascore/actions/workflows/tests.yml/badge.svg)](https://github.com/dani3l-gonzal3z/sofascore/actions/workflows/tests.yml)
 
-Le dices un partido y te devuelve **todos sus datos** —de Sofascore, de
-Understat y de ClubElo— ya cruzados y listos para analizar. Por línea de
-comandos, como librería o **como herramientas para una IA local**.
+Le dices un partido y te devuelve **todos sus datos** —de Sofascore, Understat,
+ClubElo, football-data.co.uk y ESPN, y de FBref o Transfermarkt si tienes sus
+librerías— ya cruzados y listos para analizar. Por línea de comandos, como
+librería, **como herramientas para una IA local** o en una interfaz que se
+instala en Windows y en el iPhone.
 
 ```bash
-cancha barrido                 # trae los partidos del día y el historial de quien juega
+cancha web --lan               # la interfaz, en el ordenador y en el móvil
+cancha briefing --barrer       # el documento de la mañana: todos los partidos del día
 cancha previa "Girona vs Osasuna"   # cómo llegan, cómo juegan, quién pita
 cancha estilo "Girona"         # cómo juega, comparado con su liga
 cancha forma "Vinicius Junior" # rachas: 4 partidos sin tirar entre palos
@@ -37,10 +40,13 @@ partido.available()            # secciones con datos
 - **Memoria.** Una base local con lo que se va viendo, para poder decir cómo
   juega un equipo *comparado con su liga* o cuántos partidos lleva alguien sin
   rematar entre palos. Eso no se contesta mirando un partido.
+- **Una interfaz sin dependencias.** `cancha web` sirve una página desde tu
+  ordenador que se instala como app en Windows y en iOS. Lo que la IA puede
+  preguntar, la página lo enseña.
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
   respuesta es *no se sabe*.
-- **Probado sin red.** 504 tests en menos de tres segundos, y un modo de grabar
+- **Probado sin red.** 619 tests en pocos segundos, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
@@ -107,12 +113,13 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | | |
 | --- | --- |
 | [La memoria](docs/memoria.md) | Barrido diario, estilo de equipo, rachas de jugador, árbitros, previas |
+| [La interfaz](docs/interfaz.md) | `cancha web`: una página que se instala en Windows y en iOS |
 | [Jugador contra sistema](docs/sistemas.md) | Cómo rinde alguien según a qué se enfrenta, con su prueba de significación |
 | [Partidos](docs/partidos.md) | Cómo se nombra uno, qué trae el informe, las tablas |
 | [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
 | [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
 | [Fuentes de datos](docs/fuentes.md) | Understat, ClubElo, el cruce y de dónde salen las rutas |
-| [Para una IA local](docs/ia.md) | Las 32 herramientas, MCP y cómo indaga |
+| [Para una IA local](docs/ia.md) | Las 41 herramientas, MCP y cómo indaga |
 | [La línea de comandos](docs/comandos.md) | Todos los comandos y sus opciones |
 | [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
 | [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |

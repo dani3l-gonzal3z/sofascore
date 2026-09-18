@@ -4,6 +4,59 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.5.0
+
+El framework se pidió por consola y por una IA. Ahora también se mira: hay una
+interfaz, y lo que enseña sale de más sitios.
+
+### Novedades
+
+- **Interfaz** (`cancha web`): un servidor de la biblioteca estándar sirviendo
+  una página y una API JSON encima de las mismas herramientas que ve la IA. Se
+  instala como app en Windows (Edge o Chrome → Instalar) y en iOS (Safari →
+  Añadir a pantalla de inicio) con `--lan`. Seis pestañas: Hoy, Partido,
+  Equipo, Jugador, Duelo y Memoria, con el barrido corriendo en segundo plano.
+- **Briefing** (`cancha briefing`): el documento de la mañana. Todos los
+  partidos del día con cómo llegan los dos, si han cambiado, quién lleva racha,
+  qué le pasa a sus jugadores contra el sistema del rival, el mercado y el
+  árbitro. En Markdown y JSON, uno por día; `--barrer` barre antes.
+- **Quién era favorito** (`cancha/cuotas.py`): las cuotas se guardan en la
+  memoria (esquema v3, migración automática) y se convierten a probabilidades
+  sin el margen de la casa. Con eso, `cancha contra X --desglose` y la
+  herramienta `sistema_o_contexto` hacen el análisis dos veces —siendo
+  favorito y sin serlo— y dicen, hallazgo por hallazgo, si es el sistema o el
+  contexto. Es la comprobación que la versión anterior solo podía prometer.
+- **Si un equipo ha cambiado** (`cancha estilo X --evolucion`): sus últimos
+  partidos frente a los de antes, dimensión a dimensión, más el dibujo.
+- **Tres fuentes más.** football-data.co.uk (resultados y cuotas de cierre
+  desde 1993; `cancha cuotas` rellena la memoria con ellas), ESPN (agenda
+  independiente, clasificación, resumen y **noticias**: `cancha noticias
+  laliga`) y, si están instaladas, **ScraperFC** y **soccerdata** para FBref,
+  Transfermarkt, Capology y SoFIFA a través de sus lectores, con nuestra
+  interfaz. Extras `cancha[scraperfc]` y `cancha[soccerdata]`.
+- **Nueve herramientas más para la IA** (41 en total): `briefing_del_dia`,
+  `sistema_o_contexto`, `evolucion_de_equipo`, `noticias`, `agenda_espn`,
+  `historial_de_liga`, `rellenar_cuotas`, `datos_externos` y el parámetro
+  `solo` en `jugador_contra_sistema`.
+
+### Arreglos
+
+- `_numero(3.5)` devolvía 3: `int()` trunca sin avisar. Una línea de 3,5 goles
+  se convertía en 3.
+- El emparejado por nombres aceptaba «Girona - Osasuna» como «Sevilla -
+  Osasuna» con un lado exacto y el otro cualquiera. Ahora los dos lados
+  tienen que parecerse.
+- La previa guardaba las cuotas de un partido por jugar antes de guardar su
+  cabecera, y la clave foránea lo rechazaba.
+- La conexión de SQLite deja de estar atada al hilo que la abrió, que es lo
+  que necesita un servidor con un hilo por petición.
+
+### Lo que no se ha podido comprobar
+
+Las fuentes nuevas están escritas contra el formato que documentan
+`soccerdata` y los propios sitios, pero desde donde se escribieron no había red
+hacia ellos. La primera ejecución real es la prueba.
+
 ## 0.4.0
 
 La memoria ya guardaba muchos partidos. Lo que faltaba era la pregunta que

@@ -36,6 +36,18 @@ cancha previa "Girona vs Osasuna"      # todo lo que se sabe antes de jugarse
 cancha sistema "Getafe"                # con qué plantea: dibujo, presión, posesión
 cancha contra "Vinicius" [--eje linea] # cómo rinde según lo que le pongan delante
 cancha duelo "Vinicius" "Getafe"       # el jugador contra el sistema de ese rival
+cancha contra "Vinicius" --desglose    # ¿es el sistema o el contexto?
+cancha estilo "Girona" --evolucion     # si ha cambiado su forma de jugar
+cancha briefing [--barrer]             # el documento de la mañana, uno por día
+cancha cuotas                          # quién era favorito, para lo barrido sin cuotas
+```
+
+La interfaz y las otras fuentes:
+
+```bash
+cancha web [--lan] [--abrir] [--clave X]   # la página, instalable como app
+cancha noticias laliga [--equipo X]        # titulares de ESPN
+cancha fuentes                             # qué fuentes y qué librerías hay
 ```
 
 Opciones más usadas de `match`:

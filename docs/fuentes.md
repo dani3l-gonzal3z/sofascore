@@ -12,6 +12,10 @@ cancha contexto 12437616           # un partido visto por todas a la vez
 | **Sofascore** | Partidos, equipos, jugadores y competiciones. La base de todo. |
 | **Understat** | xG disparo a disparo, de un modelo **distinto**. Cinco grandes ligas. |
 | **ClubElo** | Elo de clubes europeos desde 1939. Cuánto vale de verdad un rival. |
+| **football-data.co.uk** | Resultados, tiros, tarjetas, árbitro y **cuotas de cierre** por liga y temporada desde 1993. CSV, sin anti-bot. |
+| **ESPN** | Agenda independiente, clasificación, resumen de partido y **noticias** (lesiones, destituciones). JSON público. |
+| **ScraperFC** *(si está instalada)* | FBref (abre un navegador), Transfermarkt (valores de mercado), Capology (salarios). |
+| **soccerdata** *(si está instalada)* | FBref sin navegador, SoFIFA, WhoScored. Cinco grandes ligas. |
 
 ### Lo que aquí se hace distinto
 
@@ -47,13 +51,70 @@ reserva**: ClubElo aguanta dos peticiones por segundo pero tarda en contestar
 pública y se le va despacio. Añadir una
 fuente es heredar de `Fuente` y escribir lo que trae.
 
-### Lo que falta
+### Las cuotas: quién era favorito
 
-**FBref** es la pieza gorda que no está: tablas HTML con la maña de venir
-dentro de comentarios, y un límite de peticiones que banea por encima de una
-cada tres segundos. Es su propio trabajo, no un rato. Igual **Transfermarkt**
-(valores de mercado) y **WhoScored** (que necesita navegador). Si los quieres,
-se piden.
+```bash
+cancha cuotas                        # rellena las de la memoria desde football-data.co.uk
+cancha contexto 12437616             # enseña el mercado de Sofascore y el de cierre
+```
+
+No es para apostar. Las cuotas se convierten a probabilidades **quitando el
+margen de la casa** (tres cuotas de 2.00 no son un 50 % cada una, son un
+tercio) y de ahí sale quién era favorito y con qué claridad. Es la variable que
+separa «rinde peor contra bloque bajo» de «rinde peor siendo favorito»: ver
+[Jugador contra sistema](sistemas.md#el-sistema-o-el-contexto).
+
+El barrido las pide de Sofascore (`odds_featured`) con el resto. Para lo
+barrido antes, `cancha cuotas` las saca de football-data.co.uk emparejando por
+nombres y fecha, una temporada por petición.
+
+### Las noticias
+
+```bash
+cancha noticias laliga --equipo "Real Madrid"
+```
+
+Lesiones, sanciones, destituciones, fichajes: el contexto que ningún número
+trae y que una IA sí puede leer (`noticias`). Salen de ESPN, que cubre las
+grandes ligas, MLS, Arabia y las copas europeas.
+
+### FBref, Transfermarkt y Capology: las librerías de referencia
+
+Hay datos que este framework no va a scrapear por su cuenta. **FBref** exige un
+navegador desde que endureció su anti-bot (ScraperFC 4 abre Chrome para
+leerlo); **Transfermarkt** y **Capology** son HTML que cambia. Las dos librerías
+de referencia llevan años manteniendo esos lectores, y reescribirlos aquí sería
+copiar su trabajo y heredar su fragilidad sin su mantenimiento.
+
+Así que se usan, si están:
+
+```bash
+pip install "cancha[scraperfc]"      # o pip install ScraperFC
+pip install "cancha[soccerdata]"     # o pip install soccerdata
+cancha fuentes                       # dice cuáles hay
+```
+
+El framework las detecta y las expone con la misma forma que el resto —listas
+de diccionarios, nuestros nombres de liga, errores tipados— a través de
+`cancha.sources.externas` y de la herramienta `datos_externos`. Si no están,
+la respuesta dice qué instalar. Todo eso se ejecuta en tu máquina, tarda y
+necesita red: pide poco y concreto.
+
+```python
+from cancha.sources import adaptador
+
+sd = adaptador("soccerdata")
+sd.fbref_jugadores("laliga", 2024, tipo="shooting", maximo=30)
+
+sfc = adaptador("scraperfc")
+sfc.temporadas("transfermarkt", "laliga")      # el formato exacto que pide
+sfc.transfermarkt_valores("laliga", "24/25")
+```
+
+**Ninguna de las fuentes nuevas se ha podido probar contra el servicio real
+desde donde se escribió**: los tests usan respuestas con la forma que
+documentan `soccerdata` y los propios sitios. Si algo no cuadra la primera
+vez, `cancha raw` y la sección de contribución dicen cómo mirar la respuesta.
 
 ## De dónde salen las rutas
 

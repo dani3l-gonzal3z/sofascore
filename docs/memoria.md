@@ -63,6 +63,18 @@ Lo importante es el «sobre la media de su liga». Y esa media se calcula **sin
 contar al propio equipo**: comparar a alguien contra un promedio en el que él
 pesa suaviza justo lo que se quiere ver.
 
+## Si ha cambiado
+
+```bash
+cancha estilo "Girona" --evolucion
+```
+
+Sus últimos cinco partidos frente a los diez de antes, dimensión a dimensión,
+más el dibujo y lo que concede. Un equipo que ha pasado de tener el balón a
+esperar atrás sale aquí antes de que lo diga nadie. Con muestras tan cortas
+solo se menciona un cambio del 20 % o más, y la respuesta avisa de que puede
+ser el calendario.
+
 ## Cómo está un jugador
 
 ```bash
@@ -94,6 +106,31 @@ cancha previa "Girona vs Osasuna"
 Junta todo lo anterior sobre un partido por jugar: cómo llegan y cómo juegan los
 dos, en qué se pueden hacer daño (lo que uno hace mucho contra lo que el otro
 concede), quién lleva racha y cómo pita el árbitro designado.
+
+## El briefing
+
+```bash
+cancha briefing                 # hoy, en datos/briefings/AAAA-MM-DD.md y .json
+cancha briefing --barrer        # barre primero y luego lo escribe
+cancha briefing --date 2026-09-20 --grupos grandes,uefa
+```
+
+Es la tarea diaria de la que salió todo esto: qué se juega hoy y, de cada
+partido, cómo llegan los dos, cómo juegan, si han cambiado, quién lleva racha,
+qué le pasa a sus jugadores contra el sistema que van a tener enfrente, lo que
+dice el mercado y quién pita. En Markdown para leerlo y en JSON para que una IA
+lo tenga entero en una llamada (`briefing_del_dia`). Solo entra lo que ha
+pasado el filtro estadístico: un briefing con cien números es un briefing que
+nadie lee.
+
+Para que salga solo a las ocho, en Windows (Programador de tareas):
+
+```
+schtasks /Create /SC DAILY /ST 08:00 /TN cancha-briefing ^
+  /TR "cmd /c cd /d C:\ruta\al\proyecto && cancha briefing --barrer --quiet"
+```
+
+Y la [interfaz](interfaz.md) lo enseña en la pestaña Hoy.
 
 ## Para la IA
 
