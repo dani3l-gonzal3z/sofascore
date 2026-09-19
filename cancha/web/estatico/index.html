@@ -466,6 +466,16 @@ const TONOS = {
 };
 const veredicto = (v) => etiqueta(v, TONOS[v] === undefined ? "" : TONOS[v]);
 
+/* La comprobación fuera de muestra: medido con el 70 % más viejo, ¿se cumplió
+   en el 30 % más nuevo? Es lo único de aquí que no participó en elegir el
+   patrón, así que va junto al número, no escondido en una nota al pie. */
+const TONOS_FUERA = { aguanta: "verde", "se cae": "roja", "sin muestra": "hueca" };
+const fueraDeMuestra = (f) => (f
+  ? etiqueta(f.veredicto === "aguanta" ? "aguanta después"
+      : f.veredicto === "se cae" ? "se cae después" : "sin comprobar",
+    TONOS_FUERA[f.veredicto] || "")
+  : null);
+
 function forma(resultados) {
   const c = el("span", { class: "forma", title: String(resultados || "").split("").join(" ") });
   for (const r of String(resultados || "").slice(0, 6)) c.append(el("i", { class: r.toLowerCase() }));
@@ -870,16 +880,23 @@ V.seguro = async (raiz, [modo, fechaRuta]) => {
       el("div", { class: "desliza" }, el("table", { class: "tb" },
         el("thead", {}, el("tr", {}, el("th", {}, "Patrón"), el("th", { class: "n" }, "Casos"),
           el("th", { class: "n" }, "Frec."), el("th", { class: "n" }, "Suelo"),
-          el("th", { class: "n" }, "Elev."), el("th", {}, ""))),
+          el("th", { class: "n" }, "Elev."), el("th", {}, ""), el("th", {}, "Después"))),
         el("tbody", {}, ...d.patrones.map((m) => el("tr", {},
           el("td", {}, el("div", {}, m.titulo), el("div", { class: "gris peq" }, m.pregunta)),
           el("td", { class: "n" }, m.casos),
           el("td", { class: "n" }, m.frecuencia === null ? "—" : pc(m.frecuencia)),
           el("td", { class: "n" }, m.casos ? pc(m.suelo) : "—"),
           el("td", { class: "n" }, m.casos ? (m.elevacion > 0 ? "+" : "") + pc(m.elevacion) : "—"),
-          el("td", {}, veredicto(m.veredicto))))))),
+          el("td", {}, veredicto(m.veredicto)),
+          el("td", {}, fueraDeMuestra(m.fuera_de_muestra))))))),
       ...d.patrones.filter((m) => m.nota).map((m) => nota(`${m.titulo}: ${m.nota}`)),
-      el("hr", { class: "hr" }), nota(d.como_leerlo), nota(d.lo_que_no_dice)));
+      el("hr", { class: "hr" }),
+      el("details", {}, el("summary", {}, "La comprobación fuera de muestra, patrón a patrón"),
+        el("ul", { class: "lista" }, ...d.patrones.filter((m) => m.fuera_de_muestra)
+          .map((m) => el("li", {}, fueraDeMuestra(m.fuera_de_muestra),
+            el("span", { style: "flex:1 1 200px;min-width:0" },
+              el("b", {}, m.titulo), " ", m.fuera_de_muestra.lectura))))),
+      nota(d.como_leerlo), nota(d.lo_que_no_dice)));
     return;
   }
 
@@ -903,13 +920,14 @@ V.seguro = async (raiz, [modo, fechaRuta]) => {
       c.append(el("div", { class: "av " + (a.suelo >= 0.8 ? "alto" : "medio") },
         el("div", { class: "cab" }, el("span", { class: "pc" }, pc(a.suelo)),
           el("span", { style: "flex:1 1 220px;min-width:0" }, el("b", {}, a.sujeto), " — ", a.dice),
-          veredicto(a.veredicto)),
+          veredicto(a.veredicto), fueraDeMuestra(a.fuera_de_muestra)),
         el("div", { class: "barra-conf", title: `frecuencia ${pc(a.frecuencia)} · suelo ${pc(a.suelo)}` },
           el("i", { style: `width:${(a.suelo || 0) * 100}%` }),
           el("b", { style: `left:calc(${(a.frecuencia || 0) * 100}% - 1px)` })),
         el("div", { class: "fila peq gris" }, `${pc(a.frecuencia)} en ${a.casos} casos`,
           el("span", {}, `${a.elevacion > 0 ? "+" : ""}${pc(a.elevacion)} sobre su referencia`),
-          a.mercado ? el("span", {}, `el mercado le da ${pc(a.mercado)}`) : null)));
+          a.mercado ? el("span", {}, `el mercado le da ${pc(a.mercado)}`) : null),
+        a.fuera_de_muestra ? nota(a.fuera_de_muestra.lectura) : null));
     }
     c.append(el("a", { class: "btn plano s", style: "justify-self:start",
       href: `#/buscar/partido/${lista[0].partido_id}` }, "Ver el partido"));

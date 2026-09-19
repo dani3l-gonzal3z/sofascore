@@ -13,6 +13,19 @@ camino aparecieron dos cosas que estaban mal y una que no se podía reutilizar.
 
 ### Novedades
 
+- **La comprobación fuera de muestra.** Un patrón de «casi seguro» se medía
+  sobre los mismos partidos que lo hicieron parecer bueno. Ahora el historial
+  se parte **por fecha** —el 70 % más viejo y el 30 % más nuevo— y la cuenta
+  se hace dos veces: si el número se mantiene en la parte nueva, que no
+  participó en medirlo, el patrón dice **aguanta**; si cae más de lo que esa
+  muestra puede explicar, dice **se cae** y se ve al lado del número, no en
+  una nota al pie. Aparece en la página, en `cancha seguro`, en cada aviso
+  del día y en las instrucciones del analista, que tiene prohibido presentar
+  como hallazgo un patrón que se cae.
+
+  Para llamarlo caída hacen falta dos cosas: que no quepa en la muestra y que
+  sea de al menos cinco puntos. Con 66 casos, pasar del 100 % al 98 % se sale
+  del intervalo por los pelos, y dar la alarma ahí es ruido.
 - **Todo se puede hacer desde el móvil.** Veintidós herramientas no tenían
   manera de usarse desde la página. Ahora la tienen: **Directo** (lo que se
   juega ahora, refrescándose solo), **Liga** (clasificación, histórico desde
@@ -58,6 +71,12 @@ camino aparecieron dos cosas que estaban mal y una que no se podía reutilizar.
   defensiva contra la media de su liga, y un cruce necesita los dos lados.
 - **Un mensaje de error con una URL dentro ensanchaba la página** en el móvil.
 - **`replaceChildren` pintaba la palabra «null»** donde no tocaba nada.
+- **El tope de peticiones del barrido contaba menos de la cuarta parte.** Solo
+  sumaba las del detalle de partido, no las de descubrir competiciones ni las
+  de la agenda liga por liga, que son las caras. Pedir un tope de 50 podía
+  gastar doscientas antes de mirarlo. Ahora se cuenta lo que cuenta el propio
+  cliente, y el tope se comprueba **antes de cada partido** y no una vez por
+  equipo: un equipo son seis partidos.
 
 ## 0.6.0
 

@@ -534,6 +534,19 @@ class _Historial:
         return {"local": fila["prob_local"], "empate": fila.get("prob_empate"),
                 "visitante": fila["prob_visitante"]}
 
+    def corte(self, fraccion: float = 0.7) -> int | None:
+        """El momento que parte el historial en «lo viejo» y «lo nuevo».
+
+        El corte es **por fecha**, no al azar: partir al azar dejaría partidos
+        posteriores en la mitad con la que se mide, y entonces comprobar el
+        patrón en la otra mitad no comprobaría nada.
+        """
+        if len(self.partidos) < 2:
+            return None
+        indice = int(len(self.partidos) * fraccion)
+        indice = min(max(indice, 1), len(self.partidos) - 1)
+        return self.partidos[indice].get("momento")
+
     def estadistica(self, clave: str) -> dict[int, dict]:
         """``{partido_id: fila}`` de una clave, leída de una vez."""
         if clave not in self._estadisticas:
@@ -575,17 +588,31 @@ def _despues(indice: _Historial, partido: dict, equipo_id: int | None,
                    estadisticas=estadisticas)
 
 
+#: Cuántos casos hacen falta en la parte nueva para que comprobar ahí
+#: signifique algo. Menos que el mínimo de siempre, porque es solo el 30 % del
+#: historial; por debajo de esto se dice «sin muestra» en vez de un veredicto.
+MINIMO_CASOS_FUERA = 12
+
+
 def medir(almacen: Almacen, patron: Patron, liga_id: int | None = None,
-          desde: str | None = None, indice: _Historial | None = None) -> dict:
+          desde: str | None = None, indice: _Historial | None = None,
+          corte: int | None = None) -> dict:
     """Cuenta un patrón sobre el historial guardado.
 
     Devuelve la frecuencia, el suelo de Wilson, la tasa base del desenlace y la
     elevación de una sobre la otra, que es lo único que dice si el patrón
     aporta algo.
+
+    Con ``corte`` (un momento) se cuenta además por separado lo anterior y lo
+    posterior a esa fecha. Sirve para la pregunta que de verdad importa: el
+    patrón se ha medido mirando el pasado, ¿y se cumplió luego? Un patrón que
+    da 85 % antes y 55 % después no es un patrón, es una casualidad a la que
+    le hemos puesto nombre.
     """
     indice = indice or _Historial(almacen, liga_id, desde)
     casos = exitos = 0
     base_casos = base_exitos = 0
+    viejos_casos = viejos_exitos = nuevos_casos = nuevos_exitos = 0
     ejemplos: list[dict] = []
 
     for partido in indice.partidos:
@@ -607,6 +634,13 @@ def medir(almacen: Almacen, patron: Patron, liga_id: int | None = None,
                 continue
             casos += 1
             exitos += int(resultado)
+            if corte is not None:
+                if (partido.get("momento") or 0) < corte:
+                    viejos_casos += 1
+                    viejos_exitos += int(resultado)
+                else:
+                    nuevos_casos += 1
+                    nuevos_exitos += int(resultado)
             if len(ejemplos) < 8:
                 ejemplos.append({
                     "fecha": partido.get("fecha"),
@@ -637,7 +671,58 @@ def medir(almacen: Almacen, patron: Patron, liga_id: int | None = None,
         "base_casos": base_casos,
         "elevacion": round(elevacion, 4),
         "veredicto": veredicto(suelo, elevacion, casos),
+        "fuera_de_muestra": (_fuera_de_muestra(viejos_casos, viejos_exitos,
+                                               nuevos_casos, nuevos_exitos, indice, corte)
+                             if corte is not None else None),
         "ejemplos": ejemplos,
+    }
+
+
+def _fuera_de_muestra(viejos_casos: int, viejos_exitos: int,
+                      nuevos_casos: int, nuevos_exitos: int,
+                      indice: _Historial, corte: int) -> dict:
+    """Medido solo con lo viejo, ¿se cumplió en lo nuevo?
+
+    No es una prueba de hipótesis nueva: es la misma cuenta hecha dos veces,
+    en dos tramos de tiempo, para ver si el número se sostiene. Es lo más
+    barato que se puede hacer contra el riesgo de haberle puesto nombre al
+    ruido, y lo más difícil de discutir.
+    """
+    antes = viejos_exitos / viejos_casos if viejos_casos else None
+    despues = nuevos_exitos / nuevos_casos if nuevos_casos else None
+    suelo, techo = wilson(nuevos_exitos, nuevos_casos)
+    fecha_corte = next((p.get("fecha") for p in indice.partidos
+                        if (p.get("momento") or 0) >= corte), None)
+
+    if antes is None or nuevos_casos < MINIMO_CASOS_FUERA:
+        resultado, lectura = "sin muestra", (
+            f"Solo {nuevos_casos} caso{'s' if nuevos_casos != 1 else ''} después del "
+            f"{fecha_corte or 'corte'}: no alcanza para comprobar nada. Barre más "
+            "partidos y vuelve.")
+    # Hacen falta las dos cosas: que la caída no quepa en la muestra **y** que
+    # sea de un tamaño que importe. Con 66 casos, pasar del 100 % al 98 % sale
+    # del intervalo por los pelos, y llamar a eso «se cae» es dar una alarma
+    # donde no ha pasado nada. El umbral es el mismo que usa la elevación.
+    elif antes > techo and (antes - despues) >= ELEVACION_MINIMA:
+        resultado, lectura = "se cae", (
+            f"{antes:.0%} antes del {fecha_corte} y {despues:.0%} después "
+            f"({nuevos_casos} casos). La caída es mayor de lo que esa muestra puede "
+            "explicar: el número de arriba se apoya sobre todo en lo viejo.")
+    else:
+        resultado, lectura = "aguanta", (
+            f"{antes:.0%} antes del {fecha_corte} y {despues:.0%} después "
+            f"({nuevos_casos} casos): se mantiene. Es lo más parecido a una "
+            "comprobación que hay aquí, porque lo nuevo no participó en medirlo.")
+
+    return {
+        "corte": fecha_corte,
+        "antes": {"casos": viejos_casos, "exitos": viejos_exitos,
+                  "frecuencia": round(antes, 4) if antes is not None else None},
+        "despues": {"casos": nuevos_casos, "exitos": nuevos_exitos,
+                    "frecuencia": round(despues, 4) if despues is not None else None,
+                    "suelo": round(suelo, 4), "techo": round(techo, 4)},
+        "veredicto": resultado,
+        "lectura": lectura,
     }
 
 
@@ -693,7 +778,10 @@ def calibrar(almacen: Almacen, liga_id: int | None = None, desde: str | None = N
     # con qué comparar lo que sí has pedido.
     necesarias = {p.referencia for p in elegidos if p.referencia} - {p.nombre for p in elegidos}
     elegidos = list(elegidos) + [POR_NOMBRE[n] for n in necesarias if n in POR_NOMBRE]
-    medidos = [medir(almacen, p, indice=indice) for p in elegidos]
+    # El mismo corte para todos los patrones: comparar unos medidos con tres
+    # años y otros con uno no diría nada de los patrones, diría del corte.
+    corte = indice.corte()
+    medidos = [medir(almacen, p, indice=indice, corte=corte) for p in elegidos]
     _comparar_con_referencia(medidos)
     if patrones:
         pedidos = set(patrones)
@@ -713,11 +801,18 @@ def calibrar(almacen: Almacen, liga_id: int | None = None, desde: str | None = N
             f"debajo de {ELEVACION_MINIMA:.0%} el patrón describe el fútbol, no la "
             f"situación. Con menos de {MINIMO_CASOS} casos no se publica nada."
         ),
+        "aguantan_fuera_de_muestra": [
+            m["patron"] for m in medidos
+            if (m.get("fuera_de_muestra") or {}).get("veredicto") == "aguanta"
+        ],
         "lo_que_no_dice": (
             "Se prueban doce patrones a la vez sobre el mismo historial: alguno "
-            "parecerá bueno por puro azar. Y todo esto se mide sobre los partidos "
-            "que tú has barrido, que son sobre todo de equipos que juegan hoy: "
-            "no es una muestra del fútbol, es una muestra de tu memoria."
+            "parecerá bueno por puro azar. Contra eso está la comprobación fuera "
+            "de muestra —medir con el 70 % más viejo y mirar si se cumple en el "
+            "30 % más nuevo—, que es lo único de aquí que no participó en elegir "
+            "el patrón. Y todo esto se mide sobre los partidos que tú has "
+            "barrido, que son sobre todo de equipos que juegan hoy: no es una "
+            "muestra del fútbol, es una muestra de tu memoria."
         ),
     }
 
@@ -796,6 +891,7 @@ def avisos(almacen: Almacen, cliente=None, fecha: str | None = None,
                     "elevacion": medida["elevacion"],
                     "casos": medida["casos"],
                     "veredicto": medida["veredicto"],
+                    "fuera_de_muestra": medida.get("fuera_de_muestra"),
                     "mercado": antes.prob_propia,
                 })
     salida.sort(key=lambda a: -a["suelo"])
@@ -805,6 +901,7 @@ def avisos(almacen: Almacen, cliente=None, fecha: str | None = None,
         "partidos_mirados": len(list(eventos)),
         "calibrado_con": calibracion["partidos_mirados"],
         "como_leerlo": calibracion["como_leerlo"],
+        "aguantan_fuera_de_muestra": calibracion.get("aguantan_fuera_de_muestra", []),
         "lo_que_no_dice": (
             "Nada de esto es una apuesta segura. El número más alto que sale de "
             "un historial de fútbol ronda el 85-90 %, y el mercado ya lo sabe: "
@@ -817,5 +914,6 @@ def avisos(almacen: Almacen, cliente=None, fecha: str | None = None,
 __all__ = [
     "Patron", "PATRONES", "POR_NOMBRE", "Antes", "Despues",
     "wilson", "veredicto", "medir", "calibrar", "avisos",
-    "MINIMO_CASOS", "UMBRAL_SEGURO", "UMBRAL_PROBABLE", "ELEVACION_MINIMA",
+    "MINIMO_CASOS", "MINIMO_CASOS_FUERA", "UMBRAL_SEGURO", "UMBRAL_PROBABLE",
+    "ELEVACION_MINIMA",
 ]

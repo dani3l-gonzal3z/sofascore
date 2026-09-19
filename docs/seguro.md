@@ -23,6 +23,7 @@ tres cifras juntas:
 | **Frecuencia** | Lo que pasó, con su número de casos |
 | **Suelo** | Lo que esa muestra permite defender (Wilson al 95 %) |
 | **Elevación** | Cuánto se separa de su patrón de referencia |
+| **Después** | Si se cumplió también en la parte del historial con la que no se midió |
 
 **La elevación es la importante.** Si los favoritos ganan el 84 % y los
 favoritos que pincharon ganan el 61 %, no hay reacción: hay tasa base, y el
@@ -35,6 +36,27 @@ suelo sube al 89 %; con 300, al 99 %. Es lo que separa un patrón de una racha.
 Para que un patrón se publique tiene que pasar tres filtros: **30 casos**
 mínimo, un **suelo por encima del 65 %** y una **elevación de al menos el 5 %**
 sobre su referencia.
+
+### La comprobación fuera de muestra
+
+Los tres filtros protegen del azar, pero no de lo otro: que el patrón se haya
+medido sobre los mismos partidos que lo hicieron parecer bueno. Contra eso, el
+historial se parte **por fecha** —el 70 % más viejo y el 30 % más nuevo— y la
+misma cuenta se hace dos veces.
+
+| Veredicto | Qué significa |
+| --- | --- |
+| **aguanta** | El número se mantiene en la parte nueva, que no participó en medirlo |
+| **se cae** | Cae más de lo que esa muestra puede explicar: se apoyaba en lo viejo |
+| **sin muestra** | Menos de 12 casos después del corte: no alcanza para comprobar nada |
+
+El corte es por fecha y no al azar a propósito: partir al azar dejaría partidos
+posteriores en la mitad con la que se mide, y entonces comprobar el patrón en la
+otra mitad no comprobaría nada.
+
+Es lo más barato que se puede hacer contra el riesgo de haberle puesto nombre al
+ruido, y lo más difícil de discutir. Un patrón que dice **aguanta** no es una
+promesa; es lo único de aquí que no se eligió a sí mismo.
 
 ## Los patrones
 
@@ -79,7 +101,11 @@ en contra.
   cuota coinciden, no hay nada que ganar, solo algo que entender. Por eso cada
   aviso trae al lado lo que le da el mercado.
 - **Se prueban doce patrones a la vez** sobre el mismo historial: alguno
-  parecerá bueno por puro azar. Eso también está escrito en la respuesta.
+  parecerá bueno por puro azar. Eso también está escrito en la respuesta, y la
+  comprobación fuera de muestra es lo que pone a prueba a los que lo parecen.
+- **La comprobación fuera de muestra no es una garantía**, es un filtro más:
+  que algo se haya cumplido en el último tercio no obliga a que se cumpla
+  mañana.
 - **La muestra es tu memoria, no el fútbol.** Se mide sobre los partidos que tú
   has barrido, que son sobre todo de equipos que juegan hoy.
 - Y cuanta más memoria, más fiable: con doscientos partidos no sale nada, y es

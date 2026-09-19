@@ -65,6 +65,11 @@ class Progreso:
     partidos_guardados: int = 0
     ya_estaban: int = 0
     fallos: int = 0
+    #: Peticiones gastadas. Durante un barrido entero es **todo** lo que se ha
+    #: pedido —descubrir competiciones, la agenda, el calendario de cada
+    #: equipo y el detalle de cada partido—, no solo lo último. Es lo que mide
+    #: el tope, y tiene que ser lo mismo que se enseña: un tope que cuenta una
+    #: cuarta parte de lo que gastas no es un tope.
     peticiones: int = 0
     detalle: list[str] = field(default_factory=list)
 
@@ -184,8 +189,14 @@ def rellenar_equipo(
     equipo_id: int,
     ultimos: int = 6,
     progreso: Progreso | None = None,
+    puede_seguir: Callable[[], bool] | None = None,
 ) -> Progreso:
-    """Los últimos partidos jugados de un equipo, con detalle, en la base."""
+    """Los últimos partidos jugados de un equipo, con detalle, en la base.
+
+    ``puede_seguir`` se consulta **antes de cada partido**, no una vez por
+    equipo: un equipo son seis partidos y cada uno cinco peticiones, así que
+    mirar el tope solo al empezar lo deja pasarse de treinta.
+    """
     progreso = progreso or Progreso()
     try:
         crudos = cliente.team_events(equipo_id, when="last")
@@ -198,6 +209,8 @@ def rellenar_equipo(
     eventos = [e for e in eventos if e.is_finished]
     eventos.sort(key=lambda e: e.start_timestamp or 0, reverse=True)
     for evento in eventos[:ultimos]:
+        if puede_seguir is not None and not puede_seguir():
+            break
         progreso.partidos_vistos += 1
         guardar_partido(cliente, almacen, evento, progreso)
     return progreso
@@ -222,6 +235,18 @@ def barrer(
     progreso = Progreso()
     dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+    # El cliente ya cuenta todas sus peticiones; aquí solo se mira cuánto ha
+    # subido. Contarlas a mano por el camino deja fuera las que más pesan
+    # —descubrir competiciones y la agenda liga por liga— y entonces el tope
+    # se rebasa antes de empezar a mirarlo.
+    inicio = cliente.stats.requests
+
+    def gastadas() -> int:
+        return cliente.stats.requests - inicio
+
+    def queda_cupo() -> bool:
+        return not maximo_peticiones or gastadas() < maximo_peticiones
+
     # Lo primero, saber de qué competiciones hablamos. Las que no tengan id se
     # buscan una vez y quedan guardadas; las siguientes veces esto no cuesta.
     descubiertas = asegurar(cliente, almacen, grupos, avisar=decir)
@@ -243,12 +268,16 @@ def barrer(
 
     decir(f"{len(equipos)} equipos de los que traer sus últimos {ultimos} partidos.")
     for numero, (equipo_id, nombre) in enumerate(sorted(equipos.items(), key=lambda kv: kv[1]), 1):
-        if maximo_peticiones and progreso.peticiones >= maximo_peticiones:
-            decir(f"Tope de {maximo_peticiones} peticiones alcanzado; lo dejo aquí.")
+        if not queda_cupo():
+            decir(f"Tope de {maximo_peticiones} peticiones alcanzado "
+                  f"({gastadas()} gastadas); lo dejo aquí. Lo guardado queda "
+                  f"guardado y el siguiente barrido sigue por donde falte.")
             break
         decir(f"  [{numero}/{len(equipos)}] {nombre}")
-        rellenar_equipo(cliente, almacen, equipo_id, ultimos, progreso)
+        rellenar_equipo(cliente, almacen, equipo_id, ultimos, progreso,
+                        puede_seguir=queda_cupo)
 
+    progreso.peticiones = gastadas()
     almacen.anotar("ultimo_barrido", datetime.now(timezone.utc).isoformat(timespec="seconds"))
     almacen.anotar("ultima_fecha_barrida", dia)
     return {

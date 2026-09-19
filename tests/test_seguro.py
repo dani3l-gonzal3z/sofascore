@@ -368,3 +368,101 @@ def test_todos_los_patrones_estan_bien_formados():
         assert callable(patron.condicion) and callable(patron.desenlace)
         if patron.referencia:
             assert patron.referencia in POR_NOMBRE, patron.nombre
+
+
+# ------------------------------------------------------- fuera de muestra
+
+def test_un_patron_que_solo_pasaba_antes_se_cae_fuera_de_muestra(base):
+    """Construido para que se caiga: el efecto existe y luego desaparece.
+
+    Es el caso que de verdad importa. Un patrón medido sobre todo el historial
+    sale alto porque la mitad vieja tira de la media, y el número parece bueno.
+    La comprobación tiene que decir que el número se apoya en lo viejo.
+    """
+    import random
+
+    azar = random.Random(7)
+
+    def con_reaccion_que_se_apaga(jornada, local, historial):
+        perdio = historial[:1] == ["P"]
+        if jornada < 70:                       # antes: reacciona siempre
+            return (2, 0) if perdio else ((0, 1) if jornada % 5 == 0 else (1, 0))
+        # Después haber perdido deja de decir nada: el resultado sale de una
+        # moneda que no mira el historial.
+        return (2, 0) if azar.random() < 0.5 else (0, 1)
+
+    _liga(base, 100, con_reaccion_que_se_apaga)
+    calibracion = calibrar(base)
+    medida = next(m for m in calibracion["patrones"]
+                  if m["patron"] == "reaccion_del_favorito")
+    fuera = medida["fuera_de_muestra"]
+    assert fuera is not None
+    assert fuera["veredicto"] == "se cae", fuera["lectura"]
+    assert fuera["antes"]["frecuencia"] > fuera["despues"]["frecuencia"]
+    assert "se apoya sobre todo en lo viejo" in fuera["lectura"]
+    assert "reaccion_del_favorito" not in calibracion["aguantan_fuera_de_muestra"]
+
+
+def test_un_patron_constante_aguanta_fuera_de_muestra(base):
+    """El mismo efecto de principio a fin: la comprobación no lo tumba."""
+    def siempre_reacciona(jornada, local, historial):
+        perdio = historial[:1] == ["P"]
+        return (2, 0) if perdio else ((0, 1) if jornada % 5 == 0 else (1, 0))
+
+    _liga(base, 100, siempre_reacciona)
+    medida = next(m for m in calibrar(base)["patrones"]
+                  if m["patron"] == "reaccion_del_favorito")
+    fuera = medida["fuera_de_muestra"]
+    assert fuera["veredicto"] == "aguanta", fuera["lectura"]
+    assert fuera["despues"]["casos"] > 0
+    assert fuera["corte"], "tiene que decir por dónde partió el historial"
+
+
+def test_con_poco_historial_lo_dice_en_vez_de_dar_un_veredicto(base):
+    def sencillo(jornada, local, historial):
+        return (1, 0)
+
+    _liga(base, 6, sencillo)
+    medida = next(m for m in calibrar(base)["patrones"]
+                  if m["patron"] == "reaccion_del_favorito")
+    fuera = medida["fuera_de_muestra"]
+    assert fuera["veredicto"] == "sin muestra"
+    assert "no alcanza" in fuera["lectura"]
+
+
+def test_el_corte_es_por_fecha_y_no_al_azar(base):
+    """Partir al azar metería partidos nuevos en la parte con la que se mide."""
+    from cancha.seguro import _Historial
+
+    def sencillo(jornada, local, historial):
+        return (1, 0)
+
+    _liga(base, 20, sencillo)
+    indice = _Historial(base)
+    corte = indice.corte(0.7)
+    viejos = [p for p in indice.partidos if (p["momento"] or 0) < corte]
+    nuevos = [p for p in indice.partidos if (p["momento"] or 0) >= corte]
+    assert viejos and nuevos
+    assert max(p["momento"] for p in viejos) < min(p["momento"] for p in nuevos)
+    assert len(viejos) == pytest.approx(len(indice.partidos) * 0.7, abs=2)
+
+
+def test_un_aviso_del_dia_lleva_la_comprobacion_encima(base):
+    """No vale comprobarlo en la calibración y no enseñarlo donde se decide."""
+    def siempre_reacciona(jornada, local, historial):
+        perdio = historial[:1] == ["P"]
+        return (2, 0) if perdio else ((0, 1) if jornada % 5 == 0 else (1, 0))
+
+    _liga(base, 100, siempre_reacciona)
+    evento = _evento(9001, 100, 200)
+    base.guardar_evento(evento)
+    base._conexion.execute(
+        """INSERT INTO cuotas (partido_id,fuente,mercado,prob_local,prob_empate,prob_visitante)
+           VALUES (?,?,?,?,?,?)""", (9001, "test", "FT", 0.70, 0.15, 0.15))
+    base._conexion.commit()
+
+    salida = avisos(base, eventos=[evento], umbral=0.5)
+    assert salida["avisos"], "la historia tenía que disparar algún aviso"
+    for aviso in salida["avisos"]:
+        assert "fuera_de_muestra" in aviso
+    assert "aguantan_fuera_de_muestra" in salida

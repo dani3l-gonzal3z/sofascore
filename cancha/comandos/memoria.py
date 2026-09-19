@@ -590,8 +590,9 @@ def cmd_seguro(args: argparse.Namespace) -> int:
                 return 0
             imprimir(f"Calibrado sobre {datos['partidos_mirados']} partidos guardados\n")
             imprimir(f"  {'PATRÓN':<24}{'CASOS':>7}{'FREC':>8}{'SUELO':>8}{'BASE':>8}"
-                     f"{'ELEV':>8}  VEREDICTO")
+                     f"{'ELEV':>8}  {'VEREDICTO':<17}DESPUÉS")
             for medida in datos["patrones"]:
+                fuera = medida.get("fuera_de_muestra") or {}
                 if medida["frecuencia"] is None:
                     imprimir(f"  {medida['patron']:<24}{medida['casos']:>7}"
                              f"{'—':>8}{'—':>8}{'—':>8}{'—':>8}  sin casos")
@@ -599,11 +600,20 @@ def cmd_seguro(args: argparse.Namespace) -> int:
                 imprimir(f"  {medida['patron']:<24}{medida['casos']:>7}"
                          f"{medida['frecuencia']:>8.0%}{medida['suelo']:>8.0%}"
                          f"{(medida['base'] or 0):>8.0%}{medida['elevacion']:>+8.0%}"
-                         f"  {medida['veredicto']}")
+                         f"  {medida['veredicto']:<17}{fuera.get('veredicto', '—')}")
             imprimir("")
             for medida in datos["patrones"]:
                 if medida.get("nota"):
                     imprimir(f"  · {medida['titulo']}: {medida['nota']}")
+            imprimir("")
+            # La comprobación fuera de muestra, que es la que más pesa: medido
+            # con lo viejo, ¿se cumplió en lo nuevo?
+            for medida in datos["patrones"]:
+                fuera = medida.get("fuera_de_muestra")
+                if fuera and fuera["veredicto"] != "sin muestra":
+                    for numero, linea in enumerate(envolver(
+                            f"{medida['titulo']}: {fuera['lectura']}", 70)):
+                        imprimir(("  · " if numero == 0 else "    ") + linea)
             imprimir("")
             for linea in envolver(datos["como_leerlo"], 74):
                 imprimir(f"  {linea}")
@@ -639,7 +649,11 @@ def cmd_seguro(args: argparse.Namespace) -> int:
             imprimir(f"    {aviso['suelo']:>5.0%} suelo · {aviso['frecuencia']:.0%} en "
                      f"{aviso['casos']} casos ({aviso['elevacion']:+.0%} sobre su "
                      f"referencia){mercado}")
-            imprimir(f"          {aviso['sujeto']}: {aviso['dice']}  [{aviso['veredicto']}]")
+            fuera = aviso.get("fuera_de_muestra") or {}
+            marca = {"aguanta": "  [aguanta después]", "se cae": "  [SE CAE después]"}.get(
+                fuera.get("veredicto"), "")
+            imprimir(f"          {aviso['sujeto']}: {aviso['dice']}  "
+                     f"[{aviso['veredicto']}]{marca}")
         imprimir("")
         for linea in envolver(datos["lo_que_no_dice"], 74):
             imprimir(f"  {linea}")
