@@ -285,3 +285,183 @@ def test_la_pagina_trae_las_cinco_pestanas_y_el_tema(servidor):
     assert ':root:not([data-theme="light"])' in html
     assert ':root[data-theme="dark"]' in html
     assert "prefers-reduced-motion" in html
+
+
+# ------------------------------------------------------- llegar desde el móvil
+
+def test_se_enseñan_todas_las_ip_y_la_primera_es_privada():
+    """Con VPN o Docker hay varias IP; enseñar solo una y fallar es lo peor."""
+    from cancha.web.servidor import ips_locales
+
+    ips = ips_locales()
+    assert ip_local() in ips or ip_local().startswith("127.")
+    assert not any(ip.startswith("127.") for ip in ips), "el bucle local no sirve"
+    privadas = [i for i, ip in enumerate(ips)
+                if ip.startswith(("192.168.", "10.", "172."))]
+    if privadas and len(privadas) < len(ips):
+        assert max(privadas) < min(set(range(len(ips))) - set(privadas))
+
+
+def test_al_abrir_a_la_red_se_dibuja_el_qr_con_la_clave_dentro(cliente, tmp_path):
+    """Escanear y entrar, sin teclear la clave en el móvil."""
+    from cancha.web.qr import matriz
+    from cancha.web.servidor import arrancar
+
+    sesion = Sesion(cliente=cliente, ruta_almacen=str(tmp_path / "qr.db"))
+    app = Servidor(sesion=sesion, clave="s3creta")
+    lineas: list[str] = []
+
+    class Falso:
+        server_address = ("0.0.0.0", 8765)
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    import cancha.web.servidor as servidor_modulo
+
+    antes = servidor_modulo.construir
+    servidor_modulo.construir = lambda *a, **k: Falso()
+    try:
+        arrancar(app, host="0.0.0.0", puerto=8765, avisar=lineas.append)
+    finally:
+        servidor_modulo.construir = antes
+
+    texto = "\n".join(lineas)
+    assert "clave=s3creta" in texto, "la clave tiene que ir en la dirección del QR"
+    assert "\x1b[" in texto, "el QR se dibuja con colores fijos"
+    assert "pantalla de inicio" in texto
+    # Y lo dibujado es un QR de verdad del tamaño que toca para esa dirección.
+    url = next(x.strip() for x in lineas
+               if x.strip().startswith("http://") and "clave=" in x)
+    assert len(matriz(url)) >= 25
+
+
+def test_sin_qr_se_siguen_dando_las_direcciones(cliente, tmp_path):
+    from cancha.web.servidor import arrancar
+
+    sesion = Sesion(cliente=cliente, ruta_almacen=str(tmp_path / "qr2.db"))
+    app = Servidor(sesion=sesion)
+    lineas: list[str] = []
+
+    class Falso:
+        server_address = ("0.0.0.0", 8765)
+
+        def serve_forever(self):
+            raise KeyboardInterrupt
+
+        def server_close(self):
+            pass
+
+    import cancha.web.servidor as servidor_modulo
+
+    antes = servidor_modulo.construir
+    servidor_modulo.construir = lambda *a, **k: Falso()
+    try:
+        arrancar(app, host="0.0.0.0", puerto=8765, avisar=lineas.append, qr=False)
+    finally:
+        servidor_modulo.construir = antes
+
+    texto = "\n".join(lineas)
+    assert "\x1b[" not in texto
+    assert ":8765/" in texto
+
+
+def test_la_pagina_coge_la_clave_de_la_direccion_y_la_borra(servidor):
+    """Es lo que hace que escanear el QR sea un solo gesto."""
+    _, _, cuerpo = _pedir(servidor, "GET", "/")
+    html = cuerpo.decode("utf-8")
+    assert "claveDeLaUrl" in html
+    assert 'URLSearchParams(location.search).get("clave")' in html
+    assert "history.replaceState" in html, "la clave no se queda en la barra"
+
+
+# --------------------------------------------- todo, también desde el móvil
+
+#: Las cuatro herramientas que la página no llama por su nombre, y por qué. Si
+#: una más se cuela aquí sin razón escrita, el test de abajo lo dice.
+POR_OTRO_CAMINO = {
+    "puntos_esperados": "viene dentro de analisis_partido, que la vista del partido ya pinta",
+    "carrera_xg": "viene dentro de analisis_partido",
+    "estado_de_la_memoria": "la página usa /api/estado, que es lo mismo con el barrido dentro",
+    "casi_seguro": "la página usa /api/seguro, que además permite calibrar",
+}
+
+
+def _pagina() -> str:
+    from cancha.web.servidor import ESTATICO
+
+    return (ESTATICO / "index.html").read_text(encoding="utf-8")
+
+
+def test_todas_las_herramientas_se_pueden_usar_desde_la_pagina():
+    """El móvil tiene que llegar a todo, no a la mitad.
+
+    Cada herramienta o tiene su sitio en una vista, o está en la lista de las
+    que llegan por otro camino —y esa lista lleva escrito el camino—.
+    """
+    from cancha.herramientas import esquemas
+
+    html = _pagina()
+    sin_sitio = [e["name"] for e in esquemas()
+                 if f'"{e["name"]}"' not in html and e["name"] not in POR_OTRO_CAMINO]
+    assert not sin_sitio, f"sin manera de usarlas desde la página: {sin_sitio}"
+    # Y la lista de excepciones no se queda con nombres que ya no existen.
+    nombres = {e["name"] for e in esquemas()}
+    assert set(POR_OTRO_CAMINO) <= nombres
+
+
+def test_la_consola_alcanza_cualquier_herramienta_futura():
+    """Las vistas cubren lo de cada día; la consola cubre el resto, y lo que venga."""
+    html = _pagina()
+    assert "tarjetaConsola" in html
+    assert '/api/herramientas' in html, "la lista se pide al servidor, no está escrita a mano"
+    assert "input_schema" in html, "los campos se montan desde el esquema de cada herramienta"
+
+
+def test_la_pagina_llega_a_lo_que_antes_solo_estaba_en_el_terminal(servidor):
+    """doctor, cache, el directo, la clasificación y descubrir ligas."""
+    html = _pagina()
+    for pieza in ("/api/diagnostico", "/api/cache", "/api/ligas", "/api/red",
+                  "pintarDirecto", "pintarLiga", "ficha_equipo", "ficha_jugador"):
+        assert pieza in html, pieza
+
+
+def test_el_diagnostico_se_sirve_sin_tocar_la_red(servidor):
+    estado, _, cuerpo = _pedir(servidor, "GET", "/api/diagnostico")
+    assert estado == 200
+    assert [t["nombre"] for t in cuerpo["transportes"]] == ["curl", "httpx", "urllib"]
+    assert "credenciales" in cuerpo and "cache" in cuerpo
+    assert "api" not in cuerpo, "sin ?red=1 no se pide nada a nadie"
+
+
+def test_el_qr_de_la_red_sale_del_servidor(servidor):
+    servidor.abierto = True
+    estado, _, cuerpo = _pedir(servidor, "GET", "/api/red")
+    assert estado == 200
+    assert cuerpo["abierto_a_la_red"] is True
+    if cuerpo["urls"]:
+        assert len(cuerpo["qr"]) >= 21
+        assert set(cuerpo["qr"][0]) <= {0, 1}
+
+
+def test_cerrado_a_la_red_el_qr_lo_dice_en_vez_de_enganar(servidor):
+    estado, _, cuerpo = _pedir(servidor, "GET", "/api/red")
+    assert estado == 200 and cuerpo["abierto_a_la_red"] is False
+
+
+def test_vaciar_la_cache_desde_la_pagina(servidor):
+    estado, _, cuerpo = _pedir(servidor, "POST", "/api/cache", {})
+    assert estado == 200 and "borrados" in cuerpo
+
+
+def test_el_directo_no_se_queda_pidiendo_cuando_te_vas_de_la_vista():
+    """Un temporizador que sobrevive a la vista se come la batería del móvil."""
+    html = _pagina()
+    desde = html.index("async function pintarDirecto")
+    hasta = html.index("async function generarBriefing")
+    trozo = html[desde:hasta]
+    assert trozo.count("location.hash !== mio") >= 1
+    assert trozo.count("location.hash === mio") >= 2

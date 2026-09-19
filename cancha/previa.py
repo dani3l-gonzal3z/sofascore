@@ -177,7 +177,12 @@ def _a_seguir(almacen: Almacen, equipo_id: int, cuantos: int, ultimos: int) -> l
 
 
 def _cruces(equipos: dict) -> list[dict]:
-    """Dónde lo que uno hace bien coincide con lo que el otro defiende mal."""
+    """Dónde lo que uno hace bien coincide con lo que el otro defiende mal.
+
+    Los dos lados se miden contra la media de su liga, y hacen falta los dos:
+    un equipo que tira muchos córners contra otro que los concede como
+    cualquiera no es un cruce, es un dato suelto.
+    """
     salida = []
     for atacante, defensor in (("local", "visitante"), ("visitante", "local")):
         uno, otro = equipos.get(atacante), equipos.get(defensor)
@@ -187,19 +192,25 @@ def _cruces(equipos: dict) -> list[dict]:
             propio = (uno.get("dimensiones") or {}).get(dimension) or {}
             if propio.get("diferencia", 0) < 0.15:
                 continue
-            concede = (otro.get("concede") or {})
-            # 'concede' solo trae unas pocas claves; para el resto se mira la
-            # media de lo que le hacen, que está en las dimensiones del rival.
-            del concede
+            # La segunda mitad de la frase, que antes no se medía: el aviso
+            # decía "y enfrente conceden muchos" sin haber mirado nunca lo que
+            # concede el otro. Media frase medida y media inventada suena igual
+            # de convincente que una entera, y ahí está el peligro.
+            concedido = (otro.get("concede_dimensiones") or {}).get(dimension) or {}
+            cuanto_concede = concedido.get("diferencia")
+            if cuanto_concede is None or cuanto_concede < 0.15:
+                continue
             salida.append({
                 "quien": uno["equipo"],
                 "contra": otro["equipo"],
                 "aviso": f"{uno['equipo']} {lectura}",
                 "cuanto": propio.get("diferencia"),
+                "concede_el_rival": cuanto_concede,
                 "dimension": dimension,
                 "clave": clave_concedida,
             })
-    salida.sort(key=lambda c: -(c.get("cuanto") or 0))
+    # Un cruce vale por los dos lados a la vez, así que se ordena por la suma.
+    salida.sort(key=lambda c: -((c.get("cuanto") or 0) + (c.get("concede_el_rival") or 0)))
     return salida[:5]
 
 
@@ -264,7 +275,11 @@ def texto(datos: dict, ancho: int = 76) -> list[str]:
     if cruces:
         lineas.append("Dónde se pueden hacer daño")
         for cruce in cruces:
-            lineas.append(f"    · {cruce['aviso']}")
+            lineas.append(
+                f"    · {cruce['aviso']} "
+                f"({cruce['cuanto']:+.0%} sobre su liga / el rival concede "
+                f"{cruce['concede_el_rival']:+.0%})"
+            )
         lineas.append("")
 
     arbitro = datos.get("arbitro") or {}

@@ -159,6 +159,22 @@ def estilo_de_equipo(
         dimensiones[nombre] = bloque
 
     rasgos.sort(key=lambda r: -abs(float(r["cuanto"].split("%")[0].replace("+", ""))))
+
+    # La mitad defensiva del retrato, medida con la misma vara. Hace falta
+    # entera: para decir que a alguien le entran los centros no basta con
+    # saber que el rival los tira, hay que haber mirado lo que le entra.
+    concede_dimensiones = {}
+    for nombre, (clave, _lectura) in DIMENSIONES.items():
+        valor = rivales.get(clave)
+        if valor is None:
+            continue
+        bloque: dict[str, Any] = {"clave": clave, "valor": round(valor, 2)}
+        media = medias_liga.get(clave)
+        if media:
+            bloque["media_liga"] = round(media, 2)
+            bloque["diferencia"] = round((valor - media) / media, 3)
+        concede_dimensiones[nombre] = bloque
+
     resultados = _resultados(partidos, equipo_id)
 
     return {
@@ -178,6 +194,7 @@ def estilo_de_equipo(
             "tiros": round(rivales.get("totalShotsOnGoal", 0), 1),
             "ocasiones_claras": round(rivales.get("bigChanceCreated", 0), 1),
         },
+        "concede_dimensiones": concede_dimensiones,
         "aviso": None if medias_liga else
                  "Sin media de liga con la que comparar: los números están solos. "
                  "Barre más partidos de esa competición.",

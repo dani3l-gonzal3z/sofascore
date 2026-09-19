@@ -184,7 +184,8 @@ input.campo, select.campo, textarea.campo {
 input.campo::placeholder, textarea.campo::placeholder { color: var(--gris); }
 form.busca { display: flex; gap: 8px; flex-wrap: wrap; }
 
-.seg { display: inline-flex; background: var(--cal-2); border-radius: 9px; padding: 3px;
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%;
+       background: var(--cal-2); border-radius: 9px; padding: 3px;
        gap: 2px; flex-wrap: wrap; }
 .seg button { border: 0; background: none; padding: 6px 12px; border-radius: 7px;
               font-size: 13.5px; font-weight: 600; color: var(--gris); cursor: pointer; }
@@ -199,6 +200,9 @@ form.busca { display: flex; gap: 8px; flex-wrap: wrap; }
 .eti.azul   { background: var(--azul-t); color: var(--azul); }
 .eti.hueca  { background: none; border: 1px dashed var(--linea-2); }
 
+/* Un mensaje de error trae a veces una URL entera sin espacios, y eso ensancha
+   la página en el móvil. Que rompa por donde haga falta. */
+.nota, .msg, .peq { overflow-wrap: anywhere; min-width: 0; }
 .nota { font-size: 13px; color: var(--gris); font-style: italic; line-height: 1.5; }
 .msg { border-left: 2px solid var(--azul); background: var(--azul-t); color: var(--tinta);
        padding: 9px 12px; border-radius: 0 var(--r-s) var(--r-s) 0; font-size: 13.5px; }
@@ -352,6 +356,14 @@ details > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color:
 details > summary::-webkit-details-marker { display: none; }
 details > summary::before { content: "▸ "; }
 details[open] > summary::before { content: "▾ "; }
+/* El QR se dibuja con una rejilla de cuadraditos. Blanco y negro fijos, no los
+   del tema: un QR con poco contraste no lo lee la cámara. */
+.qr-marco { background: #fff; padding: 14px; border-radius: var(--r-s); width: max-content;
+            max-width: 100%; border: 1px solid var(--linea-2); }
+.qr { display: grid; width: min(248px, 62vw); aspect-ratio: 1; }
+.qr i { background: #fff; }
+.qr i.on { background: #000; }
+
 .vacio { text-align: center; padding: 32px 16px; color: var(--gris); display: grid; gap: 10px;
          justify-items: center; }
 .vacio svg { width: 34px; height: 34px; stroke: var(--linea-2); fill: none; stroke-width: 1.5;
@@ -393,8 +405,22 @@ const guardar = (k, v) => { try { localStorage.setItem("cancha." + k, JSON.strin
 const leer = (k, d) => { try { const v = localStorage.getItem("cancha." + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
 const svg = (d, clase = "") => `<svg viewBox="0 0 24 24" aria-hidden="true" class="${clase}">${d}</svg>`;
 
+/* La clave puede venir en la dirección: es lo que lleva el QR que dibuja
+   `cancha web --lan`, para no tener que teclearla en el móvil. Se guarda y se
+   borra de la barra al momento, que una clave no tiene por qué quedarse en el
+   historial ni salir en una captura. */
+function claveDeLaUrl() {
+  try {
+    const dada = new URLSearchParams(location.search).get("clave");
+    if (!dada) return null;
+    guardar("clave", dada);
+    history.replaceState(null, "", location.pathname + location.hash);
+    return dada;
+  } catch (e) { return null; }
+}
+
 const api = {
-  clave: leer("clave", ""),
+  clave: claveDeLaUrl() || leer("clave", ""),
   cab() { const h = { "Content-Type": "application/json" }; if (this.clave) h["X-Clave"] = this.clave; return h; },
   async pedir(ruta, metodo, cuerpo) {
     try {
@@ -498,6 +524,38 @@ function tabla(cols, filas, leerCelda) {
       return el("td", { class: c.n ? "n" : "" }, v && v.nodeType ? v : (v === null || v === undefined ? "—" : v));
     }))))));
 }
+/* `replaceChildren` convierte un null en la palabra «null» dentro de la
+   página, que es justo lo que no quieres ver. Esto lo filtra como hace `el`. */
+function poner(nodo, ...hijos) {
+  nodo.replaceChildren(...hijos.flat(3)
+    .filter((h) => h !== null && h !== undefined && h !== false));
+}
+
+/* Una sección que no pide nada hasta que se abre. Con diez secciones por
+   partido, traerlas todas de golpe sería una ráfaga de peticiones para leer
+   una; así el móvil solo paga por lo que mira. */
+function plegable(titulo, cargar, abierta) {
+  const cuerpo = el("div", { class: "bloque" });
+  const caja = el("details", abierta ? { open: true } : {}, el("summary", {}, titulo), cuerpo);
+  let pedido = false;
+  async function traer() {
+    if (pedido) return;
+    pedido = true;
+    cuerpo.replaceChildren(espera());
+    try {
+      const nodos = await cargar();
+      cuerpo.replaceChildren(...[].concat(nodos).filter(Boolean));
+    } catch (err) { cuerpo.replaceChildren(msg("Ha fallado: " + err.message, "mal")); }
+  }
+  caja.addEventListener("toggle", () => { if (caja.open) traer(); });
+  if (abierta) traer();
+  return caja;
+}
+
+/* El JSON tal cual. No es bonito, pero es la diferencia entre poder mirar algo
+   desde el móvil y tener que ir al ordenador a por el terminal. */
+const volcado = (o) => el("pre", { class: "registro" }, JSON.stringify(o, null, 1));
+
 function carrera(c) {
   if (!c || !c.disponible || !(c.serie || []).length) return null;
   const nombres = Object.keys(c.total || {});
@@ -537,17 +595,24 @@ const V = {};
 
 /* ── HOY ─────────────────────────────────────────────────────────── */
 V.hoy = async (raiz, [fecha]) => {
-  fecha = fecha || leer("fecha", hoy());
+  const directo = fecha === "directo";
+  fecha = directo ? hoy() : (fecha || leer("fecha", hoy()));
   const grupos = leer("grupos", "");
   raiz.replaceChildren(el("div", { class: "titular" },
-    el("h1", {}, fecha === hoy() ? "Hoy" : fecha),
+    el("h1", {}, directo ? "En directo" : fecha === hoy() ? "Hoy" : fecha),
     el("div", { class: "resto fila" },
-      el("input", { class: "campo", type: "date", id: "fecha", value: fecha, style: "flex:0 1 148px",
+      el("div", { class: "seg" },
+        el("button", { class: directo ? "" : "on", onclick: () => ir(`#/hoy/${fecha}`) }, "Agenda"),
+        el("button", { class: directo ? "on" : "", onclick: () => ir("#/hoy/directo") }, "Directo")),
+      directo ? null : el("input", { class: "campo", type: "date", id: "fecha", value: fecha,
+        style: "flex:0 1 148px",
         onchange: (e) => { guardar("fecha", e.target.value); ir(`#/hoy/${e.target.value}`, true); } }),
       el("select", { class: "campo", id: "grupos", style: "flex:0 1 172px",
-        onchange: (e) => { guardar("grupos", e.target.value); ir(`#/hoy/${fecha}`, true); } },
-        ...GRUPOS_UI.map(([v, t]) => el("option", { value: v, selected: v === grupos }, t))))),
-    espera("Buscando lo que se juega…"));
+        onchange: (e) => { guardar("grupos", e.target.value);
+          ir(directo ? "#/hoy/directo" : `#/hoy/${fecha}`, true); } },
+        ...GRUPOS_UI.map(([v, t]) => el("option", { value: v, selected: v === grupos }, t))))));
+  if (directo) return pintarDirecto(raiz);
+  raiz.append(espera("Buscando lo que se juega…"));
 
   let brief = await api.get("/api/briefing/" + fecha);
   if (brief && (brief.error || brief.sin_clave)) brief = null;
@@ -616,6 +681,50 @@ V.hoy = async (raiz, [fecha]) => {
         el("span", { class: "gris peq" }, `${a.casos} casos`))))));
   });
 };
+
+/* Los partidos que se están jugando ahora. Se refresca solo mientras esta
+   vista siga en pantalla: si te vas a otra, el temporizador muere con ella (si
+   no, el móvil se pasaría la tarde pidiendo cosas que nadie mira). */
+const REFRESCO_DIRECTO = 30000;
+
+async function pintarDirecto(raiz) {
+  const caja = el("div", {});
+  const sello = el("span", { class: "gris peq" });
+  raiz.append(el("div", { class: "fila" },
+    msg("Marcadores en vivo, directos de la API: no pasan por la memoria.", ""), sello), caja);
+  caja.append(espera("Mirando qué se juega ahora…"));
+  const mio = location.hash;
+
+  async function refrescar(primera) {
+    const d = await api.h("partidos", { limite: 60 });
+    if (location.hash !== mio) return;            // la vista ya no está
+    if (fallo(d)) { caja.replaceChildren(fallo(d)); return; }
+    const lista = d.partidos || [];
+    sello.textContent = `${lista.length} en juego · ${new Date().toLocaleTimeString().slice(0, 5)}`;
+    if (!lista.length) {
+      caja.replaceChildren(vacio('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+        "Ahora no se juega nada",
+        el("p", { class: "gris peq" }, "Vuelve cuando haya partido, o mira la agenda del día.")));
+    } else {
+      const porLiga = {};
+      for (const x of lista) (porLiga[x.competicion || "Otras"] ||= []).push(x);
+      caja.replaceChildren(...Object.entries(porLiga)
+        .sort((a, b) => a[0].localeCompare(b[0])).map(([liga, suyos]) =>
+          el("div", { class: "dia" },
+            el("div", { class: "liga-tit" }, el("h3", {}, liga),
+              el("span", { class: "n" }, `${suyos.length}`)),
+            el("ul", { class: "lista" }, ...suyos.map((x) => el("li", { class: "pulsable",
+              onclick: () => ir(`#/buscar/partido/${x.id}`) },
+              el("span", { class: "eti roja", style: "flex:none" }, x.estado || "en juego"),
+              el("span", { style: "flex:1 1 200px;font-weight:600;min-width:0" }, x.partido),
+              el("span", { html: svg('<path d="M9 6l6 6-6 6"/>', "chevron") })))))));
+    }
+    if (primera || location.hash === mio) setTimeout(() => {
+      if (location.hash === mio) refrescar(false);
+    }, REFRESCO_DIRECTO);
+  }
+  return refrescar(true);
+}
 
 async function generarBriefing(fecha, raiz, boton) {
   boton.disabled = true; boton.textContent = "Generando…";
@@ -909,7 +1018,7 @@ V.analista = async (raiz) => {
 
 /* ── BUSCAR ──────────────────────────────────────────────────────── */
 V.buscar = async (raiz, partes) => {
-  const modos = ["partido", "equipo", "jugador", "duelo"];
+  const modos = ["partido", "equipo", "jugador", "liga", "duelo"];
   const modo = modos.indexOf(partes[0]) >= 0 ? partes[0] : leer("modo", "partido");
   const arg = partes[1] ? decodeURIComponent(partes[1]) : "";
   const arg2 = partes[2] ? decodeURIComponent(partes[2]) : "";
@@ -932,7 +1041,8 @@ V.buscar = async (raiz, partes) => {
   }
 
   const marcadores = { partido: "Real Madrid vs Barcelona, una URL o un id",
-    equipo: "Girona, Real Madrid, un id…", jugador: "Vinicius, Lewandowski, un id…" };
+    equipo: "Girona, Real Madrid, un id…", jugador: "Vinicius, Lewandowski, un id…",
+    liga: "laliga, premier, champions, liga_f…" };
   const caja = el("input", { class: "campo", type: "search", id: "q", value: arg,
     placeholder: marcadores[modo], autocomplete: "off", enterkeyhint: "search" });
   raiz.append(el("form", { class: "busca", onsubmit: (e) => { e.preventDefault();
@@ -942,11 +1052,16 @@ V.buscar = async (raiz, partes) => {
   if (!arg) {
     raiz.append(nota({ partido: "El informe entero de un partido: estadísticas, xG, tiros y contexto.",
       equipo: "Cómo juega comparado con su liga, con qué plantea y si ha cambiado.",
-      jugador: "Forma, rachas y cómo rinde según el sistema que le pongan delante." }[modo]));
+      jugador: "Forma, rachas y cómo rinde según el sistema que le pongan delante.",
+      liga: "Clasificación, histórico de resultados, ranking Elo y las tablas de FBref." }[modo]));
+    if (modo === "liga") raiz.append(el("div", { class: "fila" },
+      ...["laliga", "premier", "serie_a", "bundesliga", "ligue_1", "champions", "liga_f", "mls"]
+        .map((x) => el("button", { class: "sug", onclick: () => ir(`#/buscar/liga/${x}`) }, x))));
     return;
   }
   if (modo === "partido") return pintarPartido(raiz, arg);
   if (modo === "equipo") return pintarEquipo(raiz, arg);
+  if (modo === "liga") return pintarLiga(raiz, arg);
   return pintarJugador(raiz, arg);
 };
 
@@ -1019,6 +1134,109 @@ async function pintarPartido(raiz, consulta) {
       el("a", { href: `#/buscar/jugador/${encodeURIComponent(j.jugador)}`, style: "flex:1 1 auto" }, j.jugador),
       el("span", { class: "gris peq" }, j.posicion))))));
 
+  raiz.append(tarjeta("Los once y los que salieron",
+    plegable("Alineaciones, minutos y notas", async () => {
+      const d = await api.h("jugadores_partido", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      const suyos = (lado) => (d.jugadores || []).filter((j) => j.equipo === lado);
+      return [p.home.name, p.away.name].map((eq) => el("div", { class: "bloque" },
+        el("b", {}, eq),
+        tabla([{ t: "", k: "dorsal", n: true }, { t: "Jugador", k: "jugador" },
+          { t: "Pos", k: "posicion" }, { t: "′", k: "minutos", n: true },
+          { t: "Nota", k: "rating", n: true }, { t: "G", k: "goles", n: true },
+          { t: "A", k: "asistencias", n: true }], suyos(eq),
+          (f, c) => c.k === "jugador"
+            ? el("span", {}, el("a", { href: `#/buscar/jugador/${encodeURIComponent(f.jugador)}` }, f.jugador),
+                f.suplente ? el("span", { class: "gris peq" }, " supl.") : null)
+            : f[c.k])));
+    })));
+
+  raiz.append(tarjeta("Cómo fue pasando",
+    plegable("Cronología: goles, tarjetas, cambios y VAR", async () => {
+      const d = await api.h("cronologia_partido", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      const ICONO = { goal: "⚽", card: "🟨", substitution: "⇄", varDecision: "VAR",
+        injuryTime: "⏱", period: "▌" };
+      return [(d.cronologia || []).length
+        ? el("ul", { class: "lista" }, ...d.cronologia.map((i) => el("li", {},
+            el("span", { class: "gris peq", style: "width:34px;flex:none" },
+              (i.minuto === null || i.minuto === undefined ? "" : i.minuto + "'")
+              + (i.anadido ? "+" + i.anadido : "")),
+            el("span", { style: "flex:none" }, ICONO[i.tipo] || "·"),
+            el("span", { style: "flex:1 1 150px;min-width:0" },
+              i.jugador || i.detalle || i.tipo,
+              i.sale ? el("span", { class: "gris peq" }, ` ← ${i.sale}`) : null,
+              i.asistencia ? el("span", { class: "gris peq" }, ` asiste ${i.asistencia}`) : null),
+            el("span", { class: "gris peq" }, [i.equipo, i.marcador].filter(Boolean).join(" · ")))))
+        : nota("Sin incidencias guardadas de este partido.")];
+    }),
+    plegable("Quién mandaba, tramo a tramo", async () => {
+      const d = await api.h("momento_partido", { partido: consulta, cada: 5 });
+      const err = fallo(d);
+      if (err) return err;
+      const tramos = d.tramos || d.por_tramos || [];
+      if (!tramos.length) return nota(d.nota || "Sofascore no publica la gráfica de momento aquí.");
+      return [el("p", { class: "peq gris" }, `A favor arriba: ${d.positivo_es} · abajo: ${d.negativo_es}`),
+        el("div", { class: "bloque" }, ...tramos.map((t) => {
+          const v = Number(t.media) || 0, ancho = Math.min(50, Math.abs(v) / 2);
+          return el("div", { class: "fila peq", style: "gap:8px" },
+            el("span", { class: "gris", style: "width:56px;flex:none" }, `${t.desde_minuto}–${t.hasta_minuto}′`),
+            el("span", { style: "flex:1 1 90px;height:8px;position:relative;background:var(--cal-2);border-radius:4px" },
+              el("span", { style: `position:absolute;top:0;bottom:0;border-radius:4px;`
+                + `background:var(--${v >= 0 ? "cesped" : "visita"});`
+                + (v >= 0 ? `left:50%;width:${ancho}%` : `right:50%;width:${ancho}%`) })),
+            el("span", { class: "gris", style: "flex:none" }, t.dominio || ""));
+        }))];
+    })));
+
+  raiz.append(tarjeta("Los dos, antes de hoy",
+    plegable("Historial entre ellos", async () => {
+      const d = await api.h("historial_entre_equipos", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      const b = d.balance || {};
+      return [Object.keys(b).length ? cifras(Object.entries(b)
+          .filter((par) => typeof par[1] === "number")
+          .map((par) => [par[1], par[0].replace(/([A-Z])/g, " $1").toLowerCase()])) : null,
+        (d.enfrentamientos_anteriores || []).length
+          ? el("ul", { class: "lista" }, ...d.enfrentamientos_anteriores.slice(0, 15).map((x) =>
+              el("li", { class: "pulsable", onclick: () => ir(`#/buscar/partido/${x.id}`) },
+                el("span", { class: "gris peq", style: "width:78px;flex:none" }, x.fecha),
+                el("span", { style: "flex:1 1 170px;min-width:0" }, x.partido),
+                el("span", { class: "gris peq" }, x.competicion))))
+          : nota("No se han visto antes, o Sofascore no lo guarda.")];
+    })));
+
+  raiz.append(tarjeta("Quién generó el peligro",
+    plegable("Aportación de cada jugador (xG, goles y asistencias)", async () => {
+      const d = await api.h("aportacion_jugadores", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      return [tabla([{ t: "Jugador", k: "jugador" }, { t: "Equipo", k: "equipo" },
+        { t: "Tiros", k: "tiros", n: true }, { t: "xG", k: "xg", n: true },
+        { t: "G", k: "goles", n: true }, { t: "A", k: "asistencias", n: true },
+        { t: "Nota", k: "rating", n: true }], d.jugadores || [],
+        (f, c) => c.k === "xg" ? n2(f.xg) : f[c.k])];
+    })));
+
+  const SECCIONES = ["odds", "h2h", "pregame_form", "average_positions", "best_players",
+    "managers", "lineups", "graph", "incidents", "statistics", "shotmap", "comments"];
+  const crudo = el("div", { class: "bloque" });
+  const cual = el("select", { class: "campo", style: "flex:1 1 180px" },
+    ...SECCIONES.map((x) => el("option", { value: x }, x)));
+  raiz.append(tarjeta("Datos en crudo",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
+      crudo.replaceChildren(espera());
+      const d = await api.h("seccion_partido", { partido: consulta, seccion: cual.value });
+      crudo.replaceChildren(
+        el("p", { class: "peq gris" }, `estado: ${d.estado || "—"} · ${d.descripcion || ""}`),
+        volcado(d.datos === undefined ? d : d.datos));
+    } }, cual, el("button", { class: "btn plano", type: "submit" }, "Ver")),
+    crudo,
+    nota("La respuesta tal cual la da la API. Es lo que hace `cancha raw`, pero desde aquí.")));
+
   const ext = el("div", { class: "bloque" });
   raiz.append(tarjeta("Otras fuentes", ext, el("button", { class: "btn plano s", style: "justify-self:start",
     onclick: async (e) => {
@@ -1042,7 +1260,18 @@ async function pintarPartido(raiz, consulta) {
           + `local ${pc(elo.probabilidad_local)}`) : nota(elo && elo.nota),
         fd && fd.estado === "ok" ? el("p", { class: "peq" },
           `Cierre (${fd.mercado}): ${pc(fd.probabilidades.local)} · ${pc(fd.probabilidades.empate)} · `
-          + `${pc(fd.probabilidades.visitante)}`) : nota(fd && fd.nota));
+          + `${pc(fd.probabilidades.visitante)}`) : nota(fd && fd.nota),
+        u && u.partido_id ? plegable("Los tiros según Understat", async () => {
+          const t = await api.h("tiros_understat", { partido_understat: u.partido_id });
+          const err = fallo(t);
+          if (err) return err;
+          return [el("p", { class: "peq gris" }, Object.entries(t.totales || {})
+              .map((par) => `${par[0]} ${n2(par[1])} xG`).join(" · ")),
+            tabla([{ t: "'", k: "minuto", n: true }, { t: "Jugador", k: "jugador" },
+              { t: "Equipo", k: "equipo" }, { t: "xG", k: "xg", n: true },
+              { t: "Final", k: "resultado" }, { t: "Con", k: "parte_del_cuerpo" }],
+              t.tiros || [], (f, c) => c.k === "xg" ? n2(f.xg) : f[c.k])];
+        }) : null);
     } }, "Cruzar con Understat, ClubElo y football-data")));
 }
 
@@ -1086,6 +1315,59 @@ async function pintarEquipo(raiz, nombre) {
         evo.cambio_de_dibujo ? etiqueta(`dibujo: ${evo.antes.formacion} → ${evo.ahora.formacion}`, "ambar") : null,
         nota(evo.como_leerlo))
     : nota(evo && evo.nota)));
+
+  raiz.append(tarjeta("Ficha del club",
+    plegable("Plantilla, próximos partidos y últimos resultados", async () => {
+      const d = await api.h("ficha_equipo", { equipo: nombre,
+        secciones: ["profile", "players", "next_events", "last_events"] });
+      const err = fallo(d);
+      if (err) return err;
+      const sec = d.secciones || d;
+      const jugadores = (sec.players && (sec.players.players || sec.players)) || [];
+      const proximos = (sec.next_events && (sec.next_events.events || sec.next_events)) || [];
+      const ultimos = (sec.last_events && (sec.last_events.events || sec.last_events)) || [];
+      const partidito = (e) => el("li", { class: e.id ? "pulsable" : "",
+        onclick: e.id ? () => ir(`#/buscar/partido/${e.id}`) : undefined },
+        el("span", { class: "gris peq", style: "width:78px;flex:none" },
+          String(e.startTimestamp ? new Date(e.startTimestamp * 1000).toISOString().slice(0, 10) : "")),
+        el("span", { style: "flex:1 1 170px;min-width:0" },
+          `${(e.homeTeam || {}).name || "?"} – ${(e.awayTeam || {}).name || "?"}`),
+        el("span", { class: "gris peq" },
+          (e.homeScore || {}).current === undefined ? ((e.tournament || {}).name || "")
+            : `${e.homeScore.current}–${(e.awayScore || {}).current}`));
+      return [
+        Array.isArray(jugadores) && jugadores.length
+          ? el("details", {}, el("summary", {}, `Plantilla (${jugadores.length})`),
+              el("ul", { class: "lista" }, ...jugadores.slice(0, 40).map((x) => {
+                const j = x.player || x;
+                return el("li", {},
+                  el("span", { class: "gris peq", style: "width:26px;flex:none" }, j.jerseyNumber || ""),
+                  el("a", { href: `#/buscar/jugador/${encodeURIComponent(j.name || "")}`,
+                    style: "flex:1 1 150px" }, j.name),
+                  el("span", { class: "gris peq" }, j.position || ""));
+              })))
+          : null,
+        proximos.length ? el("details", { open: true }, el("summary", {}, "Lo que viene"),
+          el("ul", { class: "lista" }, ...proximos.slice(0, 8).map(partidito))) : null,
+        ultimos.length ? el("details", {}, el("summary", {}, "Lo último"),
+          el("ul", { class: "lista" }, ...ultimos.slice(0, 10).map(partidito))) : null,
+        el("details", {}, el("summary", {}, "Todo en crudo"), volcado(d)),
+      ];
+    }),
+    plegable("Fuerza histórica (ClubElo)", async () => {
+      const d = await api.h("elo_equipo", { equipo: est.equipo, historico: true });
+      const err = fallo(d);
+      if (err) return err;
+      const a = d.actual || {};
+      const tramos = (d.tramos || []).slice(-12).reverse();
+      return [cifras([[a.elo === undefined ? "—" : Math.round(a.elo), "Elo"],
+          [a.puesto === undefined ? "—" : "#" + a.puesto, "en Europa"], [a.pais, "país"]]),
+        tramos.length ? tabla([{ t: "Desde", k: "desde" }, { t: "Hasta", k: "hasta" },
+          { t: "Elo", k: "elo", n: true }, { t: "#", k: "puesto", n: true }], tramos,
+          (f, c) => c.k === "elo" ? Math.round(f.elo) : f[c.k]) : null,
+        nota("ClubElo escribe los nombres a su manera: si no lo encuentra, prueba "
+          + "«Man City», «Inter» o «Atletico».")];
+    })));
 
   const not = el("div", {});
   raiz.append(tarjeta("Contexto", not, el("button", { class: "btn plano s", style: "justify-self:start",
@@ -1164,11 +1446,127 @@ async function pintarJugador(raiz, nombre) {
     }
   }
   raiz.append(c);
+  raiz.append(tarjeta("Ficha del jugador",
+    plegable("Perfil, atributos y temporada", async () => {
+      const d = await api.h("ficha_jugador", { jugador: nombre,
+        secciones: ["profile", "attributes", "season_statistics"] });
+      const err = fallo(d);
+      if (err) return err;
+      const sec = d.secciones || d;
+      const perfil = (sec.profile && (sec.profile.player || sec.profile)) || {};
+      const eq = perfil.team || {};
+      return [
+        Object.keys(perfil).length ? cifras([
+          [perfil.height ? perfil.height + " cm" : null, "altura"],
+          [perfil.shirtNumber, "dorsal"],
+          [perfil.position, "posición"],
+          [perfil.preferredFoot, "pie"],
+          [perfil.dateOfBirthTimestamp
+            ? new Date(perfil.dateOfBirthTimestamp * 1000).toISOString().slice(0, 10) : null, "nació"],
+          [(perfil.country || {}).name, "país"]].filter((par) => par[0])) : null,
+        eq.name ? el("p", { class: "peq" }, "Equipo: ",
+          el("a", { href: `#/buscar/equipo/${encodeURIComponent(eq.name)}` }, eq.name)) : null,
+        el("details", {}, el("summary", {}, "Todo en crudo"), volcado(d)),
+      ];
+    })));
+
   if ((fm.partido_a_partido || []).length) raiz.append(tarjeta("Partido a partido",
     tabla([{ t: "Fecha", k: "fecha" }, { t: "Partido", k: "partido" }, { t: "′", k: "minutos", n: true },
       { t: "Nota", k: "rating", n: true }, { t: "G", k: "goles", n: true }, { t: "A", k: "asistencias", n: true },
       { t: "Tiros", k: "tiros", n: true }, { t: "xG", k: "xg", n: true }],
       fm.partido_a_partido, (f, col) => col.k === "xg" ? n2(f.xg) : f[col.k])));
+}
+
+async function pintarLiga(raiz, nombre) {
+  raiz.append(espera("Pidiendo la clasificación…"));
+  const cl = await api.h("clasificacion", { liga: nombre });
+  raiz.lastChild.remove();
+  if (fallo(cl)) raiz.append(fallo(cl));
+  else {
+    const filas = cl.clasificacion || [];
+    raiz.append(tarjeta(cl.competicion || nombre, filas.length
+      ? tabla([{ t: "#", k: "posicion", n: true }, { t: "Equipo", k: "equipo" },
+          { t: "PJ", k: "jugados", n: true }, { t: "G", k: "ganados", n: true },
+          { t: "E", k: "empatados", n: true }, { t: "P", k: "perdidos", n: true },
+          { t: "GF", k: "goles_favor", n: true }, { t: "GC", k: "goles_contra", n: true },
+          { t: "Pts", k: "puntos", n: true }], filas,
+          (f, c) => c.k === "equipo"
+            ? el("a", { href: `#/buscar/equipo/${encodeURIComponent(f.equipo || "")}` }, f.equipo)
+            : f[c.k])
+      : nota("Esa competición no publica clasificación (las copas a eliminatoria, por ejemplo).")));
+  }
+
+  const año = new Date().getFullYear() - (new Date().getMonth() < 6 ? 1 : 0);
+  raiz.append(tarjeta("Histórico de resultados",
+    plegable(`Temporada ${año}/${String(año + 1).slice(2)} (football-data.co.uk)`, async () => {
+      const d = await api.h("historial_de_liga", { liga: nombre, temporada: año, cuantos: 60 });
+      const err = fallo(d);
+      if (err) return err;
+      return [el("p", { class: "peq gris" }, `${d.total || 0} partidos · ${d.fuente || ""}`),
+        tabla([{ t: "Fecha", k: "fecha" }, { t: "Local", k: "local" }, { t: "Visitante", k: "visitante" },
+          { t: "Marcador", k: "marcador" }, { t: "Cierre", k: "cuotas" }], d.partidos || [],
+          (f, c) => c.k === "marcador" ? `${f.goles_local}–${f.goles_visitante}`
+            : c.k === "cuotas" ? [f.cuota_local, f.cuota_empate, f.cuota_visitante]
+                .map((x) => x === null || x === undefined ? "—" : x).join(" / ")
+            : f[c.k])];
+    }),
+    nota("Va de 1993 a hoy y trae las cuotas de cierre: es la base con la que se mide "
+      + "si un patrón de «casi seguro» añade algo o solo repite lo que ya decía el mercado.")));
+
+  raiz.append(tarjeta("Fuerza real (ClubElo)",
+    plegable("Ranking Elo de hoy", async () => {
+      const d = await api.h("ranking_elo", { cuantos: 30 });
+      const err = fallo(d);
+      if (err) return err;
+      return [tabla([{ t: "#", k: "puesto", n: true }, { t: "Equipo", k: "equipo" },
+        { t: "País", k: "pais" }, { t: "Elo", k: "elo", n: true }], d.ranking || d.equipos || [],
+        (f, c) => f[c.k])];
+    }),
+    nota("Elo no sabe de calendario ni de dinero: mide solo resultados contra quién. "
+      + "Sirve para ver si una clasificación miente.")));
+
+  raiz.append(tarjeta("Titulares y agenda (ESPN)",
+    plegable("Partidos de hoy según ESPN", async () => {
+      const d = await api.h("agenda_espn", { liga: nombre });
+      const err = fallo(d);
+      if (err) return err;
+      return [(d.partidos || []).length
+        ? el("ul", { class: "lista" }, ...d.partidos.map((x) => el("li", {},
+            el("span", { class: "gris peq", style: "width:54px;flex:none" }, String(x.hora || "").slice(11, 16)),
+            el("span", { style: "flex:1 1 180px;min-width:0" }, x.partido || `${x.local} - ${x.visitante}`),
+            el("span", { class: "gris peq" }, x.estado || ""))))
+        : nota("ESPN no da nada para esa liga hoy.")];
+    }),
+    plegable("Noticias", async () => {
+      const d = await api.h("noticias", { liga: nombre, cuantas: 12 });
+      const err = fallo(d);
+      if (err) return err;
+      return [(d.noticias || []).length
+        ? el("ul", { class: "lista" }, ...d.noticias.map((x) => el("li", {},
+            el("span", { class: "gris peq", style: "width:76px;flex:none" }, String(x.fecha || "").slice(0, 10)),
+            el("a", { href: x.enlace, target: "_blank", rel: "noopener", style: "flex:1 1 180px" }, x.titulo))))
+        : nota("Sin titulares.")];
+    })));
+
+  const QUE = [["fbref_equipos", "FBref · equipos"], ["fbref_jugadores", "FBref · jugadores"],
+    ["fbref_calendario", "FBref · calendario"], ["fbref_estadisticas", "FBref · estadísticas"],
+    ["transfermarkt_valores", "Transfermarkt · valores"], ["capology_salarios", "Capology · salarios"],
+    ["sofifa_valoraciones", "SoFIFA · valoraciones"], ["temporadas", "Temporadas disponibles"]];
+  const cajaExt = el("div", { class: "bloque" });
+  const queSel = el("select", { class: "campo", style: "flex:1 1 200px" },
+    ...QUE.map(([v, t]) => el("option", { value: v }, t)));
+  const tempExt = el("input", { class: "campo", type: "number", value: año, style: "flex:0 1 110px" });
+  raiz.append(tarjeta("Tablas de fuera (ScraperFC y soccerdata)",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
+      cajaExt.replaceChildren(espera("Esto puede tardar: lo trae una librería externa…"));
+      const d = await api.h("datos_externos", { que: queSel.value, liga: nombre,
+        temporada: Number(tempExt.value) || undefined });
+      const err = fallo(d);
+      cajaExt.replaceChildren(err || volcado(d));
+    } }, queSel, tempExt, el("button", { class: "btn", type: "submit" }, "Traer")),
+    cajaExt,
+    nota("Necesita ScraperFC o soccerdata instalados. Si faltan, la respuesta lo dice y "
+      + "explica qué hay que poner.")));
 }
 
 async function pintarDuelo(raiz, jugador, rival) {
@@ -1262,7 +1660,39 @@ V.memoria = async (raiz) => {
           el("details", {}, el("summary", {}, "Cuáles faltan"),
             el("p", { class: "peq gris" },
               Object.values(cat.por_grupo || {}).flatMap((g) => g.faltan || []).join(" · "))))
-      : nota("Todo el catálogo identificado.")));
+      : nota("Todo el catálogo identificado.")),
+    el("div", { class: "fila" },
+      el("button", { class: "btn plano s", onclick: async (ev) => {
+        const boton = ev.currentTarget;
+        boton.disabled = true; boton.textContent = "Buscando ids…";
+        const d = await api.post("/api/ligas", {});
+        boton.textContent = "Buscar los ids que faltan";
+        boton.disabled = false;
+        const donde = boton.parentElement;
+        const antes = donde.nextElementSibling;
+        if (antes && antes.classList.contains("msg")) antes.remove();
+        donde.after(fallo(d) || msg(`${d.encontradas} competiciones identificadas. `
+          + `Ahora hay ${(d.catalogo || {}).identificadas || 0} de `
+          + `${(d.catalogo || {}).competiciones || 0}.`));
+      } }, "Buscar los ids que faltan"),
+      el("a", { class: "btn plano s", href: "#/buscar/liga/laliga" }, "Ver una clasificación")));
+
+  const cuo = el("div", { class: "bloque" });
+  raiz.append(tarjeta("Cuotas",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
+      const boton = ev.currentTarget.querySelector("button");
+      boton.disabled = true;
+      cuo.replaceChildren(espera("Pidiendo las cuotas de los partidos que no las tienen…"));
+      const d = await api.h("rellenar_cuotas", { maximo: 40 });
+      boton.disabled = false;
+      const err = fallo(d);
+      cuo.replaceChildren(err || cifras([[d.rellenados ?? d.rellenadas ?? 0, "rellenados"],
+        [d.mirados ?? d.intentados ?? 0, "mirados"], [d.sin_cuotas ?? 0, "sin cuotas"]]));
+    } }, el("button", { class: "btn", type: "submit" }, "Rellenar las que falten")),
+    cuo,
+    nota("Sin cuotas no hay favorito, y sin favorito los patrones de «casi seguro» no "
+      + "pueden compararse con lo que ya decía el mercado. Es la pieza que hace honesto "
+      + "el resto.")));
 
   const arb = el("div", {});
   const cajaArb = el("input", { class: "campo", id: "arb", placeholder: "Nombre del árbitro", autocomplete: "off" });
@@ -1291,10 +1721,183 @@ V.memoria = async (raiz) => {
       ". Las librerías externas dan FBref, Transfermarkt y SoFIFA: ",
       el("code", {}, "pip install ScraperFC soccerdata")),
     (e.briefings || []).length ? el("div", { class: "fila" }, el("span", { class: "mini" }, "briefings"),
-      ...e.briefings.slice(0, 8).map((f) => el("a", { class: "eti", href: `#/hoy/${f}` }, f))) : null));
+      ...e.briefings.slice(0, 8).map((f) => el("a", { class: "eti", href: `#/hoy/${f}` }, f))) : null,
+    plegable("Qué trae cada fuente", async () => {
+      const d = await api.h("fuentes", {});
+      const err = fallo(d);
+      if (err) return err;
+      const fila = ([nombre, texto]) => el("li", {},
+        el("b", { style: "width:94px;flex:none" }, nombre),
+        el("span", { style: "flex:1 1 190px;min-width:0" }, texto));
+      return [
+        el("ul", { class: "lista" }, ...Object.entries(d.principal || {}).map(fila),
+          ...Object.entries(d.adicionales || {}).map(fila)),
+        el("div", { class: "bloque" }, el("span", { class: "mini" }, "librerías externas"),
+          ...Object.entries(d.librerias_externas || {}).map(([nombre, x]) =>
+            el("p", { class: "peq" }, etiqueta(nombre, x.instalado ? "verde" : "hueca"), " ",
+              x.aporta, x.instalado ? null : el("code", {}, " " + x.instalar)))),
+        d.cruzarlas ? nota(d.cruzarlas) : null];
+    }),
+    plegable("Qué sabe hacer el framework", async () => {
+      const d = await api.h("catalogo", { que: "todo" });
+      const err = fallo(d);
+      if (err) return err;
+      return [nota("Todas las secciones de datos, las ligas que conoce con su id y las claves "
+        + "de estadística válidas. Es el mapa completo, el mismo que ve la IA."), volcado(d)];
+    })));
 
+  raiz.append(tarjetaRed());
+  raiz.append(tarjetaDiagnostico());
+  raiz.append(tarjetaConsola());
   raiz.append(ajustes(e));
 };
+
+/* ── conectar el móvil ───────────────────────────────────────────── */
+/* El servidor manda la matriz del QR (unos y ceros) y aquí se dibuja con una
+   rejilla de divs. Es más ligero que una imagen y se adapta al tema. */
+function qrNodo(matriz) {
+  const lado = matriz.length;
+  const caja = el("div", { class: "qr", style: `grid-template-columns:repeat(${lado},1fr)`,
+    role: "img", "aria-label": "Código QR con la dirección de esta página" });
+  for (const fila of matriz)
+    for (const v of fila) caja.append(el("i", v ? { class: "on" } : {}));
+  return el("div", { class: "qr-marco" }, caja);
+}
+
+function tarjetaRed() {
+  const cuerpo = el("div", { class: "bloque" });
+  api.get("/api/red").then((d) => {
+    const err = fallo(d);
+    if (err) { cuerpo.replaceChildren(err); return; }
+    if (!d.abierto_a_la_red) {
+      cuerpo.replaceChildren(msg("Este servidor solo escucha en este ordenador. Arráncalo con "
+        + "--lan y el móvil podrá entrar.", "ojo"),
+        el("pre", { class: "registro" }, "cancha web --lan --clave loquesea"));
+      return;
+    }
+    if (!(d.urls || []).length) {
+      cuerpo.replaceChildren(msg("No se encuentra ninguna IP de red en este ordenador.", "mal"));
+      return;
+    }
+    poner(cuerpo,
+      d.qr ? qrNodo(d.qr) : null,
+      el("div", { class: "fila" }, ...d.urls.map((u) =>
+        el("a", { class: "eti", href: u, target: "_blank", rel: "noopener" }, u.split("//")[1].split("/")[0]))),
+      nota(d.con_clave
+        ? "El QR lleva la clave dentro: el móvil entra sin teclearla. La dirección viaja "
+          + "por tu wifi sin cifrar, así que vale para tu casa y no para una red ajena."
+        : "Sin clave: cualquiera en esta wifi puede abrirlo. Arranca con --clave si te importa."),
+      nota("En iOS: Safari → Compartir → «Añadir a pantalla de inicio». En Android, "
+        + "Chrome → menú → «Instalar aplicación»."));
+  });
+  cuerpo.append(espera("Mirando por dónde se llega…"));
+  return tarjeta("Abrirlo en el móvil", cuerpo);
+}
+
+/* ── diagnóstico ─────────────────────────────────────────────────── */
+function tarjetaDiagnostico() {
+  const cuerpo = el("div", { class: "bloque" });
+  async function traer(conRed) {
+    cuerpo.replaceChildren(espera(conRed ? "Preguntando a Sofascore…" : "Mirando…"));
+    const d = await api.get("/api/diagnostico" + (conRed ? "?red=1" : ""));
+    const err = fallo(d);
+    if (err) { cuerpo.replaceChildren(err); return; }
+    const c = d.cache || {}, g = d.grabaciones || {};
+    poner(cuerpo,
+      el("div", { class: "fila" }, ...(d.transportes || []).map((t) =>
+        etiqueta(t.nombre, t.disponible ? "verde" : "hueca"))),
+      el("p", { class: "peq gris" }, `En uso: `, el("b", {}, d.en_uso || "—"),
+        ` · credenciales Plus: ${d.credenciales || "—"}`),
+      d.aviso ? msg(d.aviso, "ojo") : null,
+      (d.api || []).length ? el("ul", { class: "lista" }, ...d.api.map((x) => el("li", {},
+        etiqueta(x.ok ? "ok" : String(x.http || "✗"), x.ok ? "verde" : "roja"),
+        el("span", { style: "flex:1 1 180px;min-width:0" }, x.base),
+        el("span", { class: "gris peq" }, x.lectura)))) : null,
+      el("p", { class: "peq gris" }, c.activa
+        ? `Caché: ${c.respuestas} respuestas (${c.kib} KiB) en ${c.carpeta}`
+        : `Caché: ${c.nota}`),
+      el("p", { class: "peq gris" }, g.grabaciones
+        ? `Grabaciones: ${g.grabaciones} respuestas en ${g.carpeta} (${g.desde} → ${g.hasta})`
+        : g.nota),
+      el("div", { class: "fila" },
+        el("button", { class: "btn plano s", onclick: () => traer(true) }, "Probar la API"),
+        el("button", { class: "btn plano s", onclick: async (ev) => {
+          ev.currentTarget.disabled = true;
+          const r = await api.post("/api/cache", {});
+          traer(false);
+          if (!r.error) cuerpo.prepend(msg(`Borrados ${r.borrados} ficheros de caché.`));
+        } }, "Vaciar la caché")),
+      nota("Si «en uso» dice UrllibTransport, Sofascore contestará 403 casi siempre: "
+        + "instala curl_cffi, que imita el TLS de Chrome."));
+  }
+  traer(false);
+  return tarjeta("Diagnóstico", cuerpo);
+}
+
+/* ── la consola: cualquier herramienta, desde cualquier aparato ──── */
+/* Las vistas de arriba cubren lo que se mira a diario. Esto cubre el resto,
+   ahora y cuando se añadan más: la página pide la lista al servidor, así que
+   una herramienta nueva aparece aquí sin tocar nada. */
+function tarjetaConsola() {
+  const cuerpo = el("div", { class: "bloque" });
+  const salida = el("div", { class: "bloque" });
+  api.get("/api/herramientas").then((lista) => {
+    const err = fallo(lista);
+    if (err || !Array.isArray(lista)) { cuerpo.replaceChildren(err || msg("Sin lista.", "mal")); return; }
+    const sel = el("select", { class: "campo", style: "flex:1 1 220px" },
+      ...lista.map((h) => el("option", { value: h.name }, h.name)));
+    const campos = el("div", { class: "bloque" });
+    const descripcion = el("p", { class: "peq gris" });
+    function montar() {
+      const h = lista.find((x) => x.name === sel.value) || {};
+      const esquema = h.input_schema || {};
+      const req = esquema.required || [];
+      descripcion.textContent = h.description || "";
+      campos.replaceChildren(...Object.entries(esquema.properties || {}).map(([clave, def]) =>
+        el("label", { class: "bloque", style: "gap:4px" },
+          el("span", { class: "mini" }, clave + (req.indexOf(clave) >= 0 ? " ·" : "")),
+          def.enum
+            ? el("select", { class: "campo", "data-arg": clave },
+                ...(req.indexOf(clave) >= 0 ? [] : [el("option", { value: "" }, "—")]),
+                ...def.enum.map((v) => el("option", { value: v }, v)))
+            : el("input", { class: "campo", "data-arg": clave,
+                "data-tipo": def.type || "string",
+                type: def.type === "integer" || def.type === "number" ? "number" : "text",
+                placeholder: def.description || "" }),
+          def.enum && def.description ? el("span", { class: "peq gris" }, def.description) : null)));
+      if (!Object.keys(esquema.properties || {}).length)
+        campos.replaceChildren(nota("Esta herramienta no lleva argumentos."));
+    }
+    sel.addEventListener("change", () => { montar(); salida.replaceChildren(); });
+    montar();
+    poner(cuerpo,
+      el("div", { class: "busca" }, sel,
+        el("button", { class: "btn", onclick: async (ev) => {
+          const boton = ev.currentTarget;
+          boton.disabled = true;
+          salida.replaceChildren(espera("Ejecutando " + sel.value + "…"));
+          const args = {};
+          for (const nodo of campos.querySelectorAll("[data-arg]")) {
+            const v = nodo.value.trim();
+            if (!v) continue;
+            const tipo = nodo.dataset.tipo;
+            if (tipo === "integer") args[nodo.dataset.arg] = parseInt(v, 10);
+            else if (tipo === "number") args[nodo.dataset.arg] = Number(v);
+            else if (tipo === "boolean") args[nodo.dataset.arg] = v === "true" || v === "sí";
+            else if (tipo === "array") args[nodo.dataset.arg] = v.split(",").map((x) => x.trim());
+            else args[nodo.dataset.arg] = v;
+          }
+          const d = await api.h(sel.value, args);
+          boton.disabled = false;
+          salida.replaceChildren(volcado(d));
+        } }, "Ejecutar")),
+      descripcion, campos, salida,
+      nota(`Las ${lista.length} herramientas que ve la IA, tal cual. Lo que sale es el JSON `
+        + "que recibiría ella: si algo no está en las pantallas de arriba, está aquí."));
+  });
+  cuerpo.append(espera("Pidiendo la lista de herramientas…"));
+  return tarjeta("Consola de herramientas", cuerpo);
+}
 
 function ajustes(e) {
   const clave = el("input", { class: "campo", id: "clave", type: "password", value: api.clave,

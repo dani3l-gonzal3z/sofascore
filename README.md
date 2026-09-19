@@ -10,7 +10,7 @@ librería, **como herramientas para una IA local** o en una interfaz que se
 instala en Windows y en el iPhone.
 
 ```bash
-cancha web --lan               # la interfaz, en el ordenador y en el móvil
+cancha web --lan               # la interfaz: QR en el terminal, y al móvil
 cancha briefing --barrer       # el documento de la mañana: todos los partidos del día
 cancha seguro                  # lo que casi siempre pasa, con el número que lo sostiene
 cancha analista "¿cómo llega el Girona?"   # pregunta y un modelo local lo busca
@@ -44,7 +44,10 @@ partido.available()            # secciones con datos
   rematar entre palos. Eso no se contesta mirando un partido.
 - **Una interfaz sin dependencias.** `cancha web` sirve una página desde tu
   ordenador que se instala como app en Windows y en iOS. Los partidos del día
-  vienen plegados en una línea y se abren donde están.
+  vienen plegados en una línea y se abren donde están, y **todo lo que sabe
+  hacer el framework se puede hacer desde el móvil**: no queda nada que
+  obligue a volver al terminal. Con `--lan` el terminal dibuja un **QR** —con
+  la clave dentro— y entras apuntando la cámara.
 - **71 competiciones, ellas y ellos.** Las cinco grandes europeas en los dos
   géneros, la Champions femenina, MLS, NWSL, Liga MX y Sudamérica entera. Los
   ids que no estaban contrastados **se descubren solos**, comprobando país y

@@ -21,6 +21,7 @@ cancha tools [--json]                  # las herramientas que ve una IA
 cancha mcp                             # servidor MCP para una IA local
 cancha doctor                          # qué transporte usa y si la API contesta
 cancha cache [--clear]                 # estado de la caché
+                                       # (los dos también en la interfaz, en Memoria)
 ```
 
 Los que necesitan [memoria](memoria.md) —hay que hacer un barrido antes—:

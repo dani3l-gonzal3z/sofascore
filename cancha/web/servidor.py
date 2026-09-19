@@ -23,10 +23,11 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from .. import __version__
 from ..sesion import Sesion
+from .qr import dibujar as dibujar_qr
 
 ESTATICO = Path(__file__).parent / "estatico"
 TIPOS = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -50,6 +51,9 @@ class Servidor:
         self.modelo = modelo or MODELO_POR_DEFECTO
         self.ollama = ollama or URL_OLLAMA
         self._analistas: dict[str, Any] = {}
+        #: Los rellena ``arrancar``; la página los usa para el QR de la wifi.
+        self.puerto = 8765
+        self.abierto = False
         self.cerrojo = threading.Lock()
         self.barrido = {"en_marcha": False, "lineas": [], "resumen": None,
                         "empezado": None, "terminado": None}
@@ -134,6 +138,47 @@ class Servidor:
                 return calibrar_patrones(self.sesion.almacen)
             return avisos(self.sesion.almacen, self.sesion.cliente, fecha=fecha,
                           grupos=grupos, umbral=umbral)
+
+    # --- diagnóstico y mantenimiento ---
+
+    def diagnostico(self, con_red: bool = False) -> dict:
+        """Lo que dice ``cancha doctor``, para poder verlo desde el móvil."""
+        from ..diagnostico import diagnostico
+
+        with self.cerrojo:
+            return diagnostico(self.sesion.cliente, con_red=con_red)
+
+    def limpiar_cache(self) -> dict:
+        from ..diagnostico import limpiar_cache
+
+        with self.cerrojo:
+            return limpiar_cache()
+
+    def descubrir_ligas(self, grupos=None) -> dict:
+        """Busca los ids que faltan del catálogo. Necesita red y tarda."""
+        from ..ligas import asegurar, resumen_catalogo
+
+        with self.cerrojo:
+            encontradas = asegurar(self.sesion.almacen, self.sesion.cliente, grupos=grupos)
+            return {"encontradas": encontradas, "catalogo": resumen_catalogo(self.sesion.almacen)}
+
+    def red(self, puerto: int | None = None) -> dict:
+        """Por dónde se llega a este servidor, con el QR ya dibujado.
+
+        Sirve para lo de siempre: estás en el ordenador y quieres abrirlo en el
+        móvil. En vez de dictarte una IP, se pinta el mismo QR que el terminal.
+        """
+        from .qr import NoCabe, matriz
+
+        puerto = puerto or self.puerto
+        sufijo = f"/?clave={quote(self.clave)}" if self.clave else "/"
+        urls = [f"http://{ip}:{puerto}{sufijo}" for ip in ips_locales()]
+        salida: dict[str, Any] = {"urls": urls, "con_clave": bool(self.clave),
+                                  "abierto_a_la_red": self.abierto}
+        if urls:
+            with suppress(NoCabe):
+                salida["qr"] = matriz(urls[0])
+        return salida
 
     # --- briefings ---
 
@@ -350,6 +395,11 @@ class Manejador(BaseHTTPRequestHandler):
         if ruta == "/api/analista":
             return self._json(self.app.estado_analista(
                 (consulta.get("modelo") or [None])[0]))
+        if ruta == "/api/diagnostico":
+            con_red = (consulta.get("red") or ["0"])[0] not in ("0", "", "no")
+            return self._json(self.app.diagnostico(con_red=con_red))
+        if ruta == "/api/red":
+            return self._json(self.app.red())
         if ruta.startswith("/api/briefing/"):
             fecha = ruta.rsplit("/", 1)[-1]
             datos = self.app.briefing(fecha)
@@ -381,6 +431,13 @@ class Manejador(BaseHTTPRequestHandler):
                 umbral=float(cuerpo.get("umbral") or 0.65)))
         if ruta == "/api/analista":
             return self._analista(cuerpo)
+        if ruta == "/api/cache":
+            return self._json(self.app.limpiar_cache())
+        if ruta == "/api/ligas":
+            grupos = cuerpo.get("grupos")
+            if isinstance(grupos, str):
+                grupos = [g for g in grupos.split(",") if g]
+            return self._json(self.app.descubrir_ligas(grupos or None))
         if ruta == "/api/barrido":
             grupos = cuerpo.get("grupos")
             if isinstance(grupos, str):
@@ -406,6 +463,37 @@ def ip_local() -> str:
             return "127.0.0.1"
 
 
+#: Los rangos que una wifi de casa usa de verdad. Una máquina con Docker, una
+#: VPN o WSL tiene varias IP y solo una sirve, así que se ordenan en vez de
+#: adivinar una y dejar al otro probando.
+_PRIVADAS = ("192.168.", "10.", "172.16.", "172.17.", "172.18.", "172.19.",
+             "172.20.", "172.21.", "172.22.", "172.23.", "172.24.", "172.25.",
+             "172.26.", "172.27.", "172.28.", "172.29.", "172.30.", "172.31.")
+
+
+def ips_locales() -> list[str]:
+    """Todas las IP por las que se puede llegar a este ordenador, la mejor primero.
+
+    ``ip_local`` devuelve la de la ruta por defecto, que es la buena casi
+    siempre. Casi: con una VPN levantada o Docker instalado hay varias, y si se
+    enseña solo una y resulta ser la que no es, el móvil no entra y nadie sabe
+    por qué. Se enseñan todas.
+    """
+    candidatas: list[str] = []
+
+    def añadir(ip: str) -> None:
+        if ip and ip not in candidatas and not ip.startswith("127."):
+            candidatas.append(ip)
+
+    añadir(ip_local())
+    with suppress(OSError):
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            añadir(info[4][0])
+    # Las privadas primero, manteniendo el orden dentro de cada grupo: la de la
+    # ruta por defecto sigue siendo la primera de las suyas.
+    return sorted(candidatas, key=lambda ip: 0 if ip.startswith(_PRIVADAS) else 1)
+
+
 def construir(app: Servidor, host: str = "127.0.0.1", puerto: int = 8765,
               callado: bool = True) -> ThreadingHTTPServer:
     servidor = ThreadingHTTPServer((host, puerto), Manejador)
@@ -416,14 +504,31 @@ def construir(app: Servidor, host: str = "127.0.0.1", puerto: int = 8765,
 
 
 def arrancar(app: Servidor, host: str = "127.0.0.1", puerto: int = 8765,
-             abrir: bool = False, avisar=print) -> int:
+             abrir: bool = False, avisar=print, qr: bool = True,
+             color: bool = True) -> int:
     """Sirve hasta Ctrl+C."""
     servidor = construir(app, host, puerto)
     puerto_real = servidor.server_address[1]
+    # La página también enseña el QR, así que necesita saber esto.
+    app.puerto = puerto_real
+    app.abierto = host not in ("127.0.0.1", "localhost")
     avisar(f"cancha {__version__} · interfaz en http://127.0.0.1:{puerto_real}")
     if host not in ("127.0.0.1", "localhost"):
-        avisar(f"  desde el móvil (misma wifi): http://{ip_local()}:{puerto_real}")
-        avisar("  en iOS: Safari → Compartir → «Añadir a pantalla de inicio»")
+        sufijo = f"/?clave={quote(app.clave)}" if app.clave else "/"
+        urls = [f"http://{ip}:{puerto_real}{sufijo}" for ip in ips_locales()]
+        if urls:
+            avisar("")
+            avisar("  Desde el móvil, en la misma wifi. Apunta la cámara:")
+            if qr:
+                avisar("")
+                for linea in dibujar_qr(urls[0], color=color).splitlines():
+                    avisar("  " + linea)
+                avisar("")
+            for url in urls:
+                avisar(f"    {url}")
+            if len(urls) > 1:
+                avisar("    (varias IP: el QR lleva a la primera; si no entra, prueba las otras)")
+            avisar("  En iOS: Safari → Compartir → «Añadir a pantalla de inicio»")
         if not app.clave:
             avisar("  (sin clave: cualquiera en tu red puede usarla; pon --clave si te importa)")
     avisar("Ctrl+C para parar.")
@@ -441,4 +546,5 @@ def arrancar(app: Servidor, host: str = "127.0.0.1", puerto: int = 8765,
     return 0
 
 
-__all__ = ["Servidor", "Manejador", "construir", "arrancar", "icono_png", "ip_local"]
+__all__ = ["Servidor", "Manejador", "construir", "arrancar", "icono_png",
+           "ip_local", "ips_locales"]

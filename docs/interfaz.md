@@ -2,7 +2,7 @@
 
 ```bash
 cancha web              # en este ordenador: http://127.0.0.1:8765
-cancha web --lan        # y desde el móvil, en la misma wifi
+cancha web --lan        # y desde el móvil: dibuja un QR, apuntas la cámara
 cancha web --abrir      # abre el navegador al arrancar
 ```
 
@@ -16,11 +16,11 @@ IA puede preguntar, la página lo enseña; y al revés.
 icono de la barra de direcciones, o el menú ⋯ → Aplicaciones). Queda en el menú
 de inicio con su ventana propia.
 
-**iOS.** Arranca con `--lan`; el terminal te dice la dirección de tu ordenador
-en la red (por ejemplo `http://192.168.1.34:8765`). Ábrela en Safari desde el
-iPhone, pulsa Compartir → **«Añadir a pantalla de inicio»**. Se abre a pantalla
-completa, con su icono, y recuerda la última pestaña. Necesita que el ordenador
-esté encendido y en la misma wifi: es tu máquina la que hace el trabajo.
+**iOS.** Arranca con `--lan` y el terminal **dibuja un código QR**: apuntas la
+cámara del iPhone y entras. Luego Compartir → **«Añadir a pantalla de inicio»**
+y se abre a pantalla completa, con su icono, recordando la última pestaña.
+Necesita que el ordenador esté encendido y en la misma wifi: es tu máquina la
+que hace el trabajo.
 
 Si abres la interfaz a la red, ponle clave:
 
@@ -28,19 +28,35 @@ Si abres la interfaz a la red, ponle clave:
 cancha web --lan --clave loquesea
 ```
 
-La página la pide una vez (pestaña Memoria → Acceso) y la recuerda.
+**La clave va dentro del QR**, así que el móvil entra sin que la teclees: la
+página la coge de la dirección, la guarda y la borra de la barra para que no
+se quede en el historial. También se puede poner a mano en Memoria → Ajustes.
+
+El QR no es un paquete más: está escrito aquí (`cancha/web/qr.py`, versiones
+1 a 10, Reed-Solomon sobre GF(256)) porque el proyecto no tiene dependencias y
+no iba a empezar por esto. Con `--sin-color` se dibuja sin ANSI, y con
+`--sin-qr` no se dibuja.
+
+Si el ordenador tiene varias IP —una VPN, Docker, WSL— se enseñan **todas**, la
+de la ruta por defecto primero: enseñar una sola y que sea la que no es deja al
+móvil sin entrar y sin saber por qué.
+
+Y si ya estás en el ordenador, la pestaña **Memoria → Abrirlo en el móvil**
+pinta el mismo QR en pantalla.
 
 ## Qué hay dentro
 
-Cinco pestañas, y la de **Hoy** es la que se abre.
+Cinco pestañas, y la de **Hoy** es la que se abre. **Todo lo que hace el
+framework se puede hacer desde aquí**, también desde el móvil: no hay nada que
+obligue a volver al terminal.
 
 | Pestaña | Qué enseña |
 | --- | --- |
-| **Hoy** | Los partidos del día, **plegados**: hora, equipos, la barra del mercado, la forma de cada uno y las insignias que importan. Tocar uno lo abre **ahí mismo**, sin cambiar de página: mercado, cómo llega cada equipo, dónde se pueden hacer daño, jugador contra sistema y árbitro. Arriba, el resumen de lo casi seguro del día. |
+| **Hoy** | Los partidos del día, **plegados**: hora, equipos, la barra del mercado, la forma de cada uno y las insignias que importan. Tocar uno lo abre **ahí mismo**, sin cambiar de página: mercado, cómo llega cada equipo, dónde se pueden hacer daño, jugador contra sistema y árbitro. Arriba, el resumen de lo casi seguro del día. El selector **Directo** enseña lo que se está jugando ahora, refrescándose solo. |
 | **Casi seguro** | Lo que se repite, con su número. Cada aviso lleva la frecuencia, el suelo de confianza, cuántos casos lo sostienen y cuánto se separa de su referencia. La pestaña *Los patrones* enseña la calibración entera. |
 | **Analista** | Pregunta en castellano y un modelo local busca los datos. Los pasos se ven mientras ocurren: qué herramienta pidió y cuánto le contestaron. |
-| **Buscar** | Partido, equipo, jugador o duelo, con un selector arriba. |
-| **Memoria** | Qué hay guardado, el barrido en segundo plano con su registro, el catálogo de competiciones y cuántas faltan por identificar, árbitros, fuentes y ajustes (clave y tema). |
+| **Buscar** | Partido, equipo, jugador, **liga** o duelo, con un selector arriba. El partido trae alineaciones, cronología, quién mandaba tramo a tramo, historial entre los dos, quién generó el peligro y los datos en crudo de cualquier sección. El equipo y el jugador traen su ficha completa, y el equipo además su Elo. La liga trae clasificación, histórico desde 1993, ranking Elo, agenda y noticias de ESPN y las tablas de FBref. |
+| **Memoria** | Qué hay guardado, el barrido en segundo plano con su registro, el catálogo de competiciones (y un botón para buscar los ids que faltan), rellenar cuotas, árbitros, fuentes, el QR para abrirlo en el móvil, el **diagnóstico** (lo que dice `cancha doctor`, más la caché) y la **consola de herramientas**. |
 
 ### Las tarjetas plegadas
 
@@ -51,6 +67,15 @@ pasa— y el resto está a un toque, en su sitio, sin perder la lista.
 
 La previa se pide **cuando abres la tarjeta**, no antes: veinte partidos en
 pantalla no son veinte análisis, son veinte líneas.
+
+### La consola de herramientas
+
+Las pantallas de arriba cubren lo de cada día. La consola cubre el resto: pide
+la lista al servidor (`GET /api/herramientas`), monta los campos desde el
+esquema de cada una y enseña el JSON tal cual lo recibiría la IA. Como la lista
+viene del servidor, **una herramienta nueva aparece sola**, sin tocar la
+página. Es lo que garantiza que «todo se puede hacer desde el móvil» siga
+siendo verdad mañana.
 
 ### El tema
 
@@ -73,6 +98,10 @@ servidor (lo ya traído no se vuelve a pedir). Además:
 | `GET /api/analista` | Si Ollama está, qué modelos tiene y si LangChain está instalado |
 | `POST /api/barrido` | Lanza un barrido (`fecha`, `grupos`, `max`) en segundo plano |
 | `GET /api/barrido` | Cómo va: líneas de registro y resumen al acabar |
+| `GET /api/diagnostico` | Transportes, credenciales, caché y grabaciones. Con `?red=1` prueba contra la API |
+| `POST /api/cache` | Vacía la caché de disco |
+| `POST /api/ligas` | Busca los ids de competición que falten (necesita red) |
+| `GET /api/red` | Por dónde se llega a este servidor, con la matriz del QR ya calculada |
 
 El analista va en streaming a propósito: sin él verías un minuto de reloj
 girando y luego un párrafo. Cada línea es `{"paso": …}` mientras trabaja y

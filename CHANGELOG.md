@@ -4,6 +4,61 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.7.0
+
+Una pasada mirando el proyecto de lejos. Sale de una pregunta incómoda: la
+interfaz enseñaba diecinueve de las cuarenta y una herramientas, así que
+«úsalo desde el móvil» era verdad a medias. Ahora es verdad entera, y por el
+camino aparecieron dos cosas que estaban mal y una que no se podía reutilizar.
+
+### Novedades
+
+- **Todo se puede hacer desde el móvil.** Veintidós herramientas no tenían
+  manera de usarse desde la página. Ahora la tienen: **Directo** (lo que se
+  juega ahora, refrescándose solo), **Liga** (clasificación, histórico desde
+  1993, ranking Elo, agenda y noticias de ESPN, tablas de FBref), la **ficha
+  completa** de equipo y de jugador, el **Elo** del club, y en el partido las
+  alineaciones, la cronología, quién mandaba tramo a tramo, el historial entre
+  los dos, quién generó el peligro, los tiros de Understat y los datos en
+  crudo de cualquier sección.
+- **Una consola de herramientas.** Las pantallas cubren lo de cada día; la
+  consola cubre el resto. Pide la lista al servidor y monta los campos desde
+  el esquema de cada herramienta, así que **una herramienta nueva aparece sola**
+  y «todo desde el móvil» sigue siendo verdad mañana. Hay un test que lo
+  vigila: cada herramienta tiene su sitio en una vista o está en una lista
+  corta de excepciones con el camino escrito al lado.
+- **Diagnóstico y mantenimiento desde la página.** Lo que decía `cancha
+  doctor`, más el estado de la caché y de las grabaciones, más vaciar la caché
+  y buscar los ids de competición que falten. Estaba todo dentro del impresor
+  del comando, así que solo existía en un terminal; ahora vive en
+  `cancha.diagnostico` y devuelve datos, y quien quiera los pinta.
+- **Un QR para entrar en el móvil.** `cancha web --lan` dibuja un código en el
+  terminal: apuntas la cámara y entras. **Si hay clave, va dentro**; la página
+  la coge de la dirección, la guarda y la borra de la barra para que no quede
+  en el historial. Y en Memoria → Abrirlo en el móvil se pinta el mismo QR en
+  pantalla, para cuando ya estás en el ordenador.
+
+  El codificador es nuestro (`cancha/web/qr.py`): Reed-Solomon sobre GF(256),
+  versiones 1 a 10, elección de máscara por penalización. Este proyecto no
+  tiene dependencias y no iba a empezar por un QR. Está comprobado por los dos
+  lados: las tablas de la norma cuadran versión por versión, y lo dibujado se
+  vuelve a leer decodificándolo. Fuera de los tests se contrastó además contra
+  tres codificadores y un lector reales, y el símbolo que pinta la página se
+  decodifica desde sus propios píxeles.
+- **Todas las IP, no una.** Con VPN, Docker o WSL hay varias y solo una sirve.
+  Se enseñan todas, la de la ruta por defecto primero.
+
+### Arreglos
+
+- **Un cruce afirmaba del rival algo que nadie había medido.** «Ataca por
+  fuera y enfrente les entran los centros» se decía habiendo mirado solo la
+  primera mitad de la frase: lo que concede el rival no se calculaba. Media
+  frase medida y media inventada suena igual de convincente que una entera, y
+  ahí está el peligro. Ahora `estilo_de_equipo` mide también la mitad
+  defensiva contra la media de su liga, y un cruce necesita los dos lados.
+- **Un mensaje de error con una URL dentro ensanchaba la página** en el móvil.
+- **`replaceChildren` pintaba la palabra «null»** donde no tocaba nada.
+
 ## 0.6.0
 
 Cuatro cosas: todo el fútbol que importa, lo que casi siempre pasa contado en

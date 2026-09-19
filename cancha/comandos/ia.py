@@ -118,7 +118,8 @@ def cmd_web(args: argparse.Namespace) -> int:
     app = Servidor(sesion=sesion, clave=args.clave or "",
                    carpeta_briefings=args.briefings or "datos/briefings")
     host = "0.0.0.0" if args.lan else (args.host or "127.0.0.1")
-    return arrancar(app, host=host, puerto=args.port, abrir=args.abrir, avisar=imprimir)
+    return arrancar(app, host=host, puerto=args.port, abrir=args.abrir, avisar=imprimir,
+                    qr=not args.sin_qr, color=not args.sin_color)
 
 
 def registrar(sub, comun, informe, listado) -> None:
@@ -144,8 +145,10 @@ def registrar(sub, comun, informe, listado) -> None:
         "web", parents=[comun],
         help="La interfaz: un servidor local y una página que se instala como app.",
         description="Sirve la página en tu ordenador. Con --lan también desde el "
-                    "móvil en la misma wifi; en iOS, Safari → Compartir → «Añadir a "
-                    "pantalla de inicio». Sin dependencias: es la biblioteca estándar.",
+                    "móvil en la misma wifi: se dibuja un QR en el terminal, se "
+                    "apunta la cámara y ya está (si hay clave, va dentro del QR). "
+                    "En iOS, Safari → Compartir → «Añadir a pantalla de inicio». "
+                    "Sin dependencias: es la biblioteca estándar.",
     )
     p_web.add_argument("--port", type=int, default=8765, help="Puerto (por defecto 8765).")
     p_web.add_argument("--host", help="Interfaz de red (por defecto solo este ordenador).")
@@ -153,6 +156,11 @@ def registrar(sub, comun, informe, listado) -> None:
                        help="Escuchar en toda la red local, para abrirla desde el móvil.")
     p_web.add_argument("--abrir", action="store_true", help="Abrir el navegador al arrancar.")
     p_web.add_argument("--clave", help="Pedir esta clave a quien use la API (para --lan).")
+    p_web.add_argument("--sin-qr", action="store_true",
+                       help="No dibujar el código QR con la dirección.")
+    p_web.add_argument("--sin-color", action="store_true",
+                       help="Dibujar el QR sin colores ANSI: más alto, pero va en "
+                            "cualquier consola.")
     p_web.add_argument("--db", help="Fichero de la memoria (por defecto: datos/cancha.db).")
     p_web.add_argument("--briefings", help="Carpeta de los briefings guardados.")
     p_web.set_defaults(func=cmd_web)

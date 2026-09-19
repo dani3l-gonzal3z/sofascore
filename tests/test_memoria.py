@@ -414,3 +414,40 @@ def test_migrar_dos_veces_no_rompe_nada(tmp_path):
         base.anotar("hola", "que tal")
     with Almacen(ruta) as base:
         assert base.nota("hola") == "que tal"
+
+
+def test_el_estilo_mide_tambien_lo_que_concede_contra_la_liga(almacen):
+    """La mitad defensiva del retrato necesita la misma vara que la ofensiva."""
+    _liga_inventada(almacen)
+    estilo = estilo_de_equipo(almacen, 100)
+    concede = estilo["concede_dimensiones"]
+    assert concede, "el retrato defensivo no puede venir vacío"
+    # El bloque nuevo tiene que cuadrar con el resumen que ya se publicaba.
+    assert concede["xg"]["valor"] == estilo["concede"]["xg"]
+    posesion = concede["posesion"]
+    assert posesion["valor"] > 0
+    assert "media_liga" in posesion and posesion["diferencia"] is not None
+
+
+def test_un_cruce_necesita_medir_los_dos_lados():
+    """Antes el aviso afirmaba del rival algo que nadie había mirado."""
+    from cancha.previa import _cruces
+
+    ataca = {
+        "equipo": "Los que centran", "disponible": True,
+        "dimensiones": {"centros": {"diferencia": 0.9}},
+        "concede_dimensiones": {},
+    }
+    normalito = {
+        "equipo": "Los normales", "disponible": True,
+        "dimensiones": {},
+        # Concede centros como cualquiera: no hay cruce que contar.
+        "concede_dimensiones": {"centros": {"diferencia": 0.01}},
+    }
+    assert _cruces({"local": ataca, "visitante": normalito}) == []
+
+    flojo = dict(normalito, equipo="Los que los sufren",
+                 concede_dimensiones={"centros": {"diferencia": 0.5}})
+    cruces = _cruces({"local": ataca, "visitante": flojo})
+    assert len(cruces) == 1
+    assert cruces[0]["concede_el_rival"] == 0.5

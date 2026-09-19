@@ -6,8 +6,6 @@ import argparse
 import json
 from pathlib import Path
 
-from ..cache import DiskCache
-from ..config import Settings
 from ..errors import SofascoreError
 from . import comun
 from .comun import envolver, imprimir
@@ -105,51 +103,46 @@ def cmd_raw(args: argparse.Namespace) -> int:
 
 def cmd_doctor(args: argparse.Namespace) -> int:
     """Dice con qué está pidiendo y si Sofascore le contesta."""
-    from ..transport import AUTO_ORDER, transport_disponible
-
-    imprimir("Transportes disponibles:")
-    for nombre in AUTO_ORDER:
-        marca = "✓" if transport_disponible(nombre) else "·"
-        extra = {
-            "curl": "curl_cffi — imita el TLS de Chrome, atraviesa el anti-bot",
-            "httpx": "httpx — HTTP/2 y conexiones reutilizadas",
-            "urllib": "biblioteca estándar, siempre está",
-        }[nombre]
-        imprimir(f"  {marca} {nombre:<8} {extra}")
+    from ..diagnostico import diagnostico
 
     cliente = comun.construir_cliente(args)
     try:
-        elegido = type(cliente.transport).__name__
-        imprimir(f"\nEn uso: {elegido}")
-        if elegido == "UrllibTransport":
-            imprimir("  ⚠  Sofascore suele responder 403 a urllib. `pip install curl_cffi`")
-        imprimir(f"Credenciales Plus: {cliente.credentials.describe()}")
+        d = diagnostico(cliente, cache_dir=args.cache_dir, con_red=True)
+        imprimir("Transportes disponibles:")
+        for t in d["transportes"]:
+            imprimir(f"  {'✓' if t['disponible'] else '·'} {t['nombre']:<8} {t['para_que']}")
+        imprimir(f"\nEn uso: {d['en_uso']}")
+        if d.get("aviso"):
+            imprimir(f"  ⚠  {d['aviso']}")
+        imprimir(f"Credenciales Plus: {d['credenciales']}")
+        cache = d["cache"]
+        imprimir(f"Caché: {cache.get('respuestas', 0)} respuestas "
+                 f"({cache.get('kib', 0)} KiB) en {cache.get('carpeta', '—')}"
+                 if cache["activa"] else f"Caché: {cache['nota']}")
 
         imprimir("\nProbando contra la API...")
-        for base in cliente.settings.base_urls():
-            try:
-                respuesta = cliente.transport.request(
-                    "GET", f"{base}/sport/football/events/live", cliente._headers()
-                )
-                estado = f"HTTP {respuesta.status}"
-                icono = "✓" if respuesta.ok else ("🚫" if respuesta.status in (401, 403) else "✗")
-            except SofascoreError as exc:
-                estado, icono = str(exc), "✗"
-            imprimir(f"  {icono} {base} — {estado}")
+        for prueba in d["api"]:
+            icono = ("✓" if prueba["ok"] else
+                     "🚫" if prueba["http"] in (401, 403) else "✗")
+            estado = f"HTTP {prueba['http']}" if prueba["http"] else prueba["lectura"]
+            imprimir(f"  {icono} {prueba['base']} — {estado}")
         return 0
     finally:
         cliente.close()
 
 
 def cmd_cache(args: argparse.Namespace) -> int:
-    ajustes = Settings.from_env(cache_dir=Path(args.cache_dir) if args.cache_dir else None)
-    cache = DiskCache(ajustes.cache_dir)
+    from ..diagnostico import estado_cache, limpiar_cache
+
     if args.clear:
-        imprimir(f"Borrados {cache.clear()} ficheros de {ajustes.cache_dir}")
-    else:
-        ficheros = list(Path(ajustes.cache_dir).rglob("*.json")) if ajustes.cache_dir else []
-        tamano = sum(f.stat().st_size for f in ficheros) / 1024
-        imprimir(f"{len(ficheros)} respuestas en caché ({tamano:.1f} KiB) en {ajustes.cache_dir}")
+        d = limpiar_cache(args.cache_dir)
+        imprimir(f"Borrados {d['borrados']} ficheros de {d['carpeta']}")
+        return 0
+    d = estado_cache(args.cache_dir)
+    if not d["activa"]:
+        imprimir(d["nota"])
+        return 0
+    imprimir(f"{d['respuestas']} respuestas en caché ({d['kib']} KiB) en {d['carpeta']}")
     return 0
 
 
