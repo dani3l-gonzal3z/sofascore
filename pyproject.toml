@@ -1,6 +1,6 @@
 [project]
 name = "cancha"
-version = "0.5.0"
+version = "0.6.0"
 description = "Le dices un partido y te devuelve todos sus datos, de Sofascore y de otras fuentes, listos para analizar (también por una IA)"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -22,6 +22,9 @@ pandas = ["pandas>=2.0"]
 # las quieres.
 scraperfc = ["ScraperFC>=4.0"]
 soccerdata = ["soccerdata>=1.8"]
+# Para enchufar las herramientas a un agente de LangChain que ya tengas. El
+# analista de `cancha analista` no lo necesita: habla con Ollama directamente.
+langchain = ["langchain>=1.0", "langchain-ollama>=0.3"]
 dev = ["pytest>=8.0", "pandas>=2.0", "curl_cffi>=0.7"]
 
 [project.scripts]

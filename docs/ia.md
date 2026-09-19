@@ -1,15 +1,20 @@
 # Para una IA local
 
 El framework trae una capa de herramientas pensada para que un modelo analice
-partidos por su cuenta: 41 funciones con su esquema JSON, descripciones
+partidos por su cuenta: 42 funciones con su esquema JSON, descripciones
 escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
 aplanadas y **recortadas** para que no le revienten el contexto.
 
 ```bash
-cancha tools          # las 41, con sus parámetros
+cancha tools          # las 42, con sus parámetros
 cancha tools --json   # los esquemas completos
 cancha mcp            # arranca el servidor MCP
+cancha analista "…"   # o directamente: un modelo local con las herramientas
 ```
+
+Hay tres formas de dárselas a un modelo, y ninguna excluye a las otras: **MCP**
+(esta página), el **[analista](analista.md)** —que habla con Ollama por su
+cuenta y no necesita cliente— y los esquemas sueltos para montártelo tú.
 
 ### Por MCP (lo más cómodo)
 
@@ -80,14 +85,17 @@ tirando del hilo:
    con su veredicto (`señal`, `indicio`, `sin muestra`) para que el modelo no
    presente como hallazgo lo que son tres partidos. Ver
    [Jugador contra sistema](sistemas.md).
-7. Antes de afirmar que a alguien «se le da mal» un tipo de rival,
+7. Para «qué es casi seguro hoy», **`casi_seguro`**: cuenta cada patrón sobre
+   el historial y devuelve frecuencia, suelo y elevación. La elevación decide:
+   si es casi cero, el patrón es la tasa base y no hay hallazgo que contar.
+8. Antes de afirmar que a alguien «se le da mal» un tipo de rival,
    **`sistema_o_contexto`**: el mismo análisis siendo favorito y sin serlo. Si
    la memoria se barrió sin cuotas, `rellenar_cuotas` las trae de
    football-data.co.uk.
-8. Para el repaso de la mañana, **`briefing_del_dia`** lo junta todo en una
+9. Para el repaso de la mañana, **`briefing_del_dia`** lo junta todo en una
    llamada, y `noticias` pone el contexto que los números no traen (lesiones,
    destituciones). `evolucion_de_equipo` dice si un equipo ha cambiado.
-9. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
+10. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
    catálogo en crudo, `historial_de_liga` trae temporadas enteras desde 1993 y
    `datos_externos` abre FBref, Transfermarkt o Capology si sus librerías están
    instaladas. Y `catalogo` le dice qué nombres son válidos.

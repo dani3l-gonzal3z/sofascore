@@ -4,6 +4,61 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.6.0
+
+Cuatro cosas: todo el fútbol que importa, lo que casi siempre pasa contado en
+vez de supuesto, un analista que vive en tu máquina y una interfaz rehecha.
+
+### Novedades
+
+- **71 competiciones, masculinas y femeninas.** Las cinco grandes europeas en
+  los dos géneros, la Champions femenina, las segundas y las nórdicas, MLS,
+  USL, NWSL, Liga MX y Liga MX Femenil, CONCACAF, y Sudamérica entera desde
+  Brasil hasta Venezuela. Los ids de Sofascore no se adivinan y no me los he
+  inventado: los que no estaban contrastados **se descubren solos** la primera
+  vez que hay red, comprobando país, deporte y género antes de guardar
+  ninguno. Lo que no convence no se guarda, porque un id equivocado no falla:
+  barre otra competición en silencio. `cancha ligas`, `--descubrir`,
+  `--faltan`. La memoria sube a esquema v4 con la tabla de ligas.
+- **Casi seguro** (`cancha seguro`): la corazonada de «si el Madrid perdió, el
+  siguiente lo gana», contada. Doce patrones medidos sobre el historial con su
+  frecuencia, su suelo de Wilson y —la cifra que decide— su **elevación sobre
+  el patrón de referencia**. Si los favoritos ganan el 84 % y los favoritos que
+  pincharon ganan el 61 %, no hay reacción: hay tasa base, y se dice con esas
+  palabras. Ver [docs/seguro.md](docs/seguro.md).
+- **El analista local** (`cancha analista "…"`): habla con Ollama —Hermes 3 por
+  defecto, afinado para llamar funciones— y le da las 42 herramientas. Cada
+  paso se ve: qué preguntó, cuánto le contestaron y qué concluye. Las
+  instrucciones le prohíben estimar cifras y le obligan a respetar los
+  veredictos de «sin muestra» y «es la tasa base». Con `pip install
+  "cancha[langchain]"` hay además un adaptador a `create_agent` de LangChain
+  1.x en `cancha.agentes.langchain`.
+- **La interfaz, rehecha.** Identidad propia —papel de periódico en claro,
+  césped de noche en oscuro, Archivo para los marcadores— y cinco pestañas:
+  Hoy, Casi seguro, Analista, Buscar y Memoria. Los partidos del día vienen
+  **plegados en una línea** con lo que decide si te interesan (mercado, forma,
+  insignias) y se abren **donde están**, sin cambiar de página; la previa se
+  pide al abrirlos, no antes. El analista responde en streaming con sus pasos a
+  la vista. Tema claro, oscuro o automático.
+
+### Arreglos
+
+- Una tabla ancha estiraba la rejilla entera y la página se desplazaba a lo
+  ancho en el móvil. Las rejillas pasan a `minmax(0, 1fr)` y la tabla se
+  desliza dentro de su caja.
+- `/api/analista` ya no se cae si Ollama no está: cualquier fallo se convierte
+  en una respuesta que la página puede explicar.
+
+### Lo que no se ha podido comprobar
+
+Desde donde se escribió esto no hay red hacia Sofascore, así que **el
+descubridor de competiciones no se ha ejercitado contra la API real**: su
+lógica está probada con respuestas de mentira, incluidas las trampas (Liga F
+frente a LaLiga, Bundesliga alemana frente a austriaca). La primera ejecución
+con red es la prueba: `cancha ligas --descubrir` y luego `cancha ligas`.
+Tampoco había un Ollama al que preguntar: el bucle del analista está probado
+con un Ollama de mentira que devuelve respuestas guionizadas.
+
 ## 0.5.0
 
 El framework se pidió por consola y por una IA. Ahora también se mira: hay una

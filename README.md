@@ -4,14 +4,16 @@
 
 Le dices un partido y te devuelve **todos sus datos** —de Sofascore, Understat,
 ClubElo, football-data.co.uk y ESPN, y de FBref o Transfermarkt si tienes sus
-librerías— ya cruzados y listos para analizar. Por línea de comandos, como
+librerías— ya cruzados y listos para analizar. Setenta y una competiciones,
+masculinas y femeninas, de Europa y de América. Por línea de comandos, como
 librería, **como herramientas para una IA local** o en una interfaz que se
 instala en Windows y en el iPhone.
 
 ```bash
 cancha web --lan               # la interfaz, en el ordenador y en el móvil
 cancha briefing --barrer       # el documento de la mañana: todos los partidos del día
-cancha previa "Girona vs Osasuna"   # cómo llegan, cómo juegan, quién pita
+cancha seguro                  # lo que casi siempre pasa, con el número que lo sostiene
+cancha analista "¿cómo llega el Girona?"   # pregunta y un modelo local lo busca
 cancha estilo "Girona"         # cómo juega, comparado con su liga
 cancha forma "Vinicius Junior" # rachas: 4 partidos sin tirar entre palos
 cancha duelo "Vinicius" "Getafe"    # cómo le va contra ese sistema, con su significación
@@ -41,12 +43,19 @@ partido.available()            # secciones con datos
   juega un equipo *comparado con su liga* o cuántos partidos lleva alguien sin
   rematar entre palos. Eso no se contesta mirando un partido.
 - **Una interfaz sin dependencias.** `cancha web` sirve una página desde tu
-  ordenador que se instala como app en Windows y en iOS. Lo que la IA puede
-  preguntar, la página lo enseña.
+  ordenador que se instala como app en Windows y en iOS. Los partidos del día
+  vienen plegados en una línea y se abren donde están.
+- **71 competiciones, ellas y ellos.** Las cinco grandes europeas en los dos
+  géneros, la Champions femenina, MLS, NWSL, Liga MX y Sudamérica entera. Los
+  ids que no estaban contrastados **se descubren solos**, comprobando país y
+  género: aquí no se inventa un número que barrería otra liga en silencio.
+- **Un analista en tu máquina.** `cancha analista` habla con Ollama y le da las
+  42 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
+  cifra que no le hayan dado.
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
   respuesta es *no se sabe*.
-- **Probado sin red.** 619 tests en pocos segundos, y un modo de grabar
+- **Probado sin red.** 727 tests en menos de siete segundos, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
@@ -114,12 +123,14 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | --- | --- |
 | [La memoria](docs/memoria.md) | Barrido diario, estilo de equipo, rachas de jugador, árbitros, previas |
 | [La interfaz](docs/interfaz.md) | `cancha web`: una página que se instala en Windows y en iOS |
+| [Casi seguro](docs/seguro.md) | Lo que se repite, medido: frecuencia, suelo de Wilson y elevación |
+| [El analista local](docs/analista.md) | Ollama con Hermes, y el adaptador a LangChain |
 | [Jugador contra sistema](docs/sistemas.md) | Cómo rinde alguien según a qué se enfrenta, con su prueba de significación |
 | [Partidos](docs/partidos.md) | Cómo se nombra uno, qué trae el informe, las tablas |
 | [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
 | [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
 | [Fuentes de datos](docs/fuentes.md) | Understat, ClubElo, el cruce y de dónde salen las rutas |
-| [Para una IA local](docs/ia.md) | Las 41 herramientas, MCP y cómo indaga |
+| [Para una IA local](docs/ia.md) | Las 42 herramientas, MCP y cómo indaga |
 | [La línea de comandos](docs/comandos.md) | Todos los comandos y sus opciones |
 | [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
 | [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |

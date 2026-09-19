@@ -100,14 +100,21 @@ class Servidor:
         return self._analistas[clave]
 
     def estado_analista(self, modelo: str | None = None) -> dict:
+        """Si Ollama está y con qué modelos, sin que su ausencia tumbe la página.
+
+        Se atrapa cualquier fallo y no solo el tipado: aquí se está preguntando
+        por algo que puede no existir, y la página tiene que poder explicarlo.
+        """
         from ..agentes.langchain import disponible as langchain_disponible
-        from ..analista import OllamaNoDisponible
 
         try:
             estado = self.analista(modelo).comprobar()
-        except OllamaNoDisponible as exc:
-            estado = {"disponible": False, "nota": str(exc)}
+        except Exception as exc:  # noqa: BLE001 - se enseña, no se esconde
+            estado = {"disponible": False, "nota": f"Ollama no contesta: {exc}",
+                      "como": "Instala Ollama (ollama.com), arráncalo y trae un modelo:\n"
+                              "    ollama pull hermes3"}
         estado["langchain"] = langchain_disponible()
+        estado.setdefault("modelo", modelo or self.modelo)
         return estado
 
     def preguntar(self, pregunta: str, historial=None, modelo=None, al_paso=None) -> dict:

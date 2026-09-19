@@ -193,3 +193,95 @@ def test_el_comando_web_existe_y_tiene_sus_opciones():
 
     args = build_parser().parse_args(["web", "--lan", "--port", "9000", "--clave", "x"])
     assert args.lan and args.port == 9000 and args.clave == "x"
+
+
+# ------------------------------------------------------- casi seguro y analista
+
+def test_el_estado_lleva_el_catalogo_y_el_modelo(servidor):
+    _, _, datos = _pedir(servidor, "GET", "/api/estado")
+    catalogo = datos["catalogo"]
+    assert catalogo["competiciones"] >= 60 and catalogo["femeninas"] >= 15
+    assert "grandes_f" in catalogo["por_grupo"]
+    assert datos["modelo"]
+
+
+def test_casi_seguro_por_http(servidor):
+    estado, _, datos = _pedir(servidor, "POST", "/api/seguro", {"calibrar": True})
+    assert estado == 200
+    assert len(datos["patrones"]) >= 10
+    assert "Wilson" in datos["como_leerlo"]
+
+    estado, _, datos = _pedir(servidor, "POST", "/api/seguro", {"fecha": "2024-10-26"})
+    assert estado == 200 and "avisos" in datos
+    assert "apuesta segura" in datos["lo_que_no_dice"]
+
+
+def test_el_estado_del_analista_dice_que_falta_ollama(servidor):
+    """Sin Ollama detrás, la página tiene que poder explicarlo en vez de colgarse."""
+    estado, _, datos = _pedir(servidor, "GET", "/api/analista")
+    assert estado == 200
+    assert datos["disponible"] is False
+    assert "Ollama" in datos["nota"] or "ollama" in datos["nota"]
+    assert "langchain" in datos
+
+
+def test_el_analista_contesta_en_ndjson_paso_a_paso(servidor):
+    """El formato que lee la interfaz: una línea por paso, según van pasando."""
+    from cancha.analista import Analista
+
+    guion = [
+        {"message": {"role": "assistant", "content": "",
+                     "tool_calls": [{"function": {"name": "estado_de_la_memoria",
+                                                  "arguments": {}}}]}},
+        {"message": {"role": "assistant", "content": "Hay un partido guardado."}},
+    ]
+    servidor._analistas[servidor.modelo] = Analista(
+        sesion=servidor.sesion, pedir=lambda ruta, cuerpo=None: guion.pop(0))
+
+    conexion = HTTPConnection("127.0.0.1", servidor.puerto, timeout=15)
+    conexion.request("POST", "/api/analista", body=json.dumps({"pregunta": "¿qué hay?"}).encode(),
+                     headers={"Content-Type": "application/json"})
+    respuesta = conexion.getresponse()
+    assert respuesta.status == 200
+    assert "ndjson" in (respuesta.getheader("Content-Type") or "")
+    lineas = [json.loads(x) for x in respuesta.read().decode().splitlines() if x.strip()]
+    conexion.close()
+
+    tipos = [x["paso"]["tipo"] for x in lineas if "paso" in x]
+    assert tipos == ["herramienta", "resultado", "respuesta"]
+    fin = next(x["fin"] for x in lineas if "fin" in x)
+    assert fin["respuesta"] == "Hay un partido guardado."
+    assert fin["historial"][0]["role"] == "system"
+
+
+def test_una_pregunta_vacia_se_rechaza(servidor):
+    estado, _, datos = _pedir(servidor, "POST", "/api/analista", {"pregunta": "  "})
+    assert estado == 400 and "Falta la pregunta" in datos["error"]
+
+
+def test_si_ollama_falla_el_error_viaja_por_la_misma_linea(servidor):
+    from cancha.analista import Analista, OllamaNoDisponible
+
+    def roto(ruta, cuerpo=None):
+        raise OllamaNoDisponible("No hay nadie escuchando.")
+
+    servidor._analistas[servidor.modelo] = Analista(sesion=servidor.sesion, pedir=roto)
+    conexion = HTTPConnection("127.0.0.1", servidor.puerto, timeout=15)
+    conexion.request("POST", "/api/analista", body=json.dumps({"pregunta": "hola"}).encode(),
+                     headers={"Content-Type": "application/json"})
+    respuesta = conexion.getresponse()
+    lineas = [json.loads(x) for x in respuesta.read().decode().splitlines() if x.strip()]
+    conexion.close()
+    assert lineas and "escuchando" in lineas[-1]["error"]
+
+
+def test_la_pagina_trae_las_cinco_pestanas_y_el_tema(servidor):
+    _, _, cuerpo = _pedir(servidor, "GET", "/")
+    html = cuerpo.decode("utf-8")
+    for pestana in ("Hoy", "Seguro", "Analista", "Buscar", "Memoria"):
+        assert f'"{pestana}"' in html, pestana
+    # Los tres estados del tema: claro, oscuro por sistema y oscuro elegido.
+    assert "prefers-color-scheme: dark" in html
+    assert ':root:not([data-theme="light"])' in html
+    assert ':root[data-theme="dark"]' in html
+    assert "prefers-reduced-motion" in html

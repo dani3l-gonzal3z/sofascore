@@ -31,13 +31,21 @@ cancha barrido --date 2026-08-31 --ultimos 8
 
 | Grupo | Qué incluye |
 | --- | --- |
-| `grandes` | Las cinco grandes europeas |
-| `uefa` | Champions, Europa League y Conference |
-| `europeas` | Eredivisie, Primeira Liga, Süper Lig, segundas divisiones… |
-| `americas` | MLS, Liga MX, Argentina, Libertadores, Perú |
+| `grandes` / `grandes_f` | Las cinco grandes europeas, ellos y ellas |
+| `uefa` / `uefa_f` | Champions, Europa League, Conference y la Champions femenina |
+| `europeas` / `europeas_f` | Segundas, Países Bajos, Portugal, Turquía, nórdicas… |
+| `usa` / `usa_f` | MLS, USL, Liga MX, CONCACAF, NWSL, Liga MX Femenil |
+| `sudamerica` / `sudamerica_f` | Brasil, Argentina, Colombia, Chile, Uruguay, Libertadores… |
 | `arabia` | Saudi Pro League |
 
-Sin `--grupos` entran todos: 25 competiciones.
+Atajos: `femenino`, `masculino`, `europa`, `america`, `todo`. Sin `--grupos`
+entra el catálogo entero: **71 competiciones**, y el primer barrido es largo.
+
+Los ids de Sofascore no se adivinan, así que las competiciones que no venían
+contrastadas **se descubren solas** la primera vez que hay red: se buscan, se
+comprueba que el país, el deporte y el género coinciden, y solo entonces se
+guardan. Lo que no convence no se guarda —un id equivocado no falla, barre otra
+liga en silencio—. `cancha ligas --faltan` dice lo que queda.
 
 La memoria es una base **SQLite** en `datos/cancha.db` —biblioteca estándar, ni
 un paquete más— y está en el `.gitignore`: es tuya y se reconstruye sola.
