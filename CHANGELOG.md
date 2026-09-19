@@ -27,7 +27,7 @@ vez de supuesto, un analista que vive en tu máquina y una interfaz rehecha.
   pincharon ganan el 61 %, no hay reacción: hay tasa base, y se dice con esas
   palabras. Ver [docs/seguro.md](docs/seguro.md).
 - **El analista local** (`cancha analista "…"`): habla con Ollama —Hermes 3 por
-  defecto, afinado para llamar funciones— y le da las 42 herramientas. Cada
+  defecto, afinado para llamar funciones— y le da las 41 herramientas. Cada
   paso se ve: qué preguntó, cuánto le contestaron y qué concluye. Las
   instrucciones le prohíben estimar cifras y le obligan a respetar los
   veredictos de «sin muestra» y «es la tasa base». Con `pip install

@@ -1,12 +1,12 @@
 # Para una IA local
 
 El framework trae una capa de herramientas pensada para que un modelo analice
-partidos por su cuenta: 42 funciones con su esquema JSON, descripciones
+partidos por su cuenta: 41 funciones con su esquema JSON, descripciones
 escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
 aplanadas y **recortadas** para que no le revienten el contexto.
 
 ```bash
-cancha tools          # las 42, con sus parámetros
+cancha tools          # las 41, con sus parámetros
 cancha tools --json   # los esquemas completos
 cancha mcp            # arranca el servidor MCP
 cancha analista "…"   # o directamente: un modelo local con las herramientas

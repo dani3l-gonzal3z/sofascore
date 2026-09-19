@@ -50,12 +50,12 @@ partido.available()            # secciones con datos
   ids que no estaban contrastados **se descubren solos**, comprobando país y
   género: aquí no se inventa un número que barrería otra liga en silencio.
 - **Un analista en tu máquina.** `cancha analista` habla con Ollama y le da las
-  42 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
+  41 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
   cifra que no le hayan dado.
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
   respuesta es *no se sabe*.
-- **Probado sin red.** 727 tests en menos de siete segundos, y un modo de grabar
+- **Probado sin red.** 713 tests en menos de siete segundos, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
@@ -130,7 +130,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
 | [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
 | [Fuentes de datos](docs/fuentes.md) | Understat, ClubElo, el cruce y de dónde salen las rutas |
-| [Para una IA local](docs/ia.md) | Las 42 herramientas, MCP y cómo indaga |
+| [Para una IA local](docs/ia.md) | Las 41 herramientas, MCP y cómo indaga |
 | [La línea de comandos](docs/comandos.md) | Todos los comandos y sus opciones |
 | [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
 | [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |

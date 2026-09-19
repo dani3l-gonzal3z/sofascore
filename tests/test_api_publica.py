@@ -57,3 +57,37 @@ def test_el_nombre_viejo_sigue_funcionando():
 
     assert sofascore is cancha
     assert sofascore.tools.TOOLS is cancha.tools.TOOLS
+
+
+def test_la_documentacion_no_miente_sobre_cuantas_herramientas_hay():
+    """Ya se dijo 42 una vez con 41 dentro. Que lo cuente un test.
+
+    El CHANGELOG queda fuera a propósito: guarda las cuentas de cada versión,
+    que eran ciertas cuando se escribieron y no deben cambiar después.
+    """
+    import re
+    from pathlib import Path
+
+    from cancha.herramientas import TOOLS
+
+    raiz = Path(__file__).resolve().parents[1]
+    ficheros = [raiz / "README.md", *(raiz / "docs").glob("*.md")]
+    patron = re.compile(r"(?:las |Las )?(\d+)\s+(?:herramientas|funciones|StructuredTool)")
+    for fichero in ficheros:
+        for cuantas in patron.findall(fichero.read_text(encoding="utf-8")):
+            assert int(cuantas) == len(TOOLS), (
+                f"{fichero.name} dice {cuantas} herramientas y hay {len(TOOLS)}")
+
+
+def test_el_catalogo_de_ligas_tampoco_miente():
+    import re
+    from pathlib import Path
+
+    from cancha.ligas import resumen_catalogo
+
+    resumen = resumen_catalogo()
+    raiz = Path(__file__).resolve().parents[1]
+    for fichero in (raiz / "README.md", *(raiz / "docs").glob("*.md")):
+        texto = fichero.read_text(encoding="utf-8")
+        for cuantas in re.findall(r"(\d+)\s+competiciones", texto):
+            assert int(cuantas) == resumen["competiciones"], fichero.name
