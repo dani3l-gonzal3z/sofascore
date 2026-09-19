@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 3
+VERSION_ESQUEMA = 4
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS partidos (
@@ -139,6 +139,17 @@ CREATE TABLE IF NOT EXISTS cuotas (
     prob_visitante  REAL,
     FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS ligas (
+    nombre      TEXT PRIMARY KEY,
+    id          INTEGER,
+    nombre_api  TEXT,
+    pais        TEXT,
+    genero      TEXT,
+    grupo       TEXT,
+    visto_en    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_ligas_id ON ligas(id);
 
 CREATE TABLE IF NOT EXISTS anotaciones (
     clave  TEXT PRIMARY KEY,
@@ -349,6 +360,34 @@ class Almacen:
 
         self._conexion.commit()
         return cuenta
+
+    def guardar_liga(self, competicion, identificador: int, entidad: dict | None = None) -> None:
+        """Apunta qué id tiene una competición del catálogo.
+
+        Lo guarda por su nombre del catálogo, no por el de la API: el nuestro
+        no cambia y el suyo sí.
+        """
+        entidad = entidad or {}
+        self._conexion.execute(
+            """INSERT OR REPLACE INTO ligas
+               (nombre, id, nombre_api, pais, genero, grupo, visto_en)
+               VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)""",
+            (competicion.nombre, int(identificador), entidad.get("name"),
+             ((entidad.get("category") or {}).get("name")) or competicion.pais,
+             competicion.genero, competicion.grupo),
+        )
+        self._conexion.commit()
+
+    def ligas_aprendidas(self) -> list[dict]:
+        """Las competiciones que se descubrieron, de la más reciente atrás."""
+        return self.consulta("SELECT * FROM ligas ORDER BY visto_en DESC")
+
+    def olvidar_ligas(self) -> int:
+        """Borra lo descubierto, para volver a buscarlo."""
+        cuantas = self.consulta("SELECT COUNT(*) AS n FROM ligas")[0]["n"]
+        self._conexion.execute("DELETE FROM ligas")
+        self._conexion.commit()
+        return cuantas
 
     def anotar(self, clave: str, valor: str) -> None:
         """Deja una nota (última fecha barrida, versión del esquema...)."""

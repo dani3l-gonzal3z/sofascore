@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 
+from ..analista import MODELO_POR_DEFECTO, URL_OLLAMA
 from . import comun
-from .comun import imprimir
+from .comun import depuracion, envolver, imprimir
 
 
 def cmd_mcp(args: argparse.Namespace) -> int:
@@ -38,6 +39,73 @@ def cmd_tools(args: argparse.Namespace) -> int:
     imprimir("\n(* = obligatorio).  --json vuelca los esquemas completos.")
     imprimir("Arranca el servidor MCP con: cancha mcp")
     return 0
+
+
+def cmd_analista(args: argparse.Namespace) -> int:
+    """Pregunta en castellano; el modelo local busca los datos y contesta."""
+    from ..analista import Analista, OllamaNoDisponible, texto_de_paso
+    from ..sesion import Sesion
+
+    cliente = comun.construir_cliente(args)
+    sesion = Sesion(cliente=cliente, ruta_almacen=args.db or "datos/cancha.db")
+    analista = Analista(sesion=sesion, modelo=args.modelo, url=args.url,
+                        temperatura=args.temperatura, max_vueltas=args.vueltas)
+    try:
+        estado = analista.comprobar()
+        if args.comprobar or not estado["disponible"] or not estado.get("instalado"):
+            imprimir(f"Ollama: {args.url}")
+            if not estado["disponible"]:
+                imprimir(f"  ✗ {estado['nota']}\n")
+                for linea in estado["como"].splitlines():
+                    imprimir(f"  {linea}")
+                return 1
+            imprimir(f"  ✓ contesta · {len(estado['modelos'])} modelos instalados")
+            for modelo in estado["modelos"][:12]:
+                marca = "→" if modelo["nombre"] == args.modelo else " "
+                imprimir(f"    {marca} {modelo['nombre']:<28} {modelo.get('parametros') or ''}")
+            if estado.get("nota"):
+                imprimir(f"\n  ⚠ {estado['nota']}")
+            imprimir("")
+            for linea in envolver(estado["aviso_herramientas"], 74):
+                imprimir(f"  {linea}")
+            return 0 if args.comprobar else 1
+
+        preguntas = [" ".join(args.pregunta)] if args.pregunta else []
+        if not preguntas:
+            imprimir(f"Analista con {args.modelo}. Escribe una pregunta, o 'salir'.\n")
+        historial = None
+        while True:
+            if preguntas:
+                pregunta = preguntas.pop(0)
+            else:
+                try:
+                    pregunta = input("› ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    imprimir("")
+                    return 0
+                if pregunta.lower() in ("salir", "exit", "quit", ""):
+                    return 0
+            try:
+                salida = analista.preguntar(
+                    pregunta, historial=historial,
+                    al_paso=None if args.quiet else
+                    (lambda paso: (texto_de_paso(paso.as_dict())
+                                   and imprimir(texto_de_paso(paso.as_dict())))))
+            except OllamaNoDisponible as exc:
+                imprimir(f"error: {exc}")
+                return 1
+            historial = salida["historial"]
+            imprimir("")
+            for linea in envolver(salida["respuesta"], 78) or [salida["respuesta"]]:
+                imprimir(linea)
+            imprimir("")
+            if salida.get("agotado"):
+                imprimir("  (se quedó sin vueltas: sube --vueltas si hace falta)\n")
+            if args.pregunta and not preguntas:
+                depuracion(args, cliente)
+                return 0
+    finally:
+        sesion.close()
 
 
 def cmd_web(args: argparse.Namespace) -> int:
@@ -88,3 +156,23 @@ def registrar(sub, comun, informe, listado) -> None:
     p_web.add_argument("--db", help="Fichero de la memoria (por defecto: datos/cancha.db).")
     p_web.add_argument("--briefings", help="Carpeta de los briefings guardados.")
     p_web.set_defaults(func=cmd_web)
+
+    p_analista = sub.add_parser(
+        "analista", parents=[comun],
+        help="Pregunta en castellano; un modelo local busca los datos y contesta.",
+        description="Habla con Ollama y le da las herramientas de cancha. Cada paso "
+                    "se ve: qué preguntó, qué le contestaron y qué concluye. Los "
+                    "números salen de los datos o no se dicen.",
+    )
+    p_analista.add_argument("pregunta", nargs="*", help="Sin pregunta, abre una conversación.")
+    p_analista.add_argument("--modelo", default=MODELO_POR_DEFECTO,
+                            help=f"Modelo de Ollama (por defecto: {MODELO_POR_DEFECTO}).")
+    p_analista.add_argument("--url", default=URL_OLLAMA, help="Dónde escucha Ollama.")
+    p_analista.add_argument("--vueltas", type=int, default=8,
+                            help="Máximo de llamadas a herramientas por pregunta.")
+    p_analista.add_argument("--temperatura", type=float, default=0.2)
+    p_analista.add_argument("--db", help="Fichero de la memoria.")
+    p_analista.add_argument("--comprobar", action="store_true",
+                            help="Solo mirar si Ollama y el modelo están listos.")
+    p_analista.add_argument("--quiet", action="store_true", help="Sin enseñar los pasos.")
+    p_analista.set_defaults(func=cmd_analista)

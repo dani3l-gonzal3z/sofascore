@@ -24,9 +24,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 from .almacen import Almacen
-from .catalog import LEAGUES
 from .client import SofascoreClient
 from .errors import SofascoreError
+from .ligas import GRUPOS as _GRUPOS
+from .ligas import POR_DEFECTO as _POR_DEFECTO
+from .ligas import asegurar, resolver, sin_resolver
 from .match import build_report
 from .models import Event
 
@@ -37,53 +39,22 @@ from .models import Event
 #: «rinde mal contra bloque bajo» de «rinde mal cuando su equipo es favorito».
 SECCIONES = ["statistics", "lineups", "incidents", "shotmap", "odds_featured"]
 
-#: Grupos de competiciones, para no tener que escribir ids.
-GRUPOS: dict[str, tuple[str, ...]] = {
-    "grandes": (
-        "Spain La Liga", "England Premier League", "Italy Serie A",
-        "Germany Bundesliga", "France Ligue 1",
-    ),
-    "uefa": (
-        "UEFA Champions League", "UEFA Europa League", "UEFA Conference League",
-    ),
-    "europeas": (
-        "Netherlands Eredivisie", "Portugal Primeira Liga", "Turkiye Super Lig",
-        "England EFL Championship", "Spain La Liga 2", "Italy Serie B",
-        "Germany 2.Bundesliga", "France Ligue 2", "Ukraine Premier League",
-        "Bulgaria Parva Liga",
-    ),
-    "americas": (
-        "USA MLS", "Mexico Liga MX Apertura", "Mexico Liga MX Clausura",
-        "Argentina Liga Profesional", "CONMEBOL Copa Libertadores", "Peru Liga 1",
-    ),
-    "arabia": ("Saudi Arabia Pro League",),
-}
-
-#: Lo que se barre si no dices otra cosa: lo que pediste tú.
-POR_DEFECTO = ("grandes", "uefa", "americas", "arabia", "europeas")
+#: Los grupos y el catálogo viven en :mod:`cancha.ligas`, que además sabe
+#: descubrir el id de una competición que no tenga. Se reexportan aquí porque
+#: es donde los busca todo el mundo.
+GRUPOS = _GRUPOS
+POR_DEFECTO = _POR_DEFECTO
 
 
-def ligas_de(grupos: tuple[str, ...] | list[str] | None = None) -> dict[int, str]:
-    """Los ids de competición de unos grupos. Sin grupos, los de por defecto."""
-    elegidos = tuple(grupos) if grupos else POR_DEFECTO
-    salida: dict[int, str] = {}
-    for grupo in elegidos:
-        nombres = GRUPOS.get(grupo)
-        if nombres is None:
-            # Puede ser el nombre de una liga suelta, o su id.
-            if str(grupo).isdigit():
-                salida[int(grupo)] = str(grupo)
-                continue
-            from .catalog import find_league
+def ligas_de(grupos: tuple[str, ...] | list[str] | None = None,
+             almacen: Almacen | None = None) -> dict[int, str]:
+    """Los ids de competición de unos grupos. Sin grupos, los de por defecto.
 
-            identificador = find_league(grupo)
-            if identificador:
-                salida[identificador] = grupo
-            continue
-        for nombre in nombres:
-            if nombre in LEAGUES:
-                salida[LEAGUES[nombre]] = nombre
-    return salida
+    Solo salen las que ya se sabe cuáles son: las que aún no tienen id las
+    trae :func:`cancha.ligas.descubrir`, que es lo que hace el barrido sin que
+    se lo pidas.
+    """
+    return resolver(grupos, almacen)
 
 
 @dataclass
@@ -111,6 +82,7 @@ def agenda(
     cliente: SofascoreClient,
     fecha: str | None = None,
     grupos: tuple[str, ...] | list[str] | None = None,
+    almacen: Almacen | None = None,
 ) -> list[Event]:
     """Qué se juega ese día en las competiciones elegidas.
 
@@ -127,7 +99,7 @@ def agenda(
     barata.
     """
     dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    ligas = ligas_de(grupos)
+    ligas = ligas_de(grupos, almacen)
 
     try:
         eventos = [Event.from_api(e) for e in cliente.scheduled_events(dia)]
@@ -250,7 +222,15 @@ def barrer(
     progreso = Progreso()
     dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    partidos = agenda(cliente, dia, grupos)
+    # Lo primero, saber de qué competiciones hablamos. Las que no tengan id se
+    # buscan una vez y quedan guardadas; las siguientes veces esto no cuesta.
+    descubiertas = asegurar(cliente, almacen, grupos, avisar=decir)
+    pendientes = sin_resolver(grupos, almacen)
+    if pendientes:
+        decir(f"{len(pendientes)} competiciones siguen sin identificar "
+              f"(`cancha ligas --faltan` las lista).")
+
+    partidos = agenda(cliente, dia, grupos, almacen)
     decir(f"{len(partidos)} partidos el {dia} en las competiciones elegidas.")
     for evento in partidos:
         almacen.guardar_evento(evento)
@@ -273,6 +253,9 @@ def barrer(
     almacen.anotar("ultima_fecha_barrida", dia)
     return {
         "fecha": dia,
+        "competiciones": len(ligas_de(grupos, almacen)),
+        "competiciones_descubiertas": descubiertas.get("encontradas", 0),
+        "competiciones_sin_identificar": [c.nombre for c in pendientes],
         "partidos_del_dia": len(partidos),
         "equipos": len(equipos),
         **progreso.as_dict(),

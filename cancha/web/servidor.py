@@ -18,6 +18,7 @@ import socket
 import struct
 import threading
 import zlib
+from contextlib import suppress
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -39,10 +40,16 @@ class Servidor:
     """Lo que comparten las peticiones: la sesión, el barrido y la clave."""
 
     def __init__(self, sesion: Sesion | None = None, ruta_almacen: str = "datos/cancha.db",
-                 clave: str = "", carpeta_briefings: str = "datos/briefings") -> None:
+                 clave: str = "", carpeta_briefings: str = "datos/briefings",
+                 modelo: str = "", ollama: str = "") -> None:
+        from ..analista import MODELO_POR_DEFECTO, URL_OLLAMA
+
         self.sesion = sesion or Sesion(ruta_almacen=ruta_almacen)
         self.clave = clave
         self.carpeta_briefings = carpeta_briefings
+        self.modelo = modelo or MODELO_POR_DEFECTO
+        self.ollama = ollama or URL_OLLAMA
+        self._analistas: dict[str, Any] = {}
         self.cerrojo = threading.Lock()
         self.barrido = {"en_marcha": False, "lineas": [], "resumen": None,
                         "empezado": None, "terminado": None}
@@ -63,6 +70,7 @@ class Servidor:
 
     def estado(self) -> dict:
         from ..briefing import guardados
+        from ..ligas import resumen_catalogo
         from ..sources import FUENTES, disponibles
 
         with self.cerrojo:
@@ -74,8 +82,51 @@ class Servidor:
             "fuentes": sorted(FUENTES),
             "librerias": disponibles(),
             "barrido": self.estado_barrido(),
+            "catalogo": resumen_catalogo(self.sesion.almacen),
+            "modelo": self.modelo,
             "hora": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
+
+    # --- analista ---
+
+    def analista(self, modelo: str | None = None):
+        """El analista, uno por modelo, reaprovechando la sesión del servidor."""
+        from ..analista import Analista
+
+        clave = modelo or self.modelo
+        if clave not in self._analistas:
+            self._analistas[clave] = Analista(sesion=self.sesion, modelo=clave,
+                                              url=self.ollama)
+        return self._analistas[clave]
+
+    def estado_analista(self, modelo: str | None = None) -> dict:
+        from ..agentes.langchain import disponible as langchain_disponible
+        from ..analista import OllamaNoDisponible
+
+        try:
+            estado = self.analista(modelo).comprobar()
+        except OllamaNoDisponible as exc:
+            estado = {"disponible": False, "nota": str(exc)}
+        estado["langchain"] = langchain_disponible()
+        return estado
+
+    def preguntar(self, pregunta: str, historial=None, modelo=None, al_paso=None) -> dict:
+        with self.cerrojo:
+            return self.analista(modelo).preguntar(pregunta, historial=historial,
+                                                   al_paso=al_paso)
+
+    # --- casi seguro ---
+
+    def seguro(self, fecha: str | None = None, grupos=None, calibrar: bool = False,
+               umbral: float = 0.65) -> dict:
+        from ..seguro import avisos
+        from ..seguro import calibrar as calibrar_patrones
+
+        with self.cerrojo:
+            if calibrar:
+                return calibrar_patrones(self.sesion.almacen)
+            return avisos(self.sesion.almacen, self.sesion.cliente, fecha=fecha,
+                          grupos=grupos, umbral=umbral)
 
     # --- briefings ---
 
@@ -223,6 +274,47 @@ class Manejador(BaseHTTPRequestHandler):
             return {}
         return datos if isinstance(datos, dict) else {}
 
+    def _analista(self, cuerpo: dict) -> None:
+        """Contesta en NDJSON, un paso por línea, según van pasando.
+
+        Sin ``Content-Length``: el cuerpo lo cierra la conexión. Así el
+        navegador ve «estoy pidiendo los tiros» mientras ocurre, en vez de un
+        minuto de reloj girando y luego un párrafo.
+        """
+        from ..analista import OllamaNoDisponible
+
+        pregunta = str(cuerpo.get("pregunta") or "").strip()
+        if not pregunta:
+            return self._json({"error": "Falta la pregunta."}, 400)
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        def escribir(objeto: dict) -> None:
+            try:
+                self.wfile.write(
+                    (json.dumps(objeto, ensure_ascii=False, default=str) + "\n").encode())
+                self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                raise
+
+        try:
+            salida = self.app.preguntar(
+                pregunta, historial=cuerpo.get("historial"),
+                modelo=cuerpo.get("modelo"),
+                al_paso=lambda paso: escribir({"paso": paso.as_dict()}))
+            escribir({"fin": {k: v for k, v in salida.items() if k != "pasos"}})
+        except OllamaNoDisponible as exc:
+            with suppress(OSError):
+                escribir({"error": str(exc)})
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as exc:  # noqa: BLE001 - el servidor no se cae por una pregunta
+            with suppress(OSError):
+                escribir({"error": f"{type(exc).__name__}: {exc}"})
+
     # --- rutas ---
 
     def do_GET(self) -> None:  # noqa: N802 - nombre que exige http.server
@@ -248,6 +340,9 @@ class Manejador(BaseHTTPRequestHandler):
             return self._json(self.app.esquemas())
         if ruta == "/api/barrido":
             return self._json(self.app.estado_barrido())
+        if ruta == "/api/analista":
+            return self._json(self.app.estado_analista(
+                (consulta.get("modelo") or [None])[0]))
         if ruta.startswith("/api/briefing/"):
             fecha = ruta.rsplit("/", 1)[-1]
             datos = self.app.briefing(fecha)
@@ -269,6 +364,16 @@ class Manejador(BaseHTTPRequestHandler):
             estado = 404 if (isinstance(resultado, dict) and "disponibles" in resultado
                              and "error" in resultado) else 200
             return self._json(resultado, estado)
+        if ruta == "/api/seguro":
+            grupos = cuerpo.get("grupos")
+            if isinstance(grupos, str):
+                grupos = [g for g in grupos.split(",") if g]
+            return self._json(self.app.seguro(
+                cuerpo.get("fecha") or None, grupos or None,
+                calibrar=bool(cuerpo.get("calibrar")),
+                umbral=float(cuerpo.get("umbral") or 0.65)))
+        if ruta == "/api/analista":
+            return self._analista(cuerpo)
         if ruta == "/api/barrido":
             grupos = cuerpo.get("grupos")
             if isinstance(grupos, str):

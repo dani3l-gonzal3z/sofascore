@@ -129,7 +129,7 @@ def test_una_base_vieja_gana_la_tabla_de_cuotas_sin_perder_nada(tmp_path):
     with Almacen(ruta) as base:
         assert base.consulta("SELECT local FROM partidos")[0]["local"] == "Sigo aquí"
         assert base.cuotas_de(1) is None
-        assert base.nota("version_esquema") == "3"
+        assert base.nota("version_esquema") == "4"
 
 
 # ------------------------------------------------------ el sistema o el contexto

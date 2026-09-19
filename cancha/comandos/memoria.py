@@ -568,6 +568,89 @@ def cmd_briefing(args: argparse.Namespace) -> int:
         cliente.close()
 
 
+def cmd_seguro(args: argparse.Namespace) -> int:
+    """Lo que casi siempre pasa, con el número que lo sostiene."""
+    from ..seguro import ELEVACION_MINIMA, MINIMO_CASOS, avisos, calibrar
+
+    almacen = _almacen(args)
+    cliente = None
+    try:
+        liga_id = None
+        if args.liga:
+            from ..catalog import find_league
+            from ..ligas import por_nombre
+
+            competicion = por_nombre(args.liga)
+            liga_id = (competicion.id_conocido if competicion else None) or find_league(args.liga)
+
+        if args.calibrar:
+            datos = calibrar(almacen, liga_id=liga_id, desde=args.desde)
+            if args.stdout_json:
+                imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+                return 0
+            imprimir(f"Calibrado sobre {datos['partidos_mirados']} partidos guardados\n")
+            imprimir(f"  {'PATRÓN':<24}{'CASOS':>7}{'FREC':>8}{'SUELO':>8}{'BASE':>8}"
+                     f"{'ELEV':>8}  VEREDICTO")
+            for medida in datos["patrones"]:
+                if medida["frecuencia"] is None:
+                    imprimir(f"  {medida['patron']:<24}{medida['casos']:>7}"
+                             f"{'—':>8}{'—':>8}{'—':>8}{'—':>8}  sin casos")
+                    continue
+                imprimir(f"  {medida['patron']:<24}{medida['casos']:>7}"
+                         f"{medida['frecuencia']:>8.0%}{medida['suelo']:>8.0%}"
+                         f"{(medida['base'] or 0):>8.0%}{medida['elevacion']:>+8.0%}"
+                         f"  {medida['veredicto']}")
+            imprimir("")
+            for medida in datos["patrones"]:
+                if medida.get("nota"):
+                    imprimir(f"  · {medida['titulo']}: {medida['nota']}")
+            imprimir("")
+            for linea in envolver(datos["como_leerlo"], 74):
+                imprimir(f"  {linea}")
+            imprimir("")
+            for linea in envolver(datos["lo_que_no_dice"], 74):
+                imprimir(f"  {linea}")
+            return 0
+
+        cliente = comun.construir_cliente(args)
+        grupos = args.grupos.split(",") if args.grupos else None
+        datos = avisos(almacen, cliente, fecha=args.date, grupos=grupos,
+                       umbral=args.umbral)
+        if args.stdout_json:
+            imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+            return 0
+        imprimir(f"{datos['fecha']} · {datos['partidos_mirados']} partidos mirados · "
+                 f"calibrado con {datos['calibrado_con']} guardados\n")
+        if not datos["avisos"]:
+            imprimir("Nada que destacar hoy.")
+            imprimir(f"Un patrón sale aquí si supera el {args.umbral:.0%} de suelo, tiene "
+                     f"al menos {MINIMO_CASOS} casos y se separa {ELEVACION_MINIMA:.0%} de "
+                     "su referencia. Si la memoria es corta, no hay nada que superar: "
+                     "barre más y vuelve.")
+            return 0
+        partido_actual = ""
+        for aviso in datos["avisos"]:
+            if aviso["partido"] != partido_actual:
+                partido_actual = aviso["partido"]
+                imprimir(f"\n{aviso['hora_utc'] or '  ?  '}  {partido_actual}"
+                         f"   ({aviso['competicion']})")
+            mercado = (f" · el mercado le da {aviso['mercado']:.0%}"
+                       if aviso.get("mercado") else "")
+            imprimir(f"    {aviso['suelo']:>5.0%} suelo · {aviso['frecuencia']:.0%} en "
+                     f"{aviso['casos']} casos ({aviso['elevacion']:+.0%} sobre su "
+                     f"referencia){mercado}")
+            imprimir(f"          {aviso['sujeto']}: {aviso['dice']}  [{aviso['veredicto']}]")
+        imprimir("")
+        for linea in envolver(datos["lo_que_no_dice"], 74):
+            imprimir(f"  {linea}")
+        depuracion(args, cliente)
+        return 0
+    finally:
+        almacen.close()
+        if cliente:
+            cliente.close()
+
+
 def registrar(sub, comun_p, informe, listado) -> None:
     """Añade los comandos de la memoria."""
     base = argparse.ArgumentParser(add_help=False)
@@ -691,3 +774,20 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_briefing.add_argument("--no-guardar", action="store_true", help="Solo por pantalla.")
     p_briefing.add_argument("--quiet", action="store_true", help="Sin volcarlo por pantalla.")
     p_briefing.set_defaults(func=cmd_briefing)
+
+    p_seguro = sub.add_parser(
+        "seguro", parents=[comun_p, base],
+        help="Lo que casi siempre pasa, con el número que lo sostiene.",
+        description="Cuenta cada patrón sobre tu historial y publica la frecuencia, "
+                    "el suelo de confianza y la elevación sobre su referencia. Nada "
+                    "sale al 99 %: lo que sale es lo que tus datos aguantan.",
+    )
+    p_seguro.add_argument("--date", help="AAAA-MM-DD (por defecto, hoy).")
+    p_seguro.add_argument("--grupos", help="Competiciones, separadas por comas.")
+    p_seguro.add_argument("--calibrar", action="store_true",
+                          help="La tabla entera de patrones medidos sobre el historial.")
+    p_seguro.add_argument("--liga", help="Calibrar solo con una competición.")
+    p_seguro.add_argument("--desde", help="Calibrar solo con partidos desde esta fecha.")
+    p_seguro.add_argument("--umbral", type=float, default=0.65,
+                          help="Suelo mínimo para avisar (por defecto 0.65).")
+    p_seguro.set_defaults(func=cmd_seguro)

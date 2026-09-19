@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ..catalog import LEAGUES, find_league
+from ..catalog import find_league
 from ..endpoints import CATALOGS
 from ..entities import build_player_report, build_team_report, build_tournament_report
 from ..models import Event
@@ -138,13 +138,68 @@ def cmd_today(args: argparse.Namespace) -> int:
 
 
 def cmd_leagues(args: argparse.Namespace) -> int:
-    filtro = (args.filtro or "").lower()
-    encontradas = {k: v for k, v in LEAGUES.items() if filtro in k.lower()}
-    imprimir(f"{'ID':>7}  LIGA")
-    for nombre, identificador in sorted(encontradas.items()):
-        imprimir(f"{identificador:>7}  {nombre}")
-    imprimir(f"\n{len(encontradas)} liga(s). Úsalas con: cancha league \"<nombre>\"")
-    return 0
+    """El catálogo de competiciones, y cuáles están ya identificadas."""
+    from ..almacen import Almacen
+    from ..ligas import CATALOGO, descubrir, resumen_catalogo, sin_resolver
+
+    almacen = Almacen(getattr(args, "db", None) or "datos/cancha.db")
+    cliente = None
+    try:
+        if getattr(args, "descubrir", False):
+            cliente = comun.construir_cliente(args)
+            if args.rehacer:
+                imprimir(f"Olvidadas {almacen.olvidar_ligas()} competiciones aprendidas.\n")
+            imprimir("Buscando en la API las competiciones sin identificar…\n")
+            resumen = descubrir(cliente, almacen, args.grupos.split(",") if args.grupos else None,
+                                rehacer=args.rehacer, avisar=imprimir)
+            imprimir(f"\nEncontradas {resumen['encontradas']} de {resumen['buscadas']}.")
+            for dudosa in resumen["dudosas"]:
+                imprimir(f"  sin confirmar: {dudosa['competicion']} — {dudosa['mejor']}")
+            for fallo in resumen["fallos"][:5]:
+                imprimir(f"  falló: {fallo}")
+            return 0
+
+        from ..ligas import GRUPOS
+
+        aprendidas = {f["nombre"]: f for f in almacen.ligas_aprendidas()}
+        faltan = {c.nombre for c in sin_resolver(list(GRUPOS), almacen)}
+        if getattr(args, "faltan", False):
+            if not faltan:
+                imprimir("Todas las competiciones del catálogo están identificadas.")
+                return 0
+            imprimir(f"{len(faltan)} competiciones sin identificar:\n")
+            for nombre in sorted(faltan):
+                imprimir(f"  {nombre}")
+            imprimir("\nIdentifícalas con: cancha ligas --descubrir")
+            return 0
+
+        filtro = (args.filtro or "").lower()
+        resumen = resumen_catalogo(almacen)
+        imprimir(f"{resumen['competiciones']} competiciones "
+                 f"({resumen['masculinas']} masculinas, {resumen['femeninas']} femeninas) · "
+                 f"{resumen['identificadas']} identificadas\n")
+        grupo_actual = ""
+        for competicion in CATALOGO:
+            if filtro and filtro not in competicion.nombre.lower() \
+                    and filtro not in competicion.grupo and filtro not in competicion.pais.lower():
+                continue
+            if competicion.grupo != grupo_actual:
+                grupo_actual = competicion.grupo
+                imprimir(f"\n{grupo_actual}")
+            identificador = (competicion.id_conocido
+                             or (aprendidas.get(competicion.nombre) or {}).get("id"))
+            marca = "·" if competicion.id_conocido else ("+" if identificador else " ")
+            imprimir(f"  {marca} {str(identificador or '—'):>7}  {competicion.nombre}")
+        imprimir("\n(· contrastada de antes · + descubierta aquí · en blanco: sin identificar)")
+        imprimir(f"Grupos: {', '.join(resumen['grupos'])}")
+        imprimir(f"Atajos: {', '.join(resumen['atajos'])}")
+        if faltan:
+            imprimir(f"\nFaltan {len(faltan)} por identificar: cancha ligas --descubrir")
+        return 0
+    finally:
+        almacen.close()
+        if cliente:
+            cliente.close()
 
 
 def cmd_sections(args: argparse.Namespace) -> int:
@@ -186,8 +241,21 @@ def registrar(sub, comun, informe, listado) -> None:
     p_today.add_argument("--date", help="AAAA-MM-DD (por defecto, hoy).")
     p_today.set_defaults(func=cmd_today)
 
-    p_leagues = sub.add_parser("leagues", help="Ligas conocidas con su id.")
-    p_leagues.add_argument("filtro", nargs="?", help="Filtra por nombre.")
+    p_leagues = sub.add_parser(
+        "ligas", parents=[comun], aliases=["leagues"],
+        help="El catálogo de competiciones: europeas y americanas, ellas y ellos.",
+        description="Los ids de Sofascore no se adivinan, así que los que no "
+                    "estaban contrastados se descubren: --descubrir los busca, "
+                    "comprueba país y género, y los guarda en la memoria.")
+    p_leagues.add_argument("filtro", nargs="?", help="Filtra por nombre, grupo o país.")
+    p_leagues.add_argument("--descubrir", action="store_true",
+                           help="Buscar en la API las competiciones sin id y guardarlas.")
+    p_leagues.add_argument("--rehacer", action="store_true",
+                           help="Volver a descubrirlo todo, olvidando lo aprendido.")
+    p_leagues.add_argument("--faltan", action="store_true",
+                           help="Solo las que aún no están identificadas.")
+    p_leagues.add_argument("--grupos", help="Limitar a estos grupos, separados por comas.")
+    p_leagues.add_argument("--db", help="Fichero de la memoria.")
     p_leagues.set_defaults(func=cmd_leagues)
 
     p_sections = sub.add_parser("sections", help="Lista las secciones del catálogo.")

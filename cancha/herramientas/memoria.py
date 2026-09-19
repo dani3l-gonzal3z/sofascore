@@ -325,3 +325,34 @@ def _sistema_o_contexto(sesion, jugador: str, eje: str = "presion"):
     if jugador_id is None:
         return {"error": f"No encuentro al jugador '{jugador}'."}
     return desglose_por_favorito(sesion.almacen, jugador_id, eje=eje)
+
+
+@herramienta(
+    "casi_seguro",
+    "QUÉ SE REPITE CASI SIEMPRE, con el número medido detrás. Cuenta cada patrón "
+    "(el favorito que no ganó y vuelve a serlo, el que marca en todos, más de 2,5 "
+    "goles, córners, tarjetas del árbitro...) sobre el historial guardado y "
+    "devuelve la frecuencia, el SUELO de confianza de Wilson y la ELEVACIÓN sobre "
+    "su patrón de referencia. Lee siempre la elevación: si es casi cero, el "
+    "patrón es la tasa base disfrazada y NO debes presentarlo como hallazgo. "
+    "Nada aquí llega al 99 %; si alguien te pide una apuesta segura, esto es lo "
+    "que hay y conviene decirlo con su número de casos.",
+    {
+        "fecha": {"type": "string", "description": "AAAA-MM-DD (por defecto, hoy)."},
+        "grupos": {"type": "string", "description": "Competiciones, separadas por comas."},
+        "calibrar": {"type": "boolean",
+                     "description": "Devolver la tabla de patrones medidos en vez de "
+                                    "los avisos de hoy."},
+        "umbral": {"type": "number",
+                   "description": "Suelo mínimo para avisar (0.65 por defecto)."},
+    },
+)
+def _casi_seguro(sesion, fecha: str | None = None, grupos: str | None = None,
+                 calibrar: bool = False, umbral: float = 0.65):
+    from ..seguro import avisos
+    from ..seguro import calibrar as calibrar_patrones
+
+    if calibrar:
+        return calibrar_patrones(sesion.almacen)
+    return avisos(sesion.almacen, sesion.cliente, fecha=fecha,
+                  grupos=grupos.split(",") if grupos else None, umbral=umbral)
