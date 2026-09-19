@@ -1,108 +1,134 @@
 {
-  "results": [
-    {
-      "type": "event",
-      "entity": {
-        "id": 11352550,
-        "slug": "real-madrid-barcelona",
-        "customId": "OR",
-        "tournament": {
-          "name": "LaLiga",
-          "slug": "laliga",
-          "uniqueTournament": {
-            "id": 8,
-            "name": "LaLiga"
-          },
-          "category": {
-            "name": "Spain",
-            "alpha2": "ES"
-          }
-        },
-        "season": {
-          "id": 52376,
-          "name": "LaLiga 24/25",
-          "year": "24/25"
-        },
-        "roundInfo": {
-          "round": 11
-        },
-        "status": {
-          "code": 100,
-          "description": "Finalizado",
-          "type": "finished"
-        },
-        "winnerCode": 2,
-        "homeTeam": {
-          "id": 2829,
-          "name": "Real Madrid",
-          "shortName": "Real Madrid",
-          "nameCode": "RMA",
-          "slug": "real-madrid",
-          "country": {
-            "name": "Spain",
-            "alpha2": "ES"
-          }
-        },
-        "awayTeam": {
-          "id": 2817,
-          "name": "Barcelona",
-          "shortName": "Barcelona",
-          "nameCode": "BAR",
-          "slug": "barcelona",
-          "country": {
-            "name": "Spain",
-            "alpha2": "ES"
-          }
-        },
-        "homeScore": {
-          "current": 0,
-          "period1": 0,
-          "period2": 0,
-          "normaltime": 0
-        },
-        "awayScore": {
-          "current": 4,
-          "period1": 0,
-          "period2": 4,
-          "normaltime": 4
-        },
-        "venue": {
-          "stadium": {
-            "name": "Estadio Santiago Bernabéu",
-            "capacity": 81044
-          },
-          "city": {
-            "name": "Madrid"
-          }
-        },
-        "referee": {
-          "name": "César Soto Grado"
-        },
-        "attendance": 77012,
-        "startTimestamp": 1729972800,
-        "hasGlobalHighlights": true
-      }
+ "results": [
+  {
+   "type": "event",
+   "entity": {
+    "id": 11352550,
+    "slug": "real-madrid-barcelona",
+    "customId": "OR",
+    "tournament": {
+     "name": "LaLiga",
+     "slug": "laliga",
+     "uniqueTournament": {
+      "id": 8,
+      "name": "LaLiga"
+     },
+     "category": {
+      "name": "Spain",
+      "alpha2": "ES"
+     }
     },
-    {
-      "type": "team",
-      "entity": {
-        "id": 2829,
-        "name": "Real Madrid",
-        "shortName": "Real Madrid",
-        "nameCode": "RMA",
-        "slug": "real-madrid",
-        "country": {
-          "name": "Spain",
-          "alpha2": "ES"
-        }
-      }
+    "season": {
+     "id": 52376,
+     "name": "LaLiga 24/25",
+     "year": "24/25"
     },
-    {
-      "type": "player",
-      "entity": {
-        "id": 1,
-        "name": "Alguien"
-      }
+    "roundInfo": {
+     "round": 11
+    },
+    "status": {
+     "code": 100,
+     "description": "Finalizado",
+     "type": "finished"
+    },
+    "winnerCode": 2,
+    "homeTeam": {
+     "id": 2829,
+     "name": "Real Madrid",
+     "shortName": "Real Madrid",
+     "nameCode": "RMA",
+     "slug": "real-madrid",
+     "country": {
+      "name": "Spain",
+      "alpha2": "ES"
+     }
+    },
+    "awayTeam": {
+     "id": 2817,
+     "name": "Barcelona",
+     "shortName": "Barcelona",
+     "nameCode": "BAR",
+     "slug": "barcelona",
+     "country": {
+      "name": "Spain",
+      "alpha2": "ES"
+     }
+    },
+    "homeScore": {
+     "current": 0,
+     "period1": 0,
+     "period2": 0,
+     "normaltime": 0
+    },
+    "awayScore": {
+     "current": 4,
+     "period1": 0,
+     "period2": 4,
+     "normaltime": 4
+    },
+    "venue": {
+     "stadium": {
+      "name": "Estadio Santiago Bernabéu",
+      "capacity": 81044
+     },
+     "city": {
+      "name": "Madrid"
+     }
+    },
+    "referee": {
+     "name": "César Soto Grado"
+    },
+    "attendance": 77012,
+    "startTimestamp": 1729972800,
+    "hasGlobalHighlights": true
+   }
+  },
+  {
+   "type": "team",
+   "entity": {
+    "id": 2829,
+    "name": "Real Madrid",
+    "shortName": "Real Madrid",
+    "nameCode": "RMA",
+    "slug": "real-madrid",
+    "country": {
+     "name": "Spain",
+     "alpha2": "ES"
     }
-  ]
+   }
+  },
+  {
+   "type": "player",
+   "entity": {
+    "id": 1,
+    "name": "Alguien"
+   }
+  },
+  {
+   "type": "player",
+   "entity": {
+    "id": 831993,
+    "name": "Vinicius Junior",
+    "shortName": "Vinicius Jr.",
+    "slug": "vinicius-junior",
+    "position": "F",
+    "team": {
+     "id": 2829,
+     "name": "Real Madrid"
+    }
+   }
+  },
+  {
+   "type": "uniqueTournament",
+   "entity": {
+    "id": 8,
+    "name": "LaLiga",
+    "slug": "laliga",
+    "category": {
+     "name": "Spain",
+     "alpha2": "ES"
+    }
+   }
+  }
+ ]
 }

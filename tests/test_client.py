@@ -1,14 +1,13 @@
 """Cliente HTTP: caché, reintentos, errores y credenciales."""
 
 import pytest
-
-from sofascore.cache import MemoryCache
-from sofascore.client import SofascoreClient
-from sofascore.config import Settings
-from sofascore.errors import HTTPError, NotFound, OfflineError, PlusRequired, TransportError
-from sofascore.transport import FakeTransport, Response
-
 from conftest import EVENT_ID
+
+from cancha.cache import MemoryCache
+from cancha.client import SofascoreClient
+from cancha.config import Settings
+from cancha.errors import HTTPError, NotFound, OfflineError, PlusRequired, TransportError
+from cancha.transport import FakeTransport, Response
 
 
 def _cliente(rutas, **ajustes_extra):
@@ -46,10 +45,10 @@ def test_404_es_notfound():
 
 
 def test_403_en_seccion_plus_es_plusrequired():
-    cli = _cliente({f"/event/{EVENT_ID}/shotmap": 403})
+    cli = _cliente({f"/event/{EVENT_ID}/graph/win-probability": 403})
     with pytest.raises(PlusRequired) as error:
-        cli.section("shotmap", EVENT_ID)
-    assert "shotmap" in str(error.value)
+        cli.section("win_probability", EVENT_ID)
+    assert "win_probability" in str(error.value)
 
 
 def test_403_en_seccion_publica_es_httperror():
@@ -89,7 +88,7 @@ def test_error_de_red_tambien_reintenta():
             self.n += 1
             raise TransportError("sin DNS")
 
-    ajustes = Settings(rate_limit=0, retries=1, backoff=0)
+    ajustes = Settings(rate_limit=0, retries=1, backoff=0, fallback_base_urls=())
     roto = Roto()
     cli = SofascoreClient(ajustes, transport=roto, cache=MemoryCache(), sleep=lambda _s: None)
     with pytest.raises(TransportError):
@@ -153,3 +152,36 @@ def test_partido_terminado_se_cachea_mas_tiempo(cliente):
     assert cliente.ttl_for_event(evento) == cliente.settings.cache_ttl_finished
     evento.status_type = "inprogress"
     assert cliente.ttl_for_event(evento) == cliente.settings.cache_ttl
+
+
+def test_transporte_a_medida():
+    """La puerta de atrás: cualquier función puede hacer de transporte."""
+    from cancha.transport import CallableTransport
+
+    llamadas = []
+
+    def hablar(method, url, headers):
+        llamadas.append((method, url))
+        return 200, b'{"event": {"id": 42}}'
+
+    cli = SofascoreClient(
+        Settings(rate_limit=0), transport=CallableTransport(hablar), cache=MemoryCache()
+    )
+    assert cli.event(42).id == 42
+    assert llamadas[0][0] == "GET"
+
+
+def test_transporte_a_medida_traduce_los_fallos():
+    from cancha.transport import CallableTransport
+
+    def roto(method, url, headers):
+        raise RuntimeError("se cayó")
+
+    cli = SofascoreClient(
+        Settings(rate_limit=0, retries=0, fallback_base_urls=()),
+        transport=CallableTransport(roto),
+        cache=MemoryCache(),
+        sleep=lambda _s: None,
+    )
+    with pytest.raises(TransportError):
+        cli.event(1)

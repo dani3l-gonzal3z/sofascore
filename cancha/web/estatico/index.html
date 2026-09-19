@@ -1,0 +1,1986 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>cancha</title>
+<meta name="description" content="Los partidos del día, lo que casi siempre pasa, y un analista local que busca los datos por ti.">
+<meta name="theme-color" content="#0A6B4A" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0B0E0D" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="cancha">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icono-180.png">
+<link rel="icon" href="/icono-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+/* ═══ programa de partido ═══ papel de periódico y césped de noche ═══ */
+:root {
+  --papel:    #F4F3EE;
+  --cal:      #FFFFFF;
+  --cal-2:    #EAE9E2;
+  --tinta:    #16191A;
+  --gris:     #62696A;
+  --linea:    #DEDDD4;
+  --linea-2:  #C9C8BD;
+  --cesped:   #0A6B4A;
+  --cesped-t: #E0EFE7;
+  --bandera:  #C2410C;
+  --bandera-t:#FBEAE1;
+  --ambar:    #A16207;
+  --ambar-t:  #F7EFDC;
+  --azul:     #1D4E89;
+  --azul-t:   #E3EAF3;
+  --visita:   #8A4B10;
+
+  --r:  10px;
+  --r-s: 6px;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --texto: "Public Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sombra: 0 1px 2px rgba(22, 25, 26, .05), 0 6px 20px -12px rgba(22, 25, 26, .18);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --papel: #0B0E0D; --cal: #141918; --cal-2: #1C2322; --tinta: #E9EDEA;
+    --gris: #8D9793; --linea: #242C2A; --linea-2: #333D3A;
+    --cesped: #3FBF89; --cesped-t: #12261E;
+    --bandera: #F97C4A; --bandera-t: #2E1810;
+    --ambar: #D9A441; --ambar-t: #2A2112;
+    --azul: #7FA8DC; --azul-t: #152232; --visita: #D89C5A;
+    --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -14px rgba(0,0,0,.7);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --papel: #0B0E0D; --cal: #141918; --cal-2: #1C2322; --tinta: #E9EDEA;
+  --gris: #8D9793; --linea: #242C2A; --linea-2: #333D3A;
+  --cesped: #3FBF89; --cesped-t: #12261E;
+  --bandera: #F97C4A; --bandera-t: #2E1810;
+  --ambar: #D9A441; --ambar-t: #2A2112;
+  --azul: #7FA8DC; --azul-t: #152232; --visita: #D89C5A;
+  --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -14px rgba(0,0,0,.7);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--papel); color: var(--tinta);
+  font: 400 15.5px/1.5 var(--texto);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+}
+a { color: inherit; text-decoration-color: var(--linea-2); text-underline-offset: 2px; }
+a:hover { text-decoration-color: currentColor; }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--cesped); outline-offset: 2px; border-radius: 3px; }
+h1, h2, h3, .cifra { font-family: var(--display); }
+h1 { font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+h3 { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+     color: var(--gris); margin: 0; }
+p { margin: 0; }
+code { font: 12.5px var(--mono); background: var(--cal-2); padding: 1px 5px; border-radius: 4px; }
+.gris { color: var(--gris); }
+.peq { font-size: 13px; }
+.mini { font-size: 11.5px; letter-spacing: .04em; text-transform: uppercase; color: var(--gris);
+        font-weight: 600; }
+
+/* ── armazón ───────────────────────────────────────────────────────── */
+.app { display: grid; grid-template-rows: auto 1fr auto; min-height: 100%; }
+header.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--papel); border-bottom: 1px solid var(--linea);
+  padding: 10px 16px; display: flex; align-items: center; gap: 10px;
+}
+.marca { font-family: var(--display); font-weight: 800; font-size: 19px; letter-spacing: -.03em; }
+.marca::before {
+  content: ""; display: inline-block; width: 9px; height: 9px; margin-right: 7px;
+  border: 2px solid var(--cesped); border-radius: 50%; vertical-align: 1px;
+}
+.pulso { margin-left: auto; display: flex; align-items: center; gap: 7px; }
+.led { width: 7px; height: 7px; border-radius: 50%; background: var(--cesped); flex: none; }
+.led.off { background: var(--ambar); }
+.led.mal { background: var(--bandera); }
+main { width: 100%; max-width: 940px; margin: 0 auto; padding: 18px 16px 28px;
+       display: grid; gap: 18px; align-content: start; min-width: 0; }
+main > * { min-width: 0; max-width: 100%; }
+
+nav.barra {
+  position: sticky; bottom: 0; z-index: 20;
+  background: var(--papel); border-top: 1px solid var(--linea);
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px;
+  padding: 5px 6px calc(5px + env(safe-area-inset-bottom, 0px));
+}
+nav.barra a {
+  text-decoration: none; color: var(--gris); display: grid; justify-items: center; gap: 3px;
+  padding: 6px 2px 4px; border-radius: 8px; font-size: 10.5px; font-weight: 600;
+  letter-spacing: .02em;
+}
+nav.barra svg { width: 21px; height: 21px; stroke: currentColor; fill: none;
+                stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+nav.barra a.on { color: var(--tinta); }
+nav.barra a.on svg { stroke: var(--cesped); }
+nav.barra a .punto { width: 4px; height: 4px; border-radius: 50%; background: transparent; }
+nav.barra a.on .punto { background: var(--cesped); }
+
+@media (min-width: 860px) {
+  .app { grid-template-columns: 208px 1fr; grid-template-rows: auto 1fr; }
+  header.top { grid-column: 1 / -1; padding: 12px 22px; }
+  nav.barra {
+    grid-row: 2; grid-column: 1; position: sticky; align-self: start; bottom: auto;
+    top: calc(53px + env(safe-area-inset-top, 0px));
+    display: flex; flex-direction: column; gap: 1px; background: none;
+    border: none; border-right: 1px solid var(--linea); padding: 18px 12px; min-height: 70vh;
+  }
+  nav.barra a { display: flex; flex-direction: row; align-items: center; gap: 11px;
+                padding: 9px 11px; font-size: 14.5px; letter-spacing: 0; }
+  nav.barra a.on { background: var(--cal); box-shadow: var(--sombra); }
+  nav.barra a .punto { display: none; }
+  main { grid-column: 2; padding: 26px 30px 60px; max-width: 900px; margin: 0; }
+}
+
+/* ── piezas ────────────────────────────────────────────────────────── */
+.bloque { display: grid; gap: 11px; min-width: 0; }
+.tarjeta { background: var(--cal); border: 1px solid var(--linea); border-radius: var(--r);
+           padding: 14px 15px; display: grid; gap: 11px; min-width: 0; }
+/* `minmax(0, 1fr)` en vez de la columna automática: sin esto una tabla ancha
+   estira la rejilla entera y la página se desplaza a lo ancho en el móvil,
+   que es justo lo que no puede pasar. */
+main, .tarjeta, .bloque, .detalle, .dia, details {
+  grid-template-columns: minmax(0, 1fr);
+}
+.tarjeta > *, .bloque > *, .detalle > * { min-width: 0; max-width: 100%; }
+details { min-width: 0; max-width: 100%; display: grid; gap: 8px; }
+details > * { min-width: 0; max-width: 100%; }
+details > summary { overflow-wrap: anywhere; }
+.titular { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.titular .resto { margin-left: auto; }
+hr.hr { height: 1px; background: var(--linea); border: 0; margin: 2px 0; }
+.fila { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
+
+.btn {
+  border: 1px solid var(--cesped); background: var(--cesped); color: var(--papel);
+  padding: 9px 14px; border-radius: 8px; font-weight: 600; font-size: 14px; cursor: pointer;
+  white-space: nowrap; transition: filter .12s ease;
+}
+.btn:hover { filter: brightness(1.08); }
+.btn:disabled { opacity: .5; cursor: progress; }
+.btn.plano { background: transparent; color: var(--tinta); border-color: var(--linea-2); }
+.btn.plano:hover { background: var(--cal-2); filter: none; }
+.btn.s { padding: 5px 10px; font-size: 13px; border-radius: 7px; }
+a.btn { text-decoration: none; display: inline-block; }
+
+input.campo, select.campo, textarea.campo {
+  background: var(--cal); border: 1px solid var(--linea-2); border-radius: 8px;
+  padding: 9px 12px; min-width: 0; flex: 1 1 180px; max-width: 100%;
+}
+input.campo::placeholder, textarea.campo::placeholder { color: var(--gris); }
+form.busca { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%;
+       background: var(--cal-2); border-radius: 9px; padding: 3px;
+       gap: 2px; flex-wrap: wrap; }
+.seg button { border: 0; background: none; padding: 6px 12px; border-radius: 7px;
+              font-size: 13.5px; font-weight: 600; color: var(--gris); cursor: pointer; }
+.seg button.on { background: var(--cal); color: var(--tinta); box-shadow: var(--sombra); }
+
+.eti { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700;
+       letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px;
+       background: var(--cal-2); color: var(--gris); white-space: nowrap; text-decoration: none; }
+.eti.verde  { background: var(--cesped-t); color: var(--cesped); }
+.eti.roja   { background: var(--bandera-t); color: var(--bandera); }
+.eti.ambar  { background: var(--ambar-t); color: var(--ambar); }
+.eti.azul   { background: var(--azul-t); color: var(--azul); }
+.eti.hueca  { background: none; border: 1px dashed var(--linea-2); }
+
+/* Un mensaje de error trae a veces una URL entera sin espacios, y eso ensancha
+   la página en el móvil. Que rompa por donde haga falta. */
+.nota, .msg, .peq { overflow-wrap: anywhere; min-width: 0; }
+.nota { font-size: 13px; color: var(--gris); font-style: italic; line-height: 1.5; }
+.msg { border-left: 2px solid var(--azul); background: var(--azul-t); color: var(--tinta);
+       padding: 9px 12px; border-radius: 0 var(--r-s) var(--r-s) 0; font-size: 13.5px; }
+.msg.mal { border-color: var(--bandera); background: var(--bandera-t); }
+.msg.ojo { border-color: var(--ambar); background: var(--ambar-t); }
+.espera { color: var(--gris); font-size: 13.5px; display: flex; align-items: center; gap: 9px;
+          padding: 14px 0; }
+.espera::before { content: ""; width: 14px; height: 14px; border: 2px solid var(--linea-2);
+                  border-top-color: var(--cesped); border-radius: 50%;
+                  animation: giro .8s linear infinite; flex: none; }
+@keyframes giro { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
+
+/* ── tarjeta de partido: plegada por defecto ───────────────────────── */
+.dia { display: grid; gap: 7px; min-width: 0; }
+.liga-tit { display: flex; align-items: baseline; gap: 9px; padding: 10px 2px 2px; }
+.liga-tit .n { font-size: 11.5px; color: var(--gris); font-weight: 600; }
+
+.pdo { background: var(--cal); border: 1px solid var(--linea); border-radius: var(--r);
+       overflow: hidden; transition: border-color .14s ease, box-shadow .14s ease; min-width: 0; }
+.pdo:hover { border-color: var(--linea-2); }
+.pdo.abierto { border-color: var(--linea-2); box-shadow: var(--sombra); }
+.pdo > .cabeza { width: 100%; border: 0; background: none; text-align: left; cursor: pointer;
+                 padding: 11px 13px; display: grid; gap: 7px; }
+.pdo .arriba { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.pdo .hora { font-family: var(--display); font-weight: 600; font-size: 13.5px; color: var(--gris);
+             flex: none; width: 42px; }
+.pdo .equipos { font-weight: 600; font-size: 15.5px; letter-spacing: -.01em; flex: 1 1 auto;
+                min-width: 0; overflow-wrap: anywhere; }
+.pdo .equipos .sep { color: var(--gris); font-weight: 400; margin: 0 5px; }
+.pdo .abajo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-left: 52px; }
+@media (max-width: 470px) { .pdo .abajo { padding-left: 0; } }
+
+.chevron { flex: none; width: 15px; height: 15px; stroke: var(--gris); fill: none;
+           stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+           transition: transform .16s ease; }
+.pdo.abierto .chevron { transform: rotate(180deg); }
+.detalle { border-top: 1px solid var(--linea); padding: 14px 15px 16px; display: grid; gap: 14px;
+           min-width: 0; }
+
+.prob { display: flex; height: 5px; width: 104px; border-radius: 3px; overflow: hidden;
+        background: var(--cal-2); flex: none; }
+.prob i { display: block; height: 100%; }
+.prob .l { background: var(--cesped); }
+.prob .e { background: var(--linea-2); }
+.prob .v { background: var(--visita); }
+
+.forma { display: inline-flex; gap: 2.5px; }
+.forma i { width: 7px; height: 7px; border-radius: 2px; background: var(--linea-2); display: block; }
+.forma i.g { background: var(--cesped); }
+.forma i.p { background: var(--bandera); }
+
+/* ── comparativas ──────────────────────────────────────────────────── */
+.vs { display: grid; gap: 7px; }
+.vs .m { display: grid; grid-template-columns: 48px 1fr 48px; align-items: center; gap: 9px;
+         font-size: 13.5px; }
+.vs .m .et { grid-column: 1 / -1; font-size: 10.5px; letter-spacing: .07em;
+             text-transform: uppercase; color: var(--gris); font-weight: 600; margin-bottom: -4px; }
+.vs .pista { display: flex; height: 6px; border-radius: 3px; overflow: hidden;
+             background: var(--cal-2); }
+.vs .pista i { display: block; height: 100%; }
+.vs .pista .l { background: var(--cesped); }
+.vs .pista .v { background: var(--visita); }
+.vs .izq { text-align: right; font-weight: 600; }
+.vs .der { font-weight: 600; }
+
+.rasgos { display: grid; gap: 5px; }
+.rasgo { display: grid; grid-template-columns: 1fr 92px 46px; gap: 9px; align-items: center;
+         font-size: 13.5px; }
+.rasgo .eje { position: relative; height: 6px; background: var(--cal-2); border-radius: 3px; }
+.rasgo .eje::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px;
+                     width: 1px; background: var(--linea-2); }
+.rasgo .eje i { position: absolute; top: 0; height: 100%; border-radius: 3px;
+                background: var(--cesped); }
+.rasgo .eje i.neg { background: var(--visita); }
+.rasgo .v { text-align: right; font-weight: 700; font-family: var(--display); }
+
+.cifras { display: grid; grid-template-columns: repeat(auto-fit, minmax(102px, 1fr)); gap: 8px; }
+.caja { background: var(--cal-2); border-radius: var(--r-s); padding: 9px 11px; min-width: 0; }
+.caja .cifra { font-size: 21px; font-weight: 700; line-height: 1.1; display: block;
+               letter-spacing: -.01em; }
+.caja .et { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--gris);
+            font-weight: 600; display: block; margin-top: 2px; }
+.tres { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; text-align: center; }
+
+.lista { list-style: none; margin: 0; padding: 0; display: grid; }
+.lista li { padding: 9px 0; border-top: 1px solid var(--linea); display: flex; gap: 9px;
+            align-items: baseline; flex-wrap: wrap; font-size: 14px; min-width: 0; }
+.lista li:first-child { border-top: 0; padding-top: 2px; }
+.lista li.pulsable { cursor: pointer; }
+.lista li.pulsable:hover { background: var(--cal-2); }
+
+/* Una tabla ancha se desliza dentro de su caja; para que `overflow` funcione
+   de verdad dentro de un grid, la caja necesita poder encogerse (`min-width`). */
+.desliza { overflow-x: auto; margin: 0 -2px; min-width: 0; max-width: 100%; }
+table.tb { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.tb th, table.tb td { padding: 6px 8px; text-align: left; border-top: 1px solid var(--linea);
+                           white-space: nowrap; }
+table.tb th { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase;
+              color: var(--gris); font-weight: 600; border-top: 0; }
+table.tb td.n, table.tb th.n { text-align: right; }
+table.tb td:first-child, table.tb th:first-child { white-space: normal; min-width: 130px; }
+
+.grafico svg { width: 100%; height: auto; display: block; }
+.leyenda { display: flex; gap: 14px; font-size: 12.5px; flex-wrap: wrap; color: var(--gris); }
+.leyenda i { display: inline-block; width: 11px; height: 3px; border-radius: 2px;
+             vertical-align: middle; margin-right: 5px; }
+
+/* ── casi seguro ───────────────────────────────────────────────────── */
+.av { display: grid; gap: 8px; border-left: 3px solid var(--linea-2); padding-left: 12px; }
+.av.alto { border-color: var(--bandera); }
+.av.medio { border-color: var(--ambar); }
+.av .cab { display: flex; gap: 9px; align-items: baseline; flex-wrap: wrap; }
+.av .pc { font-family: var(--display); font-size: 25px; font-weight: 800; line-height: 1;
+          letter-spacing: -.02em; flex: none; }
+.barra-conf { position: relative; height: 5px; background: var(--cal-2); border-radius: 3px; }
+.barra-conf i { position: absolute; left: 0; top: 0; height: 100%; border-radius: 3px;
+                background: var(--cesped); }
+.barra-conf b { position: absolute; top: -3px; width: 2px; height: 11px; background: var(--tinta);
+                border-radius: 1px; }
+
+/* ── analista ──────────────────────────────────────────────────────── */
+.chat { display: grid; gap: 14px; }
+.burbuja { display: grid; gap: 7px; min-width: 0; }
+.burbuja.yo { justify-items: end; }
+.burbuja.yo .txt { background: var(--cesped); color: var(--papel);
+                   border-radius: 12px 12px 3px 12px; padding: 9px 13px; max-width: 86%;
+                   overflow-wrap: anywhere; }
+.burbuja.el .txt { background: var(--cal); border: 1px solid var(--linea);
+                   border-radius: 12px 12px 12px 3px; padding: 11px 14px; white-space: pre-wrap;
+                   overflow-wrap: anywhere; }
+.pasos { display: flex; flex-wrap: wrap; gap: 5px; }
+.paso { font: 11.5px var(--mono); background: var(--cal-2); color: var(--gris);
+        padding: 2px 8px; border-radius: 999px; max-width: 100%; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+.paso.vivo { background: var(--cesped-t); color: var(--cesped); }
+.redactar { display: flex; gap: 8px; align-items: flex-end; position: sticky; bottom: 0;
+            background: var(--papel); padding: 8px 0 2px; }
+.redactar textarea { resize: none; max-height: 140px; min-height: 42px; line-height: 1.4; }
+.sugeridas { display: flex; gap: 6px; flex-wrap: wrap; }
+.sug { border: 1px solid var(--linea-2); background: var(--cal); border-radius: 999px;
+       padding: 5px 11px; font-size: 13px; cursor: pointer; text-align: left; }
+.sug:hover { background: var(--cal-2); }
+
+.registro { font: 12.5px/1.45 var(--mono); background: var(--cal-2); border-radius: var(--r-s);
+            padding: 10px 12px; max-height: 240px; overflow: auto; white-space: pre-wrap; }
+details > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--cesped);
+                    list-style: none; }
+details > summary::-webkit-details-marker { display: none; }
+details > summary::before { content: "▸ "; }
+details[open] > summary::before { content: "▾ "; }
+/* El QR se dibuja con una rejilla de cuadraditos. Blanco y negro fijos, no los
+   del tema: un QR con poco contraste no lo lee la cámara. */
+.qr-marco { background: #fff; padding: 14px; border-radius: var(--r-s); width: max-content;
+            max-width: 100%; border: 1px solid var(--linea-2); }
+.qr { display: grid; width: min(248px, 62vw); aspect-ratio: 1; }
+.qr i { background: #fff; }
+.qr i.on { background: #000; }
+
+.vacio { text-align: center; padding: 32px 16px; color: var(--gris); display: grid; gap: 10px;
+         justify-items: center; }
+.vacio svg { width: 34px; height: 34px; stroke: var(--linea-2); fill: none; stroke-width: 1.5;
+             stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <span class="marca">cancha</span>
+    <span class="pulso peq gris" id="pulso"><span class="led off"></span><span>…</span></span>
+  </header>
+  <main id="vista" aria-live="polite"></main>
+  <nav class="barra" id="nav"></nav>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════ utilidades ═══ */
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, attrs, ...hijos) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k === "class") n.className = v;
+    else if (k === "html") n.innerHTML = v;
+    else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? "" : v);
+  }
+  for (const h of hijos.flat(3)) {
+    if (h === null || h === undefined || h === false) continue;
+    n.append(h.nodeType ? h : document.createTextNode(String(h)));
+  }
+  return n;
+}
+const n2 = (v, d = 2) => (v === null || v === undefined || isNaN(v) ? "—" : Number(v).toFixed(d));
+const pc = (v, d = 0) => (v === null || v === undefined || isNaN(v) ? "—" : (Number(v) * 100).toFixed(d) + "%");
+const hoy = () => new Date().toISOString().slice(0, 10);
+const guardar = (k, v) => { try { localStorage.setItem("cancha." + k, JSON.stringify(v)); } catch (e) {} };
+const leer = (k, d) => { try { const v = localStorage.getItem("cancha." + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
+const svg = (d, clase = "") => `<svg viewBox="0 0 24 24" aria-hidden="true" class="${clase}">${d}</svg>`;
+
+/* La clave puede venir en la dirección: es lo que lleva el QR que dibuja
+   `cancha web --lan`, para no tener que teclearla en el móvil. Se guarda y se
+   borra de la barra al momento, que una clave no tiene por qué quedarse en el
+   historial ni salir en una captura. */
+function claveDeLaUrl() {
+  try {
+    const dada = new URLSearchParams(location.search).get("clave");
+    if (!dada) return null;
+    guardar("clave", dada);
+    history.replaceState(null, "", location.pathname + location.hash);
+    return dada;
+  } catch (e) { return null; }
+}
+
+const api = {
+  clave: claveDeLaUrl() || leer("clave", ""),
+  cab() { const h = { "Content-Type": "application/json" }; if (this.clave) h["X-Clave"] = this.clave; return h; },
+  async pedir(ruta, metodo, cuerpo) {
+    try {
+      const r = await fetch(ruta, { method: metodo, headers: this.cab(),
+        body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo) });
+      const d = await r.json().catch(() => ({ error: "La respuesta del servidor no era JSON." }));
+      if (r.status === 401) d.sin_clave = true;
+      return d;
+    } catch (e) { return { error: "No se puede hablar con el servidor: " + e.message }; }
+  },
+  get(ruta) { return this.pedir(ruta, "GET"); },
+  post(ruta, cuerpo) { return this.pedir(ruta, "POST", cuerpo || {}); },
+  h(nombre, args) { return this.post("/api/herramienta/" + nombre, args || {}); },
+};
+
+/* ── componentes comunes ─────────────────────────────────────────── */
+const espera = (t = "Cargando…") => el("div", { class: "espera" }, t);
+const nota = (t) => (t ? el("p", { class: "nota" }, t) : null);
+const msg = (t, c = "") => el("div", { class: "msg " + c }, t);
+function fallo(d) {
+  if (!d) return msg("Sin respuesta del servidor.", "mal");
+  if (d.sin_clave) return el("div", { class: "msg mal" }, "Hace falta la clave del servidor. ",
+    el("a", { href: "#/memoria" }, "Ponla en Memoria →"));
+  if (d.error) return msg(d.error, "mal");
+  if (d.disponible === false) return msg(d.nota || "Sin datos todavía.", "ojo");
+  return null;
+}
+function tarjeta(titulo, ...hijos) {
+  const t = el("section", { class: "tarjeta" });
+  if (titulo) t.append(el("div", { class: "titular" }, el("h3", {}, titulo)));
+  t.append(...hijos.flat(2).filter(Boolean));
+  return t;
+}
+function vacio(icono, titulo, ...resto) {
+  return el("div", { class: "vacio" }, el("span", { html: svg(icono) }),
+    el("h2", {}, titulo), ...resto.filter(Boolean));
+}
+const etiqueta = (texto, tono = "") => el("span", { class: "eti " + tono }, texto);
+const TONOS = {
+  "señal": "roja", "casi seguro": "roja", "indicio": "ambar", "probable": "ambar",
+  "sin muestra": "hueca", "es la tasa base": "", "dentro de lo normal": "",
+  "solo descriptivo": "", "poco": "",
+};
+const veredicto = (v) => etiqueta(v, TONOS[v] === undefined ? "" : TONOS[v]);
+
+/* La comprobación fuera de muestra: medido con el 70 % más viejo, ¿se cumplió
+   en el 30 % más nuevo? Es lo único de aquí que no participó en elegir el
+   patrón, así que va junto al número, no escondido en una nota al pie. */
+const TONOS_FUERA = { aguanta: "verde", "se cae": "roja", "sin muestra": "hueca" };
+const fueraDeMuestra = (f) => (f
+  ? etiqueta(f.veredicto === "aguanta" ? "aguanta después"
+      : f.veredicto === "se cae" ? "se cae después" : "sin comprobar",
+    TONOS_FUERA[f.veredicto] || "")
+  : null);
+
+function forma(resultados) {
+  const c = el("span", { class: "forma", title: String(resultados || "").split("").join(" ") });
+  for (const r of String(resultados || "").slice(0, 6)) c.append(el("i", { class: r.toLowerCase() }));
+  return c;
+}
+function barraProb(p) {
+  if (!p) return null;
+  const l = (p.local || 0) * 100, e = (p.empate || 0) * 100, v = (p.visitante || 0) * 100;
+  return el("span", { class: "prob", title: `${pc(p.local)} local · ${pc(p.empate)} empate · ${pc(p.visitante)} visitante` },
+    el("i", { class: "l", style: `width:${l}%` }), el("i", { class: "e", style: `width:${e}%` }),
+    el("i", { class: "v", style: `width:${v}%` }));
+}
+function comparar(filas, local, visitante) {
+  const c = el("div", { class: "vs" });
+  if (local) c.append(el("div", { class: "leyenda" },
+    el("span", {}, el("i", { style: "background:var(--cesped)" }), local),
+    el("span", {}, el("i", { style: "background:var(--visita)" }), visitante)));
+  for (const f of filas) {
+    const a = Number(String(f.local === null || f.local === undefined ? "" : f.local).replace("%", "")) || 0;
+    const b = Number(String(f.visitante === null || f.visitante === undefined ? "" : f.visitante).replace("%", "")) || 0;
+    const t = a + b || 1;
+    c.append(el("div", { class: "m" }, el("span", { class: "et" }, f.nombre),
+      el("span", { class: "izq" }, f.local === null || f.local === undefined ? "—" : f.local),
+      el("span", { class: "pista" }, el("i", { class: "l", style: `width:${a / t * 100}%` }),
+        el("i", { class: "v", style: `width:${b / t * 100}%` })),
+      el("span", { class: "der" }, f.visitante === null || f.visitante === undefined ? "—" : f.visitante)));
+  }
+  return c;
+}
+function rasgos(dimensiones, limite = 6) {
+  const filas = Object.entries(dimensiones || {})
+    .filter(([, d]) => d && d.diferencia !== undefined && d.diferencia !== null)
+    .sort((x, y) => Math.abs(y[1].diferencia) - Math.abs(x[1].diferencia)).slice(0, limite);
+  if (!filas.length) return nota("Sin media de liga con la que comparar todavía.");
+  const c = el("div", { class: "rasgos" });
+  for (const [nombre, d] of filas) {
+    const v = Math.max(-1, Math.min(1, d.diferencia));
+    const ancho = Math.abs(v) * 50;
+    c.append(el("div", { class: "rasgo" },
+      el("span", {}, nombre.replace(/_/g, " "), " ",
+        el("span", { class: "gris peq" }, `${d.valor} · liga ${d.media_liga}`)),
+      el("span", { class: "eje" }, el("i", { class: v < 0 ? "neg" : "",
+        style: `left:${v < 0 ? 50 - ancho : 50}%;width:${ancho}%` })),
+      el("span", { class: "v" }, (v > 0 ? "+" : "") + Math.round(d.diferencia * 100) + "%")));
+  }
+  return c;
+}
+const cifras = (pares) => el("div", { class: "cifras" }, ...pares.filter(Boolean).map(([v, et]) =>
+  el("div", { class: "caja" }, el("span", { class: "cifra" }, v === null || v === undefined ? "—" : v),
+    el("span", { class: "et" }, et))));
+function tabla(cols, filas, leerCelda) {
+  return el("div", { class: "desliza" }, el("table", { class: "tb" },
+    el("thead", {}, el("tr", {}, ...cols.map((c) => el("th", { class: c.n ? "n" : "" }, c.t)))),
+    el("tbody", {}, ...filas.map((f) => el("tr", {}, ...cols.map((c) => {
+      const v = leerCelda ? leerCelda(f, c) : f[c.k];
+      return el("td", { class: c.n ? "n" : "" }, v && v.nodeType ? v : (v === null || v === undefined ? "—" : v));
+    }))))));
+}
+/* `replaceChildren` convierte un null en la palabra «null» dentro de la
+   página, que es justo lo que no quieres ver. Esto lo filtra como hace `el`. */
+function poner(nodo, ...hijos) {
+  nodo.replaceChildren(...hijos.flat(3)
+    .filter((h) => h !== null && h !== undefined && h !== false));
+}
+
+/* Una sección que no pide nada hasta que se abre. Con diez secciones por
+   partido, traerlas todas de golpe sería una ráfaga de peticiones para leer
+   una; así el móvil solo paga por lo que mira. */
+function plegable(titulo, cargar, abierta) {
+  const cuerpo = el("div", { class: "bloque" });
+  const caja = el("details", abierta ? { open: true } : {}, el("summary", {}, titulo), cuerpo);
+  let pedido = false;
+  async function traer() {
+    if (pedido) return;
+    pedido = true;
+    cuerpo.replaceChildren(espera());
+    try {
+      const nodos = await cargar();
+      cuerpo.replaceChildren(...[].concat(nodos).filter(Boolean));
+    } catch (err) { cuerpo.replaceChildren(msg("Ha fallado: " + err.message, "mal")); }
+  }
+  caja.addEventListener("toggle", () => { if (caja.open) traer(); });
+  if (abierta) traer();
+  return caja;
+}
+
+/* El JSON tal cual. No es bonito, pero es la diferencia entre poder mirar algo
+   desde el móvil y tener que ir al ordenador a por el terminal. */
+const volcado = (o) => el("pre", { class: "registro" }, JSON.stringify(o, null, 1));
+
+function carrera(c) {
+  if (!c || !c.disponible || !(c.serie || []).length) return null;
+  const nombres = Object.keys(c.total || {});
+  const W = 640, H = 190, m = { l: 32, r: 14, t: 12, b: 24 };
+  const maxX = Math.max(90, ...c.serie.map((p) => p.minuto || 0));
+  const maxY = Math.max(0.6, ...nombres.map((k) => c.total[k])) * 1.15;
+  const x = (v) => m.l + (v / maxX) * (W - m.l - m.r);
+  const y = (v) => H - m.b - (v / maxY) * (H - m.t - m.b);
+  const col = ["var(--cesped)", "var(--visita)"];
+  const paso = maxY > 2.4 ? 1 : 0.5;
+  let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="xG acumulado minuto a minuto">`;
+  for (let v = 0; v <= maxY; v += paso)
+    s += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--linea)" stroke-width="1"/>`
+       + `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end" font-size="10.5" fill="var(--gris)">${v.toFixed(1)}</text>`;
+  for (const min of [0, 15, 30, 45, 60, 75, 90])
+    s += `<text x="${x(min)}" y="${H - 6}" text-anchor="middle" font-size="10.5" fill="var(--gris)">${min}'</text>`;
+  nombres.forEach((k, i) => {
+    const pts = [[0, 0], ...c.serie.map((p) => [p.minuto || 0, p[k] || 0])];
+    s += `<path d="${pts.map(([a, b], j) => `${j ? "L" : "M"}${x(a).toFixed(1)},${y(b).toFixed(1)}`).join(" ")}"`
+       + ` fill="none" stroke="${col[i]}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const u = pts[pts.length - 1];
+    s += `<circle cx="${x(u[0])}" cy="${y(u[1])}" r="3.5" fill="${col[i]}"/>`;
+  });
+  s += "</svg>";
+  return el("div", { class: "bloque grafico" }, el("div", { html: s }),
+    el("div", { class: "leyenda" }, ...nombres.map((k, i) =>
+      el("span", {}, el("i", { style: `background:${col[i]}` }), `${k} ${n2(c.total[k])}`))),
+    c.manda_en_xg ? nota(`Manda en xG ${c.manda_en_xg}${c.desde_el_minuto ? ` desde el minuto ${c.desde_el_minuto}` : ""}.`) : null);
+}
+
+const GRUPOS_UI = [["", "Todas"], ["grandes", "Cinco grandes"], ["grandes_f", "Cinco grandes (f)"],
+  ["femenino", "Solo femenino"], ["uefa", "UEFA"], ["europeas", "Europa"],
+  ["usa", "EE. UU. y México"], ["sudamerica", "Sudamérica"], ["america", "América"]];
+
+/* ═══════════════════════════════════════════════════════════ vistas ═══ */
+const V = {};
+
+/* ── HOY ─────────────────────────────────────────────────────────── */
+V.hoy = async (raiz, [fecha]) => {
+  const directo = fecha === "directo";
+  fecha = directo ? hoy() : (fecha || leer("fecha", hoy()));
+  const grupos = leer("grupos", "");
+  raiz.replaceChildren(el("div", { class: "titular" },
+    el("h1", {}, directo ? "En directo" : fecha === hoy() ? "Hoy" : fecha),
+    el("div", { class: "resto fila" },
+      el("div", { class: "seg" },
+        el("button", { class: directo ? "" : "on", onclick: () => ir(`#/hoy/${fecha}`) }, "Agenda"),
+        el("button", { class: directo ? "on" : "", onclick: () => ir("#/hoy/directo") }, "Directo")),
+      directo ? null : el("input", { class: "campo", type: "date", id: "fecha", value: fecha,
+        style: "flex:0 1 148px",
+        onchange: (e) => { guardar("fecha", e.target.value); ir(`#/hoy/${e.target.value}`, true); } }),
+      el("select", { class: "campo", id: "grupos", style: "flex:0 1 172px",
+        onchange: (e) => { guardar("grupos", e.target.value);
+          ir(directo ? "#/hoy/directo" : `#/hoy/${fecha}`, true); } },
+        ...GRUPOS_UI.map(([v, t]) => el("option", { value: v, selected: v === grupos }, t))))));
+  if (directo) return pintarDirecto(raiz);
+  raiz.append(espera("Buscando lo que se juega…"));
+
+  let brief = await api.get("/api/briefing/" + fecha);
+  if (brief && (brief.error || brief.sin_clave)) brief = null;
+  const agenda = brief ? null : await api.h("agenda_del_dia", { fecha, grupos: grupos || undefined });
+  raiz.lastChild.remove();
+  if (!brief && fallo(agenda)) { raiz.append(fallo(agenda)); return; }
+
+  let partidos = [];
+  if (brief) {
+    partidos = brief.partidos.map((p) => ({ id: p.partido.id, liga: p.partido.competicion,
+      hora: p.partido.hora_utc, local: p.partido.local, visitante: p.partido.visitante, datos: p }));
+  } else {
+    for (const [liga, lista] of Object.entries(agenda.por_competicion || {}))
+      for (const p of lista) {
+        const trozos = String(p.partido).split(" - ");
+        partidos.push({ id: p.id, liga, hora: p.hora_utc, local: trozos[0],
+          visitante: trozos.slice(1).join(" - ") });
+      }
+  }
+
+  const digest = el("div", {});
+  raiz.append(digest);
+
+  if (!partidos.length) {
+    raiz.append(vacio('<circle cx="12" cy="12" r="9"/><path d="M12 3v18M3 12h18"/>',
+      "No se juega nada",
+      el("p", { class: "gris peq" }, "Ese día no hay partidos en las competiciones elegidas."),
+      el("a", { class: "btn plano s", href: "#/memoria" }, "Ver el catálogo de ligas")));
+    return;
+  }
+
+  raiz.append(brief
+    ? msg(`Briefing de las ${String(brief.generado || "").slice(11, 16)} UTC · `
+        + `${(brief.memoria || {}).partidos || 0} partidos en memoria.`)
+    : el("div", { class: "fila" },
+        msg("Agenda en directo, sin analizar. Genera el briefing para tener cada partido estudiado.", "ojo"),
+        el("button", { class: "btn s", onclick: (e) => generarBriefing(fecha, raiz, e.currentTarget) },
+          "Generar briefing")));
+
+  const porLiga = {};
+  for (const p of partidos) (porLiga[p.liga || "Otras"] ||= []).push(p);
+  for (const [liga, lista] of Object.entries(porLiga).sort((a, b) => a[0].localeCompare(b[0]))) {
+    const grupo = el("div", { class: "dia" }, el("div", { class: "liga-tit" },
+      el("h3", {}, liga), el("span", { class: "n" }, `${lista.length} partido${lista.length > 1 ? "s" : ""}`)));
+    for (const p of lista) grupo.append(tarjetaPartido(p));
+    raiz.append(grupo);
+  }
+
+  /* El digest de casi seguro llega cuando llega: no bloquea la lista. */
+  api.post("/api/seguro", { fecha, grupos: grupos || undefined, umbral: 0.7 }).then((s) => {
+    if (!s || s.error || !(s.avisos || []).length) return;
+    const porPartido = {};
+    for (const a of s.avisos) (porPartido[a.partido_id] ||= []).push(a);
+    for (const p of partidos) {
+      const suyos = porPartido[p.id] || [];
+      p.avisos = suyos;
+      const nodo = $(`#p${p.id} .insignias`);
+      if (nodo && suyos.length) nodo.prepend(etiqueta(`${suyos.length} casi seguro`, "roja"));
+    }
+    digest.replaceChildren(tarjeta(null,
+      el("div", { class: "titular" }, el("h3", {}, "Casi seguro hoy"),
+        el("a", { class: "resto peq", href: `#/seguro/hoy/${fecha}` }, "ver todo →")),
+      el("ul", { class: "lista" }, ...s.avisos.slice(0, 4).map((a) => el("li", {},
+        el("span", { style: "font-family:var(--display);font-weight:800;font-size:17px;flex:none" }, pc(a.suelo)),
+        el("span", { style: "flex:1 1 200px;min-width:0" }, el("b", {}, a.sujeto), " — ", a.dice),
+        el("span", { class: "gris peq" }, `${a.casos} casos`))))));
+  });
+};
+
+/* Los partidos que se están jugando ahora. Se refresca solo mientras esta
+   vista siga en pantalla: si te vas a otra, el temporizador muere con ella (si
+   no, el móvil se pasaría la tarde pidiendo cosas que nadie mira). */
+const REFRESCO_DIRECTO = 30000;
+
+async function pintarDirecto(raiz) {
+  const caja = el("div", {});
+  const sello = el("span", { class: "gris peq" });
+  raiz.append(el("div", { class: "fila" },
+    msg("Marcadores en vivo, directos de la API: no pasan por la memoria.", ""), sello), caja);
+  caja.append(espera("Mirando qué se juega ahora…"));
+  const mio = location.hash;
+
+  async function refrescar(primera) {
+    const d = await api.h("partidos", { limite: 60 });
+    if (location.hash !== mio) return;            // la vista ya no está
+    if (fallo(d)) { caja.replaceChildren(fallo(d)); return; }
+    const lista = d.partidos || [];
+    sello.textContent = `${lista.length} en juego · ${new Date().toLocaleTimeString().slice(0, 5)}`;
+    if (!lista.length) {
+      caja.replaceChildren(vacio('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+        "Ahora no se juega nada",
+        el("p", { class: "gris peq" }, "Vuelve cuando haya partido, o mira la agenda del día.")));
+    } else {
+      const porLiga = {};
+      for (const x of lista) (porLiga[x.competicion || "Otras"] ||= []).push(x);
+      caja.replaceChildren(...Object.entries(porLiga)
+        .sort((a, b) => a[0].localeCompare(b[0])).map(([liga, suyos]) =>
+          el("div", { class: "dia" },
+            el("div", { class: "liga-tit" }, el("h3", {}, liga),
+              el("span", { class: "n" }, `${suyos.length}`)),
+            el("ul", { class: "lista" }, ...suyos.map((x) => el("li", { class: "pulsable",
+              onclick: () => ir(`#/buscar/partido/${x.id}`) },
+              el("span", { class: "eti roja", style: "flex:none" }, x.estado || "en juego"),
+              el("span", { style: "flex:1 1 200px;font-weight:600;min-width:0" }, x.partido),
+              el("span", { html: svg('<path d="M9 6l6 6-6 6"/>', "chevron") })))))));
+    }
+    if (primera || location.hash === mio) setTimeout(() => {
+      if (location.hash === mio) refrescar(false);
+    }, REFRESCO_DIRECTO);
+  }
+  return refrescar(true);
+}
+
+async function generarBriefing(fecha, raiz, boton) {
+  boton.disabled = true; boton.textContent = "Generando…";
+  const grupos = leer("grupos", "");
+  const d = await api.h("briefing_del_dia", { fecha, grupos: grupos || undefined, recalcular: true });
+  if (fallo(d)) { raiz.append(fallo(d)); boton.disabled = false; boton.textContent = "Generar briefing"; }
+  else ir(`#/hoy/${fecha}`, true);
+}
+
+function tarjetaPartido(p) {
+  const d = p.datos;
+  const mercado = d && d.mercado && d.mercado.disponible ? d.mercado : null;
+  const cuerpo = el("div", { class: "detalle", hidden: true });
+  const insignias = el("span", { class: "insignias fila", style: "gap:5px" });
+  if (d && (d.duelos || []).length) insignias.append(etiqueta(`${d.duelos.length} duelos`, "azul"));
+  if (mercado && mercado.favorito && mercado.favorito.lado)
+    insignias.append(etiqueta(`${mercado.favorito.lado} ${mercado.favorito.claridad}`));
+
+  const equipos = (d && d.equipos) || {};
+  const formaL = equipos.local && equipos.local.resultados ? equipos.local.resultados.racha : null;
+  const formaV = equipos.visitante && equipos.visitante.resultados ? equipos.visitante.resultados.racha : null;
+
+  const cabeza = el("button", { class: "cabeza", type: "button", "aria-expanded": "false",
+    onclick: (e) => alternar(e.currentTarget, p, cuerpo) },
+    el("div", { class: "arriba" },
+      el("span", { class: "hora" }, p.hora || "—"),
+      el("span", { class: "equipos" }, p.local, el("span", { class: "sep" }, "–"), p.visitante),
+      el("span", { html: svg('<path d="M6 9l6 6 6-6"/>', "chevron") })),
+    el("div", { class: "abajo peq gris" },
+      barraProb(mercado ? mercado.probabilidades : null),
+      formaL ? el("span", { class: "fila", style: "gap:5px" }, forma(formaL),
+        el("span", { class: "gris" }, "/"), forma(formaV)) : null,
+      insignias));
+  return el("article", { class: "pdo", id: "p" + p.id }, cabeza, cuerpo);
+}
+
+async function alternar(cabeza, p, cuerpo) {
+  const caja = cabeza.parentElement;
+  const abierto = !cuerpo.hidden;
+  cuerpo.hidden = abierto;
+  caja.classList.toggle("abierto", !abierto);
+  cabeza.setAttribute("aria-expanded", String(!abierto));
+  if (abierto || cuerpo.dataset.cargado) return;
+  cuerpo.dataset.cargado = "1";
+  cuerpo.replaceChildren(espera("Montando la previa…"));
+  const pv = await api.h("previa_de_partido", { partido: String(p.id) });
+  cuerpo.replaceChildren(...previaDentro(pv, p).filter(Boolean));
+}
+
+function previaDentro(pv, p) {
+  const err = fallo(pv);
+  if (err) return [err];
+  const partes = [];
+  const mercado = pv.mercado && pv.mercado.disponible ? pv.mercado : null;
+  if (mercado) {
+    const pr = mercado.probabilidades || {};
+    const lectura = mercado.favorito && mercado.favorito.lectura;
+    partes.push(el("div", { class: "bloque" }, el("h3", {}, "Lo que dice el mercado"),
+      el("div", { class: "tres" },
+        el("div", { class: "caja" }, el("span", { class: "cifra" }, pc(pr.local)), el("span", { class: "et" }, "local")),
+        el("div", { class: "caja" }, el("span", { class: "cifra" }, pc(pr.empate)), el("span", { class: "et" }, "empate")),
+        el("div", { class: "caja" }, el("span", { class: "cifra" }, pc(pr.visitante)), el("span", { class: "et" }, "visitante"))),
+      nota(lectura ? lectura[0].toUpperCase() + lectura.slice(1) + "." : null)));
+  } else if (pv.mercado && pv.mercado.nota) partes.push(nota(pv.mercado.nota));
+
+  for (const lado of ["local", "visitante"]) {
+    const e = (pv.equipos || {})[lado];
+    const nombre = (pv.partido || {})[lado] || (lado === "local" ? p.local : p.visitante);
+    if (!e) continue;
+    if (!e.disponible) {
+      partes.push(el("div", { class: "bloque" }, el("h3", {}, nombre), msg(e.nota, "ojo")));
+      continue;
+    }
+    const r = e.resultados;
+    const jugadores = ((pv.jugadores || {})[lado] || []).filter((j) => (j.rachas || []).length);
+    partes.push(el("div", { class: "bloque" },
+      el("div", { class: "titular" }, el("h3", {}, nombre),
+        el("span", { class: "resto fila peq gris", style: "gap:7px" }, forma(r.racha),
+          `${r.goles_favor}-${r.goles_contra} en ${e.partidos_mirados}`,
+          el("a", { href: `#/buscar/equipo/${encodeURIComponent(nombre)}` }, "ver →"))),
+      rasgos(e.dimensiones, 4),
+      jugadores.length ? el("ul", { class: "lista" }, ...jugadores.slice(0, 3).map((j) =>
+        el("li", {}, el("a", { href: `#/buscar/jugador/${encodeURIComponent(j.jugador)}` }, j.jugador),
+          el("span", { class: "gris peq" }, j.rachas.join(" · "))))) : null));
+  }
+
+  if ((pv.donde_se_hacen_dano || []).length)
+    partes.push(el("div", { class: "bloque" }, el("h3", {}, "Dónde se pueden hacer daño"),
+      el("ul", { class: "lista" }, ...pv.donde_se_hacen_dano.slice(0, 4).map((c) => el("li", {}, c.aviso)))));
+
+  const duelos = (p.datos && p.datos.duelos) || [];
+  if (duelos.length)
+    partes.push(el("div", { class: "bloque" }, el("h3", {}, "Jugador contra sistema"),
+      el("ul", { class: "lista" }, ...duelos.slice(0, 5).map((d) => el("li", {},
+        veredicto(d.veredicto),
+        el("span", { style: "flex:1 1 200px;min-width:0" },
+          el("a", { href: `#/buscar/duelo/${encodeURIComponent(d.jugador)}/${encodeURIComponent(d.rival)}` }, d.jugador),
+          ` contra ${d.el_rival_es}: ${d.metrica.replace(/_/g, " ")} `,
+          el("b", {}, d.por_90), `/90 frente a ${d.su_media}`),
+        el("span", { class: "gris peq" }, `${d.partidos} partidos`))))));
+
+  const a = pv.arbitro || {};
+  partes.push(el("div", { class: "bloque" }, el("h3", {}, "Árbitro"),
+    a.disponible
+      ? el("div", { class: "bloque" },
+          el("div", { class: "fila" }, el("b", {}, a.arbitro),
+            el("span", { class: "gris peq" }, `${a.partidos_mirados} partidos vistos`)),
+          cifras([[a.por_partido.amarillas, "amarillas"], [a.por_partido.rojas, "rojas"],
+                  [a.por_partido.penaltis, "penaltis"], [a.por_partido.faltas, "faltas"]]),
+          nota(a.aviso))
+      : nota(a.nota || "Sin árbitro designado todavía.")));
+
+  partes.push(el("div", { class: "fila" },
+    el("a", { class: "btn plano s", href: `#/buscar/partido/${p.id}` }, "Abrir el partido entero"),
+    (pv.memoria || {}).consejo ? el("span", { class: "gris peq" }, pv.memoria.consejo) : null));
+  return partes;
+}
+
+/* ── CASI SEGURO ─────────────────────────────────────────────────── */
+V.seguro = async (raiz, [modo, fechaRuta]) => {
+  modo = modo === "calibrar" ? "calibrar" : "hoy";
+  const fecha = fechaRuta || leer("fecha", hoy());
+  raiz.replaceChildren(
+    el("div", { class: "titular" }, el("h1", {}, "Casi seguro"),
+      el("div", { class: "resto fila" },
+        modo === "hoy" ? el("input", { class: "campo", type: "date", id: "s-fecha", value: fecha,
+          style: "flex:0 1 148px",
+          onchange: (e) => { guardar("fecha", e.target.value); ir(`#/seguro/hoy/${e.target.value}`, true); } }) : null,
+        el("div", { class: "seg" },
+          el("button", { class: modo === "hoy" ? "on" : "", onclick: () => ir(`#/seguro/hoy/${fecha}`) }, "Hoy"),
+          el("button", { class: modo === "calibrar" ? "on" : "", onclick: () => ir("#/seguro/calibrar") }, "Los patrones")))),
+    msg("Aquí no hay apuestas seguras: hay frecuencias contadas sobre lo que tienes guardado, con "
+      + "su número de casos y su suelo de confianza. Si un patrón coincide con la tasa base, se dice.", "ojo"),
+    espera(modo === "hoy" ? "Midiendo lo de hoy…" : "Contando el historial…"));
+
+  const d = await api.post("/api/seguro", modo === "calibrar" ? { calibrar: true } : { fecha, umbral: 0.65 });
+  raiz.lastChild.remove();
+  if (fallo(d)) { raiz.append(fallo(d)); return; }
+
+  if (modo === "calibrar") {
+    raiz.append(tarjeta(null,
+      el("p", { class: "peq gris" }, `Calibrado sobre ${d.partidos_mirados} partidos guardados.`),
+      el("div", { class: "desliza" }, el("table", { class: "tb" },
+        el("thead", {}, el("tr", {}, el("th", {}, "Patrón"), el("th", { class: "n" }, "Casos"),
+          el("th", { class: "n" }, "Frec."), el("th", { class: "n" }, "Suelo"),
+          el("th", { class: "n" }, "Elev."), el("th", {}, ""), el("th", {}, "Después"))),
+        el("tbody", {}, ...d.patrones.map((m) => el("tr", {},
+          el("td", {}, el("div", {}, m.titulo), el("div", { class: "gris peq" }, m.pregunta)),
+          el("td", { class: "n" }, m.casos),
+          el("td", { class: "n" }, m.frecuencia === null ? "—" : pc(m.frecuencia)),
+          el("td", { class: "n" }, m.casos ? pc(m.suelo) : "—"),
+          el("td", { class: "n" }, m.casos ? (m.elevacion > 0 ? "+" : "") + pc(m.elevacion) : "—"),
+          el("td", {}, veredicto(m.veredicto)),
+          el("td", {}, fueraDeMuestra(m.fuera_de_muestra))))))),
+      ...d.patrones.filter((m) => m.nota).map((m) => nota(`${m.titulo}: ${m.nota}`)),
+      el("hr", { class: "hr" }),
+      el("details", {}, el("summary", {}, "La comprobación fuera de muestra, patrón a patrón"),
+        el("ul", { class: "lista" }, ...d.patrones.filter((m) => m.fuera_de_muestra)
+          .map((m) => el("li", {}, fueraDeMuestra(m.fuera_de_muestra),
+            el("span", { style: "flex:1 1 200px;min-width:0" },
+              el("b", {}, m.titulo), " ", m.fuera_de_muestra.lectura))))),
+      nota(d.como_leerlo), nota(d.lo_que_no_dice)));
+    return;
+  }
+
+  if (!(d.avisos || []).length) {
+    raiz.append(vacio('<path d="M12 3l7 3v6c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/>',
+      "Hoy no se cumple nada que aguante el recuento",
+      el("p", { class: "gris peq", style: "max-width:46ch" },
+        "Un patrón sale aquí si tiene al menos 30 casos, un suelo por encima del 65 % y se separa "
+        + `de su referencia. Calibrado con ${d.calibrado_con} partidos guardados.`),
+      el("div", { class: "fila" },
+        el("a", { class: "btn plano s", href: "#/seguro/calibrar" }, "Ver los patrones"),
+        el("a", { class: "btn plano s", href: "#/memoria" }, "Barrer más partidos"))));
+    return;
+  }
+  const porPartido = {};
+  for (const a of d.avisos) (porPartido[a.partido] ||= []).push(a);
+  for (const [partido, lista] of Object.entries(porPartido)) {
+    const c = tarjeta(null, el("div", { class: "titular" }, el("h2", {}, partido),
+      el("span", { class: "resto gris peq" }, `${lista[0].hora_utc || ""} · ${lista[0].competicion || ""}`)));
+    for (const a of lista) {
+      c.append(el("div", { class: "av " + (a.suelo >= 0.8 ? "alto" : "medio") },
+        el("div", { class: "cab" }, el("span", { class: "pc" }, pc(a.suelo)),
+          el("span", { style: "flex:1 1 220px;min-width:0" }, el("b", {}, a.sujeto), " — ", a.dice),
+          veredicto(a.veredicto), fueraDeMuestra(a.fuera_de_muestra)),
+        el("div", { class: "barra-conf", title: `frecuencia ${pc(a.frecuencia)} · suelo ${pc(a.suelo)}` },
+          el("i", { style: `width:${(a.suelo || 0) * 100}%` }),
+          el("b", { style: `left:calc(${(a.frecuencia || 0) * 100}% - 1px)` })),
+        el("div", { class: "fila peq gris" }, `${pc(a.frecuencia)} en ${a.casos} casos`,
+          el("span", {}, `${a.elevacion > 0 ? "+" : ""}${pc(a.elevacion)} sobre su referencia`),
+          a.mercado ? el("span", {}, `el mercado le da ${pc(a.mercado)}`) : null),
+        a.fuera_de_muestra ? nota(a.fuera_de_muestra.lectura) : null));
+    }
+    c.append(el("a", { class: "btn plano s", style: "justify-self:start",
+      href: `#/buscar/partido/${lista[0].partido_id}` }, "Ver el partido"));
+    raiz.append(c);
+  }
+  raiz.append(nota(d.lo_que_no_dice));
+};
+
+/* ── ANALISTA ────────────────────────────────────────────────────── */
+const SUGERENCIAS = [
+  "¿Qué se juega hoy y cuál es el partido más interesante?",
+  "¿Cómo llega el Girona y dónde le pueden hacer daño?",
+  "¿Qué dice el recuento del patrón del favorito que pinchó?",
+  "¿A algún delantero se le da mal el bloque bajo de verdad, y no por contexto?",
+];
+V.analista = async (raiz) => {
+  const hilo = el("div", { class: "chat" });
+  const caja = el("textarea", { class: "campo", id: "pregunta", rows: 1,
+    placeholder: "Pregunta lo que quieras…",
+    onkeydown: (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); } },
+    oninput: (e) => { e.target.style.height = "auto";
+      e.target.style.height = Math.min(140, e.target.scrollHeight) + "px"; } });
+  const boton = el("button", { class: "btn", onclick: () => enviar() }, "Preguntar");
+  const sugeridas = el("div", { class: "sugeridas" }, ...SUGERENCIAS.map((s) =>
+    el("button", { class: "sug", type: "button", onclick: () => { caja.value = s; enviar(); } }, s)));
+  const avisoOllama = el("div", {});
+
+  raiz.replaceChildren(el("div", { class: "titular" }, el("h1", {}, "Analista"),
+    el("span", { class: "resto gris peq", id: "modelo" }, "")),
+    avisoOllama, hilo, sugeridas, el("div", { class: "redactar" }, caja, boton));
+
+  const estado = await api.get("/api/analista");
+  $("#modelo").textContent = (estado && estado.modelo) || "";
+  if (!estado || estado.disponible === false) {
+    avisoOllama.replaceChildren(el("div", { class: "msg mal" },
+      el("div", {}, (estado && (estado.nota || estado.error)) || "Ollama no contesta."),
+      el("div", { class: "peq", style: "margin-top:6px" }, "Instálalo desde ",
+        el("a", { href: "https://ollama.com", target: "_blank", rel: "noopener" }, "ollama.com"),
+        ", arráncalo y trae un modelo que sepa llamar funciones:"),
+      el("pre", { class: "registro", style: "margin-top:6px" }, "ollama pull hermes3")));
+    boton.disabled = true;
+  } else if (estado.instalado === false) {
+    avisoOllama.replaceChildren(msg(estado.nota, "ojo"));
+  }
+
+  let historial = leer("hilo", null);
+  let ocupado = false;
+  if (historial) hilo.append(el("div", { class: "fila" },
+    el("span", { class: "gris peq" }, "Hay una conversación anterior guardada."),
+    el("button", { class: "btn plano s", onclick: () => {
+      historial = null; guardar("hilo", null); hilo.replaceChildren(); sugeridas.hidden = false;
+    } }, "Empezar de cero")));
+
+  async function enviar() {
+    const pregunta = caja.value.trim();
+    if (!pregunta || ocupado) return;
+    ocupado = true; boton.disabled = true; caja.value = ""; caja.style.height = "auto";
+    sugeridas.hidden = true;
+    hilo.append(el("div", { class: "burbuja yo" }, el("div", { class: "txt" }, pregunta)));
+    const pasos = el("div", { class: "pasos" }, el("span", { class: "paso vivo" }, "pensando…"));
+    const texto = el("div", { class: "txt" }, espera("…"));
+    const burbuja = el("div", { class: "burbuja el" }, pasos, texto);
+    hilo.append(burbuja);
+    burbuja.scrollIntoView({ block: "end", behavior: "smooth" });
+
+    try {
+      const r = await fetch("/api/analista", { method: "POST", headers: api.cab(),
+        body: JSON.stringify({ pregunta, historial }) });
+      if (!r.ok || !r.body) throw new Error(`El servidor no ha aceptado la pregunta (${r.status}).`);
+      const lector = r.body.getReader(), dec = new TextDecoder();
+      let resto = "";
+      for (;;) {
+        const trozo = await lector.read();
+        if (trozo.done) break;
+        resto += dec.decode(trozo.value, { stream: true });
+        const lineas = resto.split("\n"); resto = lineas.pop() || "";
+        for (const linea of lineas) {
+          if (!linea.trim()) continue;
+          let ev;
+          try { ev = JSON.parse(linea); } catch (e) { continue; }
+          if (ev.error) { texto.replaceChildren(msg(ev.error, "mal")); pasos.replaceChildren(); }
+          if (ev.paso) {
+            const p = ev.paso;
+            pasos.querySelectorAll(".vivo").forEach((n) => n.classList.remove("vivo"));
+            if (p.tipo === "herramienta")
+              pasos.append(el("span", { class: "paso vivo", title: JSON.stringify(p.argumentos || {}) }, p.nombre));
+            else if (p.tipo === "resultado") {
+              const ultimo = pasos.lastElementChild;
+              if (ultimo) ultimo.textContent = `${p.nombre} · ${p.caracteres}c`;
+            } else if (p.tipo === "aviso") pasos.append(el("span", { class: "paso" }, p.texto));
+            else if (p.tipo === "respuesta") texto.replaceChildren(p.texto || "(sin respuesta)");
+          }
+          if (ev.fin) { historial = ev.fin.historial; guardar("hilo", historial); }
+        }
+      }
+      if (texto.querySelector(".espera")) texto.replaceChildren(msg("No ha llegado respuesta.", "ojo"));
+    } catch (e) {
+      texto.replaceChildren(msg(e.message, "mal"));
+    } finally {
+      pasos.querySelectorAll(".vivo").forEach((n) => n.classList.remove("vivo"));
+      ocupado = false; boton.disabled = false; caja.focus();
+      burbuja.scrollIntoView({ block: "end", behavior: "smooth" });
+    }
+  }
+};
+
+/* ── BUSCAR ──────────────────────────────────────────────────────── */
+V.buscar = async (raiz, partes) => {
+  const modos = ["partido", "equipo", "jugador", "liga", "duelo"];
+  const modo = modos.indexOf(partes[0]) >= 0 ? partes[0] : leer("modo", "partido");
+  const arg = partes[1] ? decodeURIComponent(partes[1]) : "";
+  const arg2 = partes[2] ? decodeURIComponent(partes[2]) : "";
+  guardar("modo", modo);
+
+  raiz.replaceChildren(el("div", { class: "titular" }, el("h1", {}, "Buscar"),
+    el("span", { class: "resto" }, el("div", { class: "seg" },
+      ...modos.map((v) => el("button", { class: v === modo ? "on" : "",
+        onclick: () => ir(`#/buscar/${v}`) }, v[0].toUpperCase() + v.slice(1)))))));
+
+  if (modo === "duelo") {
+    const j = el("input", { class: "campo", id: "d-jug", placeholder: "Jugador", value: arg, autocomplete: "off" });
+    const r = el("input", { class: "campo", id: "d-riv", placeholder: "Equipo rival", value: arg2, autocomplete: "off" });
+    raiz.append(el("form", { class: "busca", onsubmit: (e) => { e.preventDefault();
+      if (j.value.trim() && r.value.trim())
+        ir(`#/buscar/duelo/${encodeURIComponent(j.value.trim())}/${encodeURIComponent(r.value.trim())}`, true); } },
+      j, r, el("button", { class: "btn", type: "submit" }, "Ver")));
+    if (!arg || !arg2) { raiz.append(nota("Qué le ha pasado a ese jugador contra lo que ese rival suele plantear.")); return; }
+    return pintarDuelo(raiz, arg, arg2);
+  }
+
+  const marcadores = { partido: "Real Madrid vs Barcelona, una URL o un id",
+    equipo: "Girona, Real Madrid, un id…", jugador: "Vinicius, Lewandowski, un id…",
+    liga: "laliga, premier, champions, liga_f…" };
+  const caja = el("input", { class: "campo", type: "search", id: "q", value: arg,
+    placeholder: marcadores[modo], autocomplete: "off", enterkeyhint: "search" });
+  raiz.append(el("form", { class: "busca", onsubmit: (e) => { e.preventDefault();
+    if (caja.value.trim()) ir(`#/buscar/${modo}/${encodeURIComponent(caja.value.trim())}`, true); } },
+    caja, el("button", { class: "btn", type: "submit" }, "Buscar")));
+
+  if (!arg) {
+    raiz.append(nota({ partido: "El informe entero de un partido: estadísticas, xG, tiros y contexto.",
+      equipo: "Cómo juega comparado con su liga, con qué plantea y si ha cambiado.",
+      jugador: "Forma, rachas y cómo rinde según el sistema que le pongan delante.",
+      liga: "Clasificación, histórico de resultados, ranking Elo y las tablas de FBref." }[modo]));
+    if (modo === "liga") raiz.append(el("div", { class: "fila" },
+      ...["laliga", "premier", "serie_a", "bundesliga", "ligue_1", "champions", "liga_f", "mls"]
+        .map((x) => el("button", { class: "sug", onclick: () => ir(`#/buscar/liga/${x}`) }, x))));
+    return;
+  }
+  if (modo === "partido") return pintarPartido(raiz, arg);
+  if (modo === "equipo") return pintarEquipo(raiz, arg);
+  if (modo === "liga") return pintarLiga(raiz, arg);
+  return pintarJugador(raiz, arg);
+};
+
+async function pintarPartido(raiz, consulta) {
+  raiz.append(espera("Trayendo el partido…"));
+  if (!/^\d+$/.test(consulta)) {
+    const cand = await api.h("buscar_partido", { consulta, limite: 8 });
+    raiz.lastChild.remove();
+    if (fallo(cand)) { raiz.append(fallo(cand)); return; }
+    raiz.append(tarjeta("Candidatos", el("ul", { class: "lista" }, ...cand.candidatos.map((c) =>
+      el("li", { class: "pulsable", onclick: () => ir(`#/buscar/partido/${c.id}`) },
+        el("span", { class: "gris peq", style: "width:56px;flex:none" }, String(c.fecha || "").slice(5)),
+        el("span", { style: "flex:1 1 180px;font-weight:600;min-width:0" }, c.partido),
+        el("span", { class: "gris peq" }, `${c.marcador} · ${c.competicion}`))))));
+    return;
+  }
+  const [res, ana, est, tir] = await Promise.all([
+    api.h("resumen_partido", { partido: consulta }), api.h("analisis_partido", { partido: consulta }),
+    api.h("estadisticas_partido", { partido: consulta }), api.h("tiros_partido", { partido: consulta })]);
+  raiz.lastChild.remove();
+  if (fallo(res)) { raiz.append(fallo(res)); return; }
+  const p = res.partido;
+  raiz.append(tarjeta(null,
+    el("div", { class: "gris peq" }, [p.tournament, p.round ? "jornada " + p.round : null, p.date, p.venue]
+      .filter(Boolean).join(" · ")),
+    el("div", { class: "fila", style: "gap:14px;align-items:baseline" },
+      el("h2", { style: "flex:1 1 90px" }, p.home.name),
+      el("span", { style: "font-family:var(--display);font-weight:800;font-size:30px;letter-spacing:-.02em" },
+        p.home.score === null ? "vs" : `${p.home.score} – ${p.away.score}`),
+      el("h2", { style: "flex:1 1 90px;text-align:right" }, p.away.name)),
+    (res.goles || []).length ? el("div", { class: "gris peq", style: "text-align:center" },
+      res.goles.map((g) => `${g.minuto}' ${g.jugador}`).join(" · ")) : null,
+    el("div", { class: "fila peq" },
+      el("a", { href: `#/buscar/equipo/${encodeURIComponent(p.home.name)}` }, p.home.name + " →"),
+      el("a", { href: `#/buscar/equipo/${encodeURIComponent(p.away.name)}` }, p.away.name + " →"),
+      p.referee ? el("span", { class: "gris" }, "árbitro " + p.referee) : null)));
+
+  const CLAVES = new Map([["ballPossession", "Posesión"], ["expectedGoals", "xG"],
+    ["totalShotsOnGoal", "Tiros"], ["shotsOnGoal", "A puerta"], ["bigChanceCreated", "Ocasiones claras"],
+    ["cornerKicks", "Córners"], ["passes", "Pases"], ["fouls", "Faltas"], ["yellowCards", "Amarillas"]]);
+  const filas = (est.estadisticas || []).filter((f) => CLAVES.has(f.clave))
+    .map((f) => ({ nombre: CLAVES.get(f.clave), local: f.local, visitante: f.visitante }));
+  if (filas.length) raiz.append(tarjeta("Estadísticas", comparar(filas, p.home.name, p.away.name)));
+
+  const pe = ana && ana.puntos_esperados;
+  if (pe && pe.disponible) {
+    const claves = Object.keys(pe.probabilidades), valores = Object.values(pe.probabilidades);
+    raiz.append(tarjeta("¿Ganó el que mereció?",
+      el("div", { class: "tres" }, ...claves.map((k, i) => el("div", { class: "caja" },
+        el("span", { class: "cifra" }, pc(valores[i])), el("span", { class: "et" }, k)))),
+      el("p", { class: "peq" }, "Puntos esperados: "
+        + Object.entries(pe.puntos_esperados).map((par) => `${par[0]} ${par[1]}`).join(" · ")),
+      nota(pe.lectura)));
+  }
+  const g = carrera(ana && ana.carrera_xg);
+  if (g) raiz.append(tarjeta("Carrera de xG", g));
+  const cal = ana && ana.calidad_de_tiro;
+  if (cal && cal.disponible) raiz.append(tarjeta("Calidad de las ocasiones",
+    ...Object.entries(cal.por_equipo).map(([eq, b]) => el("div", { class: "bloque" }, el("b", {}, eq),
+      cifras([[b.tiros, "tiros"], [n2(b.xg_total), "xG"], [b.ocasiones_claras, "claras"],
+        [b.tiros_lejanos, "lejanos"]]), nota(b.lectura)))));
+  if ((tir.tiros || []).length) raiz.append(tarjeta("Tiros",
+    tabla([{ t: "'", k: "minuto", n: true }, { t: "Jugador", k: "jugador" }, { t: "Equipo", k: "equipo" },
+      { t: "xG", k: "xg", n: true }, { t: "Final", k: "resultado" }, { t: "Situación", k: "situacion" }],
+      tir.tiros, (f, c) => c.k === "xg" ? n2(f.xg)
+        : c.k === "resultado" ? (f.resultado === "goal" ? etiqueta("gol", "verde") : f.resultado) : f[c.k])));
+  if ((res.mejores_valoraciones || []).length) raiz.append(tarjeta("Mejores valoraciones",
+    el("ul", { class: "lista" }, ...res.mejores_valoraciones.map((j) => el("li", {},
+      el("span", { style: "font-family:var(--display);font-weight:800;font-size:17px;width:38px;flex:none" }, j.rating),
+      el("a", { href: `#/buscar/jugador/${encodeURIComponent(j.jugador)}`, style: "flex:1 1 auto" }, j.jugador),
+      el("span", { class: "gris peq" }, j.posicion))))));
+
+  raiz.append(tarjeta("Los once y los que salieron",
+    plegable("Alineaciones, minutos y notas", async () => {
+      const d = await api.h("jugadores_partido", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      const suyos = (lado) => (d.jugadores || []).filter((j) => j.equipo === lado);
+      return [p.home.name, p.away.name].map((eq) => el("div", { class: "bloque" },
+        el("b", {}, eq),
+        tabla([{ t: "", k: "dorsal", n: true }, { t: "Jugador", k: "jugador" },
+          { t: "Pos", k: "posicion" }, { t: "′", k: "minutos", n: true },
+          { t: "Nota", k: "rating", n: true }, { t: "G", k: "goles", n: true },
+          { t: "A", k: "asistencias", n: true }], suyos(eq),
+          (f, c) => c.k === "jugador"
+            ? el("span", {}, el("a", { href: `#/buscar/jugador/${encodeURIComponent(f.jugador)}` }, f.jugador),
+                f.suplente ? el("span", { class: "gris peq" }, " supl.") : null)
+            : f[c.k])));
+    })));
+
+  raiz.append(tarjeta("Cómo fue pasando",
+    plegable("Cronología: goles, tarjetas, cambios y VAR", async () => {
+      const d = await api.h("cronologia_partido", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      const ICONO = { goal: "⚽", card: "🟨", substitution: "⇄", varDecision: "VAR",
+        injuryTime: "⏱", period: "▌" };
+      return [(d.cronologia || []).length
+        ? el("ul", { class: "lista" }, ...d.cronologia.map((i) => el("li", {},
+            el("span", { class: "gris peq", style: "width:34px;flex:none" },
+              (i.minuto === null || i.minuto === undefined ? "" : i.minuto + "'")
+              + (i.anadido ? "+" + i.anadido : "")),
+            el("span", { style: "flex:none" }, ICONO[i.tipo] || "·"),
+            el("span", { style: "flex:1 1 150px;min-width:0" },
+              i.jugador || i.detalle || i.tipo,
+              i.sale ? el("span", { class: "gris peq" }, ` ← ${i.sale}`) : null,
+              i.asistencia ? el("span", { class: "gris peq" }, ` asiste ${i.asistencia}`) : null),
+            el("span", { class: "gris peq" }, [i.equipo, i.marcador].filter(Boolean).join(" · ")))))
+        : nota("Sin incidencias guardadas de este partido.")];
+    }),
+    plegable("Quién mandaba, tramo a tramo", async () => {
+      const d = await api.h("momento_partido", { partido: consulta, cada: 5 });
+      const err = fallo(d);
+      if (err) return err;
+      const tramos = d.tramos || d.por_tramos || [];
+      if (!tramos.length) return nota(d.nota || "Sofascore no publica la gráfica de momento aquí.");
+      return [el("p", { class: "peq gris" }, `A favor arriba: ${d.positivo_es} · abajo: ${d.negativo_es}`),
+        el("div", { class: "bloque" }, ...tramos.map((t) => {
+          const v = Number(t.media) || 0, ancho = Math.min(50, Math.abs(v) / 2);
+          return el("div", { class: "fila peq", style: "gap:8px" },
+            el("span", { class: "gris", style: "width:56px;flex:none" }, `${t.desde_minuto}–${t.hasta_minuto}′`),
+            el("span", { style: "flex:1 1 90px;height:8px;position:relative;background:var(--cal-2);border-radius:4px" },
+              el("span", { style: `position:absolute;top:0;bottom:0;border-radius:4px;`
+                + `background:var(--${v >= 0 ? "cesped" : "visita"});`
+                + (v >= 0 ? `left:50%;width:${ancho}%` : `right:50%;width:${ancho}%`) })),
+            el("span", { class: "gris", style: "flex:none" }, t.dominio || ""));
+        }))];
+    })));
+
+  raiz.append(tarjeta("Los dos, antes de hoy",
+    plegable("Historial entre ellos", async () => {
+      const d = await api.h("historial_entre_equipos", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      const b = d.balance || {};
+      return [Object.keys(b).length ? cifras(Object.entries(b)
+          .filter((par) => typeof par[1] === "number")
+          .map((par) => [par[1], par[0].replace(/([A-Z])/g, " $1").toLowerCase()])) : null,
+        (d.enfrentamientos_anteriores || []).length
+          ? el("ul", { class: "lista" }, ...d.enfrentamientos_anteriores.slice(0, 15).map((x) =>
+              el("li", { class: "pulsable", onclick: () => ir(`#/buscar/partido/${x.id}`) },
+                el("span", { class: "gris peq", style: "width:78px;flex:none" }, x.fecha),
+                el("span", { style: "flex:1 1 170px;min-width:0" }, x.partido),
+                el("span", { class: "gris peq" }, x.competicion))))
+          : nota("No se han visto antes, o Sofascore no lo guarda.")];
+    })));
+
+  raiz.append(tarjeta("Quién generó el peligro",
+    plegable("Aportación de cada jugador (xG, goles y asistencias)", async () => {
+      const d = await api.h("aportacion_jugadores", { partido: consulta });
+      const err = fallo(d);
+      if (err) return err;
+      return [tabla([{ t: "Jugador", k: "jugador" }, { t: "Equipo", k: "equipo" },
+        { t: "Tiros", k: "tiros", n: true }, { t: "xG", k: "xg", n: true },
+        { t: "G", k: "goles", n: true }, { t: "A", k: "asistencias", n: true },
+        { t: "Nota", k: "rating", n: true }], d.jugadores || [],
+        (f, c) => c.k === "xg" ? n2(f.xg) : f[c.k])];
+    })));
+
+  const SECCIONES = ["odds", "h2h", "pregame_form", "average_positions", "best_players",
+    "managers", "lineups", "graph", "incidents", "statistics", "shotmap", "comments"];
+  const crudo = el("div", { class: "bloque" });
+  const cual = el("select", { class: "campo", style: "flex:1 1 180px" },
+    ...SECCIONES.map((x) => el("option", { value: x }, x)));
+  raiz.append(tarjeta("Datos en crudo",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
+      crudo.replaceChildren(espera());
+      const d = await api.h("seccion_partido", { partido: consulta, seccion: cual.value });
+      crudo.replaceChildren(
+        el("p", { class: "peq gris" }, `estado: ${d.estado || "—"} · ${d.descripcion || ""}`),
+        volcado(d.datos === undefined ? d : d.datos));
+    } }, cual, el("button", { class: "btn plano", type: "submit" }, "Ver")),
+    crudo,
+    nota("La respuesta tal cual la da la API. Es lo que hace `cancha raw`, pero desde aquí.")));
+
+  const ext = el("div", { class: "bloque" });
+  raiz.append(tarjeta("Otras fuentes", ext, el("button", { class: "btn plano s", style: "justify-self:start",
+    onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      ext.replaceChildren(espera("Preguntando a Understat, ClubElo y football-data…"));
+      const c = await api.h("contexto_externo", { partido: consulta });
+      if (fallo(c)) { ext.replaceChildren(fallo(c)); return; }
+      const fs = [];
+      if (c.sofascore && c.sofascore.xg)
+        fs.push({ nombre: "xG Sofascore", local: c.sofascore.xg.local, visitante: c.sofascore.xg.visitante });
+      const fuentes = c.fuentes || {};
+      const u = fuentes.understat, elo = fuentes.clubelo, fd = fuentes.futboldata;
+      if (u && u.estado === "ok" && u.xg)
+        fs.push({ nombre: "xG Understat", local: u.xg.local, visitante: u.xg.visitante });
+      ext.replaceChildren(
+        fs.length ? comparar(fs, p.home.name, p.away.name) : nota(u && u.nota),
+        nota(c.contraste_xg && c.contraste_xg.lectura),
+        elo && elo.estado === "ok" ? el("p", { class: "peq" },
+          `Elo: ${elo.local.equipo} ${elo.local.elo} (#${elo.local.puesto}) · `
+          + `${elo.visitante.equipo} ${elo.visitante.elo} (#${elo.visitante.puesto}) · `
+          + `local ${pc(elo.probabilidad_local)}`) : nota(elo && elo.nota),
+        fd && fd.estado === "ok" ? el("p", { class: "peq" },
+          `Cierre (${fd.mercado}): ${pc(fd.probabilidades.local)} · ${pc(fd.probabilidades.empate)} · `
+          + `${pc(fd.probabilidades.visitante)}`) : nota(fd && fd.nota),
+        u && u.partido_id ? plegable("Los tiros según Understat", async () => {
+          const t = await api.h("tiros_understat", { partido_understat: u.partido_id });
+          const err = fallo(t);
+          if (err) return err;
+          return [el("p", { class: "peq gris" }, Object.entries(t.totales || {})
+              .map((par) => `${par[0]} ${n2(par[1])} xG`).join(" · ")),
+            tabla([{ t: "'", k: "minuto", n: true }, { t: "Jugador", k: "jugador" },
+              { t: "Equipo", k: "equipo" }, { t: "xG", k: "xg", n: true },
+              { t: "Final", k: "resultado" }, { t: "Con", k: "parte_del_cuerpo" }],
+              t.tiros || [], (f, c) => c.k === "xg" ? n2(f.xg) : f[c.k])];
+        }) : null);
+    } }, "Cruzar con Understat, ClubElo y football-data")));
+}
+
+async function pintarEquipo(raiz, nombre) {
+  raiz.append(espera("Leyendo la memoria…"));
+  const [est, sis, evo] = await Promise.all([
+    api.h("estilo_de_equipo", { equipo: nombre }), api.h("sistema_de_equipo", { equipo: nombre }),
+    api.h("evolucion_de_equipo", { equipo: nombre })]);
+  raiz.lastChild.remove();
+  if (fallo(est)) { raiz.append(fallo(est)); return; }
+  const r = est.resultados, concede = est.concede || {};
+  raiz.append(tarjeta(null,
+    el("div", { class: "titular" }, el("h2", {}, est.equipo),
+      el("span", { class: "resto gris peq" }, `${est.liga} · ${est.desde} → ${est.hasta}`)),
+    el("div", { class: "fila" }, forma(r.racha),
+      el("span", { class: "gris peq" }, `${est.partidos_mirados} partidos · ${r.goles_favor}-${r.goles_contra}`)),
+    cifras([[n2(concede.xg), "xG concedido"], [n2(concede.tiros, 1), "tiros concedidos"],
+      [n2(concede.ocasiones_claras, 1), "claras concedidas"]])));
+  raiz.append(tarjeta("Lo que le distingue de su liga", rasgos(est.dimensiones, 9), nota(est.aviso)));
+  raiz.append(tarjeta("Con qué plantea", sis && sis.disponible
+    ? el("div", { class: "bloque" },
+        el("div", { class: "fila" }, ...Object.entries(sis.formaciones || {}).map((par) => etiqueta(`${par[0]} ×${par[1]}`))),
+        cifras([[n2(sis.posesion, 0) + "%", "posesión"], [n2(sis.presion, 1), "pases por acción defensiva"],
+          [n2(sis.xg_concedido), "xG concedido"]]),
+        el("div", { class: "fila" }, ...Object.entries(sis.asi_juega || {}).map((par) => etiqueta(`${par[0]}: ${par[1]}`, "azul"))),
+        nota("Etiquetas relativas a los terciles de su liga: «presiona alto» es alto para esa competición."))
+    : nota(sis && sis.nota)));
+  raiz.append(tarjeta("¿Ha cambiado?", evo && evo.disponible
+    ? el("div", { class: "bloque" },
+        el("p", { class: "peq gris" },
+          `Ahora (${evo.ahora.partidos}): ${evo.ahora.racha}, ${evo.ahora.puntos_por_partido} pts/partido`
+          + `${evo.ahora.formacion ? ", " + evo.ahora.formacion : ""} — antes (${evo.antes.partidos}): `
+          + `${evo.antes.racha}, ${evo.antes.puntos_por_partido}`
+          + `${evo.antes.formacion ? ", " + evo.antes.formacion : ""}`),
+        (evo.lo_que_ha_cambiado || []).length
+          ? el("ul", { class: "lista" }, ...evo.lo_que_ha_cambiado.map((c) => el("li", {},
+              el("b", { style: "width:50px;font-family:var(--display);flex:none" }, c.cambio),
+              el("span", { style: "flex:1 1 140px" }, c.lectura),
+              el("span", { class: "gris peq" }, `${c.antes} → ${c.ahora}`))))
+          : nota("Juega igual que antes en todo lo que se mide aquí."),
+        evo.cambio_de_dibujo ? etiqueta(`dibujo: ${evo.antes.formacion} → ${evo.ahora.formacion}`, "ambar") : null,
+        nota(evo.como_leerlo))
+    : nota(evo && evo.nota)));
+
+  raiz.append(tarjeta("Ficha del club",
+    plegable("Plantilla, próximos partidos y últimos resultados", async () => {
+      const d = await api.h("ficha_equipo", { equipo: nombre,
+        secciones: ["profile", "players", "next_events", "last_events"] });
+      const err = fallo(d);
+      if (err) return err;
+      const sec = d.secciones || d;
+      const jugadores = (sec.players && (sec.players.players || sec.players)) || [];
+      const proximos = (sec.next_events && (sec.next_events.events || sec.next_events)) || [];
+      const ultimos = (sec.last_events && (sec.last_events.events || sec.last_events)) || [];
+      const partidito = (e) => el("li", { class: e.id ? "pulsable" : "",
+        onclick: e.id ? () => ir(`#/buscar/partido/${e.id}`) : undefined },
+        el("span", { class: "gris peq", style: "width:78px;flex:none" },
+          String(e.startTimestamp ? new Date(e.startTimestamp * 1000).toISOString().slice(0, 10) : "")),
+        el("span", { style: "flex:1 1 170px;min-width:0" },
+          `${(e.homeTeam || {}).name || "?"} – ${(e.awayTeam || {}).name || "?"}`),
+        el("span", { class: "gris peq" },
+          (e.homeScore || {}).current === undefined ? ((e.tournament || {}).name || "")
+            : `${e.homeScore.current}–${(e.awayScore || {}).current}`));
+      return [
+        Array.isArray(jugadores) && jugadores.length
+          ? el("details", {}, el("summary", {}, `Plantilla (${jugadores.length})`),
+              el("ul", { class: "lista" }, ...jugadores.slice(0, 40).map((x) => {
+                const j = x.player || x;
+                return el("li", {},
+                  el("span", { class: "gris peq", style: "width:26px;flex:none" }, j.jerseyNumber || ""),
+                  el("a", { href: `#/buscar/jugador/${encodeURIComponent(j.name || "")}`,
+                    style: "flex:1 1 150px" }, j.name),
+                  el("span", { class: "gris peq" }, j.position || ""));
+              })))
+          : null,
+        proximos.length ? el("details", { open: true }, el("summary", {}, "Lo que viene"),
+          el("ul", { class: "lista" }, ...proximos.slice(0, 8).map(partidito))) : null,
+        ultimos.length ? el("details", {}, el("summary", {}, "Lo último"),
+          el("ul", { class: "lista" }, ...ultimos.slice(0, 10).map(partidito))) : null,
+        el("details", {}, el("summary", {}, "Todo en crudo"), volcado(d)),
+      ];
+    }),
+    plegable("Fuerza histórica (ClubElo)", async () => {
+      const d = await api.h("elo_equipo", { equipo: est.equipo, historico: true });
+      const err = fallo(d);
+      if (err) return err;
+      const a = d.actual || {};
+      const tramos = (d.tramos || []).slice(-12).reverse();
+      return [cifras([[a.elo === undefined ? "—" : Math.round(a.elo), "Elo"],
+          [a.puesto === undefined ? "—" : "#" + a.puesto, "en Europa"], [a.pais, "país"]]),
+        tramos.length ? tabla([{ t: "Desde", k: "desde" }, { t: "Hasta", k: "hasta" },
+          { t: "Elo", k: "elo", n: true }, { t: "#", k: "puesto", n: true }], tramos,
+          (f, c) => c.k === "elo" ? Math.round(f.elo) : f[c.k]) : null,
+        nota("ClubElo escribe los nombres a su manera: si no lo encuentra, prueba "
+          + "«Man City», «Inter» o «Atletico».")];
+    })));
+
+  const not = el("div", {});
+  raiz.append(tarjeta("Contexto", not, el("button", { class: "btn plano s", style: "justify-self:start",
+    onclick: async (e) => {
+      e.currentTarget.disabled = true; not.replaceChildren(espera("Pidiendo titulares a ESPN…"));
+      const d = await api.h("noticias", { liga: est.liga || "", equipo: est.equipo, cuantas: 10 });
+      if (fallo(d)) { not.replaceChildren(fallo(d)); return; }
+      not.replaceChildren((d.noticias || []).length
+        ? el("ul", { class: "lista" }, ...d.noticias.map((x) => el("li", {},
+            el("span", { class: "gris peq", style: "width:76px;flex:none" }, String(x.fecha || "").slice(0, 10)),
+            el("a", { href: x.enlace, target: "_blank", rel: "noopener", style: "flex:1 1 180px" }, x.titulo))))
+        : nota("Sin titulares que mencionen al equipo."));
+    } }, "Noticias (ESPN)")));
+}
+
+async function pintarJugador(raiz, nombre) {
+  const eje = leer("eje", "presion");
+  raiz.append(espera("Leyendo la memoria…"));
+  const [fm, ct] = await Promise.all([api.h("forma_de_jugador", { jugador: nombre }),
+    api.h("jugador_contra_sistema", { jugador: nombre, eje })]);
+  raiz.lastChild.remove();
+  if (fallo(fm)) { raiz.append(fallo(fm)); return; }
+  const pp = fm.por_partido || {};
+  raiz.append(tarjeta(null,
+    el("div", { class: "titular" }, el("h2", {}, fm.jugador),
+      el("span", { class: "resto gris peq" },
+        `${fm.partidos_mirados} partidos · ${fm.titularidades} titular · ${fm.minutos_totales}′`)),
+    cifras([[fm.rating_medio, "nota media"], [pp.goles, "goles"], [pp.tiros, "tiros"],
+      [pp.tiros_a_puerta, "a puerta"], [pp.xg, "xG"], [pp.pases_clave, "pases clave"]]),
+    (fm.rachas || []).length
+      ? el("div", { class: "fila" }, ...fm.rachas.map((x) =>
+          etiqueta(x.racha, /marcando|asistiendo/.test(x.racha) ? "verde" : "roja")))
+      : nota("Sin rachas que destacar.")));
+
+  const c = tarjeta(null, el("div", { class: "titular" }, el("h3", {}, "Contra sistema"),
+    el("span", { class: "resto" }, el("div", { class: "seg" },
+      ...[["presion", "presión"], ["linea", "línea"], ["balon", "balón"]].map((par) =>
+        el("button", { class: par[0] === eje ? "on" : "", onclick: () => { guardar("eje", par[0]);
+          ir(`#/buscar/jugador/${encodeURIComponent(nombre)}`, true); } }, par[1]))))));
+  if (fallo(ct)) c.append(fallo(ct));
+  else {
+    c.append(el("p", { class: "peq gris" }, `Su media: ${ct.su_media.partidos} partidos, ${ct.su_media.minutos}′`
+      + (ct.partidos_con_cuotas ? ` · ${ct.partidos_con_cuotas} con cuotas` : "")));
+    const METRICAS = ["tiros", "tiros_a_puerta", "goles", "asistencias", "pases_clave", "regates", "xg"];
+    for (const [et, g] of Object.entries(ct.grupos || {})) {
+      const rep = g.siendo_favorito || {};
+      const filas = METRICAS.map((m) => ({ m, d: g.comparado_con_su_media[m] }))
+        .filter((x) => x.d && (x.d.por_90 || x.d.su_media_por_90));
+      const cuantos = rep.favorito === undefined || rep.favorito === null ? "" : `, favorito en ${rep.favorito}`;
+      c.append(el("details", { open: true }, el("summary", {}, `Contra ${et} `,
+        el("span", { class: "gris peq", style: "font-weight:400" },
+          `${g.partidos} partidos, ${g.minutos}′${cuantos}`)),
+        tabla([{ t: "Métrica", k: "m" }, { t: "/90", k: "p90", n: true }, { t: "Su media", k: "med", n: true },
+          { t: "Dif.", k: "dif", n: true }, { t: "p", k: "p", n: true }, { t: "", k: "v" }], filas,
+          (f, col) => ({ m: f.m.replace(/_/g, " "), p90: n2(f.d.por_90), med: n2(f.d.su_media_por_90),
+            dif: (f.d.diferencia > 0 ? "+" : "") + n2(f.d.diferencia),
+            p: f.d.p === undefined || f.d.p === null ? "—" : n2(f.d.p, 3),
+            v: veredicto(f.d.veredicto) })[col.k]),
+        el("p", { class: "gris peq" }, "Contra: "
+          + g.contra.map((x) => `${x.rival} (${String(x.fecha).slice(5)})`).join(", "))));
+    }
+    if (!Object.keys(ct.grupos || {}).length)
+      c.append(nota("Ningún partido clasificable: faltan estadísticas o alineaciones de los rivales."));
+    c.append(nota(ct.lo_que_no_dice));
+    if (ct.partidos_con_cuotas) {
+      const d = el("div", { class: "bloque" });
+      c.append(d, el("button", { class: "btn plano s", style: "justify-self:start", onclick: async (e) => {
+        e.currentTarget.disabled = true; d.replaceChildren(espera("Partiendo el análisis en dos…"));
+        const rr = await api.h("sistema_o_contexto", { jugador: nombre, eje });
+        if (fallo(rr)) { d.replaceChildren(fallo(rr)); return; }
+        d.replaceChildren((rr.lectura || []).length
+          ? el("ul", { class: "lista" }, ...rr.lectura.map((f) => el("li", {},
+              el("b", {}, `contra ${f.contra}, ${f.metrica.replace(/_/g, " ")}: `), f.veredicto)))
+          : nota("Nada se sale de su media en ninguno de los dos desgloses."), nota(rr.como_leerlo));
+      } }, "¿Es el sistema o el contexto?"));
+    }
+  }
+  raiz.append(c);
+  raiz.append(tarjeta("Ficha del jugador",
+    plegable("Perfil, atributos y temporada", async () => {
+      const d = await api.h("ficha_jugador", { jugador: nombre,
+        secciones: ["profile", "attributes", "season_statistics"] });
+      const err = fallo(d);
+      if (err) return err;
+      const sec = d.secciones || d;
+      const perfil = (sec.profile && (sec.profile.player || sec.profile)) || {};
+      const eq = perfil.team || {};
+      return [
+        Object.keys(perfil).length ? cifras([
+          [perfil.height ? perfil.height + " cm" : null, "altura"],
+          [perfil.shirtNumber, "dorsal"],
+          [perfil.position, "posición"],
+          [perfil.preferredFoot, "pie"],
+          [perfil.dateOfBirthTimestamp
+            ? new Date(perfil.dateOfBirthTimestamp * 1000).toISOString().slice(0, 10) : null, "nació"],
+          [(perfil.country || {}).name, "país"]].filter((par) => par[0])) : null,
+        eq.name ? el("p", { class: "peq" }, "Equipo: ",
+          el("a", { href: `#/buscar/equipo/${encodeURIComponent(eq.name)}` }, eq.name)) : null,
+        el("details", {}, el("summary", {}, "Todo en crudo"), volcado(d)),
+      ];
+    })));
+
+  if ((fm.partido_a_partido || []).length) raiz.append(tarjeta("Partido a partido",
+    tabla([{ t: "Fecha", k: "fecha" }, { t: "Partido", k: "partido" }, { t: "′", k: "minutos", n: true },
+      { t: "Nota", k: "rating", n: true }, { t: "G", k: "goles", n: true }, { t: "A", k: "asistencias", n: true },
+      { t: "Tiros", k: "tiros", n: true }, { t: "xG", k: "xg", n: true }],
+      fm.partido_a_partido, (f, col) => col.k === "xg" ? n2(f.xg) : f[col.k])));
+}
+
+async function pintarLiga(raiz, nombre) {
+  raiz.append(espera("Pidiendo la clasificación…"));
+  const cl = await api.h("clasificacion", { liga: nombre });
+  raiz.lastChild.remove();
+  if (fallo(cl)) raiz.append(fallo(cl));
+  else {
+    const filas = cl.clasificacion || [];
+    raiz.append(tarjeta(cl.competicion || nombre, filas.length
+      ? tabla([{ t: "#", k: "posicion", n: true }, { t: "Equipo", k: "equipo" },
+          { t: "PJ", k: "jugados", n: true }, { t: "G", k: "ganados", n: true },
+          { t: "E", k: "empatados", n: true }, { t: "P", k: "perdidos", n: true },
+          { t: "GF", k: "goles_favor", n: true }, { t: "GC", k: "goles_contra", n: true },
+          { t: "Pts", k: "puntos", n: true }], filas,
+          (f, c) => c.k === "equipo"
+            ? el("a", { href: `#/buscar/equipo/${encodeURIComponent(f.equipo || "")}` }, f.equipo)
+            : f[c.k])
+      : nota("Esa competición no publica clasificación (las copas a eliminatoria, por ejemplo).")));
+  }
+
+  const año = new Date().getFullYear() - (new Date().getMonth() < 6 ? 1 : 0);
+  raiz.append(tarjeta("Histórico de resultados",
+    plegable(`Temporada ${año}/${String(año + 1).slice(2)} (football-data.co.uk)`, async () => {
+      const d = await api.h("historial_de_liga", { liga: nombre, temporada: año, cuantos: 60 });
+      const err = fallo(d);
+      if (err) return err;
+      return [el("p", { class: "peq gris" }, `${d.total || 0} partidos · ${d.fuente || ""}`),
+        tabla([{ t: "Fecha", k: "fecha" }, { t: "Local", k: "local" }, { t: "Visitante", k: "visitante" },
+          { t: "Marcador", k: "marcador" }, { t: "Cierre", k: "cuotas" }], d.partidos || [],
+          (f, c) => c.k === "marcador" ? `${f.goles_local}–${f.goles_visitante}`
+            : c.k === "cuotas" ? [f.cuota_local, f.cuota_empate, f.cuota_visitante]
+                .map((x) => x === null || x === undefined ? "—" : x).join(" / ")
+            : f[c.k])];
+    }),
+    nota("Va de 1993 a hoy y trae las cuotas de cierre: es la base con la que se mide "
+      + "si un patrón de «casi seguro» añade algo o solo repite lo que ya decía el mercado.")));
+
+  raiz.append(tarjeta("Fuerza real (ClubElo)",
+    plegable("Ranking Elo de hoy", async () => {
+      const d = await api.h("ranking_elo", { cuantos: 30 });
+      const err = fallo(d);
+      if (err) return err;
+      return [tabla([{ t: "#", k: "puesto", n: true }, { t: "Equipo", k: "equipo" },
+        { t: "País", k: "pais" }, { t: "Elo", k: "elo", n: true }], d.ranking || d.equipos || [],
+        (f, c) => f[c.k])];
+    }),
+    nota("Elo no sabe de calendario ni de dinero: mide solo resultados contra quién. "
+      + "Sirve para ver si una clasificación miente.")));
+
+  raiz.append(tarjeta("Titulares y agenda (ESPN)",
+    plegable("Partidos de hoy según ESPN", async () => {
+      const d = await api.h("agenda_espn", { liga: nombre });
+      const err = fallo(d);
+      if (err) return err;
+      return [(d.partidos || []).length
+        ? el("ul", { class: "lista" }, ...d.partidos.map((x) => el("li", {},
+            el("span", { class: "gris peq", style: "width:54px;flex:none" }, String(x.hora || "").slice(11, 16)),
+            el("span", { style: "flex:1 1 180px;min-width:0" }, x.partido || `${x.local} - ${x.visitante}`),
+            el("span", { class: "gris peq" }, x.estado || ""))))
+        : nota("ESPN no da nada para esa liga hoy.")];
+    }),
+    plegable("Noticias", async () => {
+      const d = await api.h("noticias", { liga: nombre, cuantas: 12 });
+      const err = fallo(d);
+      if (err) return err;
+      return [(d.noticias || []).length
+        ? el("ul", { class: "lista" }, ...d.noticias.map((x) => el("li", {},
+            el("span", { class: "gris peq", style: "width:76px;flex:none" }, String(x.fecha || "").slice(0, 10)),
+            el("a", { href: x.enlace, target: "_blank", rel: "noopener", style: "flex:1 1 180px" }, x.titulo))))
+        : nota("Sin titulares.")];
+    })));
+
+  const QUE = [["fbref_equipos", "FBref · equipos"], ["fbref_jugadores", "FBref · jugadores"],
+    ["fbref_calendario", "FBref · calendario"], ["fbref_estadisticas", "FBref · estadísticas"],
+    ["transfermarkt_valores", "Transfermarkt · valores"], ["capology_salarios", "Capology · salarios"],
+    ["sofifa_valoraciones", "SoFIFA · valoraciones"], ["temporadas", "Temporadas disponibles"]];
+  const cajaExt = el("div", { class: "bloque" });
+  const queSel = el("select", { class: "campo", style: "flex:1 1 200px" },
+    ...QUE.map(([v, t]) => el("option", { value: v }, t)));
+  const tempExt = el("input", { class: "campo", type: "number", value: año, style: "flex:0 1 110px" });
+  raiz.append(tarjeta("Tablas de fuera (ScraperFC y soccerdata)",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
+      cajaExt.replaceChildren(espera("Esto puede tardar: lo trae una librería externa…"));
+      const d = await api.h("datos_externos", { que: queSel.value, liga: nombre,
+        temporada: Number(tempExt.value) || undefined });
+      const err = fallo(d);
+      cajaExt.replaceChildren(err || volcado(d));
+    } }, queSel, tempExt, el("button", { class: "btn", type: "submit" }, "Traer")),
+    cajaExt,
+    nota("Necesita ScraperFC o soccerdata instalados. Si faltan, la respuesta lo dice y "
+      + "explica qué hay que poner.")));
+}
+
+async function pintarDuelo(raiz, jugador, rival) {
+  raiz.append(espera("Midiendo al rival y buscando al jugador…"));
+  const d = await api.h("duelo_jugador_rival", { jugador, rival });
+  raiz.lastChild.remove();
+  if (fallo(d)) { raiz.append(fallo(d)); return; }
+  const rv = d.rival;
+  raiz.append(tarjeta(null, el("h2", {}, `${d.jugador} contra ${rv.equipo}`),
+    el("p", { class: "peq gris" }, `${rv.equipo} en sus últimos ${rv.partidos}: `
+      + (Object.entries(rv.formaciones || {}).map((par) => `${par[0]} ×${par[1]}`).join(", ") || "sin alineaciones")
+      + ` · ${n2(rv.posesion, 0)}% posesión · presión ${n2(rv.presion, 1)} · concede ${n2(rv.xg_concedido)} xG`)));
+  for (const [eje, b] of Object.entries(d.por_eje || {})) {
+    const c = tarjeta(`${eje}: ${b.el_rival_es}`);
+    const s = b.resumen;
+    if (!s) { c.append(nota("Este jugador no se ha medido nunca a eso, de lo que hay guardado.")); raiz.append(c); continue; }
+    const fav = s.siendo_favorito || {};
+    c.append(el("p", { class: "peq gris" },
+      `${s.partidos} partidos · ${s.minutos}′ · nota ${s.rating === null || s.rating === undefined ? "—" : s.rating}`
+      + (fav.favorito === undefined || fav.favorito === null ? "" : ` · favorito en ${fav.favorito}`)));
+    c.append((s.relevante || []).length
+      ? el("ul", { class: "lista" }, ...s.relevante.map((h) => el("li", {}, veredicto(h.veredicto),
+          el("span", { style: "flex:1 1 180px;min-width:0" }, `${h.metrica.replace(/_/g, " ")}: `,
+            el("b", {}, h.por_90), `/90 frente a ${h.su_media}`),
+          el("span", { class: "gris peq" }, `p=${h.p}`))))
+      : nota("Nada que no explique el azar."));
+    c.append(el("p", { class: "gris peq" }, "Contra: "
+      + s.contra.map((x) => `${x.rival} (${String(x.fecha).slice(5)})`).join(", ")));
+    raiz.append(c);
+  }
+  raiz.append(nota(d.lo_que_no_dice));
+}
+
+/* ── MEMORIA ─────────────────────────────────────────────────────── */
+V.memoria = async (raiz) => {
+  raiz.replaceChildren(el("h1", {}, "Memoria"), espera());
+  const e = await api.get("/api/estado");
+  raiz.lastChild.remove();
+  const err = fallo(e);
+  if (err) {
+    raiz.append(err);
+    if (!e || !e.sin_clave) { raiz.append(ajustes({})); return; }
+  }
+  const m = e.memoria || {}, cat = e.catalogo || {};
+  raiz.append(tarjeta(null,
+    cifras([[m.partidos, "partidos"], [m.con_estadisticas, "con estadísticas"],
+      [m.con_cuotas, "con cuotas"], [m.actuaciones, "actuaciones"], [m.tiros, "tiros"]]),
+    el("p", { class: "peq gris" }, `${m.ruta || ""} · del ${m.desde || "—"} al ${m.hasta || "—"} · `
+      + `último barrido: ${m.ultimo_barrido || "nunca"}`),
+    Object.keys(m.ligas || {}).length
+      ? el("div", { class: "fila" }, ...Object.entries(m.ligas).slice(0, 12).map((par) => etiqueta(`${par[0]} ${par[1]}`)))
+      : null));
+
+  const reg = el("div", { class: "registro", hidden: true });
+  const fecha = el("input", { class: "campo", type: "date", id: "b-fecha", value: hoy(), style: "flex:0 1 148px" });
+  const grupos = el("select", { class: "campo", id: "b-grupos", style: "flex:0 1 186px" },
+    el("option", { value: "" }, "Todo el catálogo"),
+    ...GRUPOS_UI.slice(1).map((par) => el("option", { value: par[0] }, par[1])));
+  const max = el("input", { class: "campo", type: "number", id: "b-max", min: 0,
+    placeholder: "Tope de peticiones", style: "flex:0 1 158px" });
+  const btn = el("button", { class: "btn", type: "submit" }, "Barrer");
+  async function vigilar() {
+    const b = await api.get("/api/barrido");
+    reg.hidden = false;
+    reg.textContent = (b.lineas || []).join("\n") + (b.resumen ? "\n\n" + JSON.stringify(b.resumen, null, 1) : "");
+    reg.scrollTop = reg.scrollHeight;
+    btn.disabled = !!b.en_marcha;
+    if (b.en_marcha) setTimeout(vigilar, 2000);
+  }
+  raiz.append(tarjeta("Barrido",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault(); btn.disabled = true;
+      await api.post("/api/barrido", { fecha: fecha.value, grupos: grupos.value, max: Number(max.value || 0) });
+      vigilar(); } }, fecha, grupos, max, btn),
+    nota("Trae los partidos del día y el historial de quien juega. El primero es largo; los "
+      + "siguientes casi no cuestan. Se puede cortar y seguir."),
+    reg));
+  if (e.barrido && (e.barrido.en_marcha || (e.barrido.lineas || []).length)) vigilar();
+
+  const faltan = (cat.competiciones || 0) - (cat.identificadas || 0);
+  raiz.append(tarjeta("Competiciones",
+    el("div", { class: "fila" },
+      etiqueta(`${cat.competiciones || 0} competiciones`),
+      etiqueta(`${cat.masculinas || 0} masculinas`),
+      etiqueta(`${cat.femeninas || 0} femeninas`, "azul"),
+      etiqueta(`${cat.identificadas || 0} identificadas`, faltan ? "ambar" : "verde")),
+    faltan
+      ? el("div", { class: "bloque" },
+          msg(`Faltan ${faltan} competiciones por identificar. Los ids de Sofascore no se adivinan: `
+            + "el barrido las busca solo la primera vez que hay red, y comprueba país y género "
+            + "antes de guardar ninguna.", "ojo"),
+          el("details", {}, el("summary", {}, "Cuáles faltan"),
+            el("p", { class: "peq gris" },
+              Object.values(cat.por_grupo || {}).flatMap((g) => g.faltan || []).join(" · "))))
+      : nota("Todo el catálogo identificado.")),
+    el("div", { class: "fila" },
+      el("button", { class: "btn plano s", onclick: async (ev) => {
+        const boton = ev.currentTarget;
+        boton.disabled = true; boton.textContent = "Buscando ids…";
+        const d = await api.post("/api/ligas", {});
+        boton.textContent = "Buscar los ids que faltan";
+        boton.disabled = false;
+        const donde = boton.parentElement;
+        const antes = donde.nextElementSibling;
+        if (antes && antes.classList.contains("msg")) antes.remove();
+        donde.after(fallo(d) || msg(`${d.encontradas} competiciones identificadas. `
+          + `Ahora hay ${(d.catalogo || {}).identificadas || 0} de `
+          + `${(d.catalogo || {}).competiciones || 0}.`));
+      } }, "Buscar los ids que faltan"),
+      el("a", { class: "btn plano s", href: "#/buscar/liga/laliga" }, "Ver una clasificación")));
+
+  const cuo = el("div", { class: "bloque" });
+  raiz.append(tarjeta("Cuotas",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
+      const boton = ev.currentTarget.querySelector("button");
+      boton.disabled = true;
+      cuo.replaceChildren(espera("Pidiendo las cuotas de los partidos que no las tienen…"));
+      const d = await api.h("rellenar_cuotas", { maximo: 40 });
+      boton.disabled = false;
+      const err = fallo(d);
+      cuo.replaceChildren(err || cifras([[d.rellenados ?? d.rellenadas ?? 0, "rellenados"],
+        [d.mirados ?? d.intentados ?? 0, "mirados"], [d.sin_cuotas ?? 0, "sin cuotas"]]));
+    } }, el("button", { class: "btn", type: "submit" }, "Rellenar las que falten")),
+    cuo,
+    nota("Sin cuotas no hay favorito, y sin favorito los patrones de «casi seguro» no "
+      + "pueden compararse con lo que ya decía el mercado. Es la pieza que hace honesto "
+      + "el resto.")));
+
+  const arb = el("div", {});
+  const cajaArb = el("input", { class: "campo", id: "arb", placeholder: "Nombre del árbitro", autocomplete: "off" });
+  raiz.append(tarjeta("Árbitro",
+    el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
+      if (!cajaArb.value.trim()) return;
+      arb.replaceChildren(espera());
+      const a = await api.h("perfil_de_arbitro", { arbitro: cajaArb.value.trim() });
+      if (fallo(a)) { arb.replaceChildren(fallo(a)); return; }
+      arb.replaceChildren(cifras([[a.por_partido.amarillas, "amarillas"], [a.por_partido.rojas, "rojas"],
+        [a.por_partido.penaltis, "penaltis"], [a.por_partido.faltas, "faltas"]]),
+        el("p", { class: "peq gris" }, `${a.partidos_mirados} partidos · al local `
+          + `${a.reparto_de_tarjetas.al_local}, al visitante ${a.reparto_de_tarjetas.al_visitante} · `
+          + `gana el local ${a.victorias_locales}`),
+        nota(a.aviso));
+    } }, cajaArb, el("button", { class: "btn", type: "submit" }, "Ver")), arb));
+
+  const libs = e.librerias || {};
+  raiz.append(tarjeta("Fuentes y modelo",
+    el("div", { class: "fila" }, etiqueta("sofascore", "verde"),
+      ...(e.fuentes || []).map((f) => etiqueta(f, "verde")),
+      ...Object.entries(libs).map((par) => etiqueta(
+        par[0] + (par[1].instalado ? " " + (par[1].version || "") : " (falta)"),
+        par[1].instalado ? "verde" : "hueca"))),
+    el("p", { class: "peq gris" }, "Modelo del analista: ", el("b", {}, e.modelo || "—"),
+      ". Las librerías externas dan FBref, Transfermarkt y SoFIFA: ",
+      el("code", {}, "pip install ScraperFC soccerdata")),
+    (e.briefings || []).length ? el("div", { class: "fila" }, el("span", { class: "mini" }, "briefings"),
+      ...e.briefings.slice(0, 8).map((f) => el("a", { class: "eti", href: `#/hoy/${f}` }, f))) : null,
+    plegable("Qué trae cada fuente", async () => {
+      const d = await api.h("fuentes", {});
+      const err = fallo(d);
+      if (err) return err;
+      const fila = ([nombre, texto]) => el("li", {},
+        el("b", { style: "width:94px;flex:none" }, nombre),
+        el("span", { style: "flex:1 1 190px;min-width:0" }, texto));
+      return [
+        el("ul", { class: "lista" }, ...Object.entries(d.principal || {}).map(fila),
+          ...Object.entries(d.adicionales || {}).map(fila)),
+        el("div", { class: "bloque" }, el("span", { class: "mini" }, "librerías externas"),
+          ...Object.entries(d.librerias_externas || {}).map(([nombre, x]) =>
+            el("p", { class: "peq" }, etiqueta(nombre, x.instalado ? "verde" : "hueca"), " ",
+              x.aporta, x.instalado ? null : el("code", {}, " " + x.instalar)))),
+        d.cruzarlas ? nota(d.cruzarlas) : null];
+    }),
+    plegable("Qué sabe hacer el framework", async () => {
+      const d = await api.h("catalogo", { que: "todo" });
+      const err = fallo(d);
+      if (err) return err;
+      return [nota("Todas las secciones de datos, las ligas que conoce con su id y las claves "
+        + "de estadística válidas. Es el mapa completo, el mismo que ve la IA."), volcado(d)];
+    })));
+
+  raiz.append(tarjetaRed());
+  raiz.append(tarjetaDiagnostico());
+  raiz.append(tarjetaConsola());
+  raiz.append(ajustes(e));
+};
+
+/* ── conectar el móvil ───────────────────────────────────────────── */
+/* El servidor manda la matriz del QR (unos y ceros) y aquí se dibuja con una
+   rejilla de divs. Es más ligero que una imagen y se adapta al tema. */
+function qrNodo(matriz) {
+  const lado = matriz.length;
+  const caja = el("div", { class: "qr", style: `grid-template-columns:repeat(${lado},1fr)`,
+    role: "img", "aria-label": "Código QR con la dirección de esta página" });
+  for (const fila of matriz)
+    for (const v of fila) caja.append(el("i", v ? { class: "on" } : {}));
+  return el("div", { class: "qr-marco" }, caja);
+}
+
+function tarjetaRed() {
+  const cuerpo = el("div", { class: "bloque" });
+  api.get("/api/red").then((d) => {
+    const err = fallo(d);
+    if (err) { cuerpo.replaceChildren(err); return; }
+    if (!d.abierto_a_la_red) {
+      cuerpo.replaceChildren(msg("Este servidor solo escucha en este ordenador. Arráncalo con "
+        + "--lan y el móvil podrá entrar.", "ojo"),
+        el("pre", { class: "registro" }, "cancha web --lan --clave loquesea"));
+      return;
+    }
+    if (!(d.urls || []).length) {
+      cuerpo.replaceChildren(msg("No se encuentra ninguna IP de red en este ordenador.", "mal"));
+      return;
+    }
+    poner(cuerpo,
+      d.qr ? qrNodo(d.qr) : null,
+      el("div", { class: "fila" }, ...d.urls.map((u) =>
+        el("a", { class: "eti", href: u, target: "_blank", rel: "noopener" }, u.split("//")[1].split("/")[0]))),
+      nota(d.con_clave
+        ? "El QR lleva la clave dentro: el móvil entra sin teclearla. La dirección viaja "
+          + "por tu wifi sin cifrar, así que vale para tu casa y no para una red ajena."
+        : "Sin clave: cualquiera en esta wifi puede abrirlo. Arranca con --clave si te importa."),
+      nota("En iOS: Safari → Compartir → «Añadir a pantalla de inicio». En Android, "
+        + "Chrome → menú → «Instalar aplicación»."));
+  });
+  cuerpo.append(espera("Mirando por dónde se llega…"));
+  return tarjeta("Abrirlo en el móvil", cuerpo);
+}
+
+/* ── diagnóstico ─────────────────────────────────────────────────── */
+function tarjetaDiagnostico() {
+  const cuerpo = el("div", { class: "bloque" });
+  async function traer(conRed) {
+    cuerpo.replaceChildren(espera(conRed ? "Preguntando a Sofascore…" : "Mirando…"));
+    const d = await api.get("/api/diagnostico" + (conRed ? "?red=1" : ""));
+    const err = fallo(d);
+    if (err) { cuerpo.replaceChildren(err); return; }
+    const c = d.cache || {}, g = d.grabaciones || {};
+    poner(cuerpo,
+      el("div", { class: "fila" }, ...(d.transportes || []).map((t) =>
+        etiqueta(t.nombre, t.disponible ? "verde" : "hueca"))),
+      el("p", { class: "peq gris" }, `En uso: `, el("b", {}, d.en_uso || "—"),
+        ` · credenciales Plus: ${d.credenciales || "—"}`),
+      d.aviso ? msg(d.aviso, "ojo") : null,
+      (d.api || []).length ? el("ul", { class: "lista" }, ...d.api.map((x) => el("li", {},
+        etiqueta(x.ok ? "ok" : String(x.http || "✗"), x.ok ? "verde" : "roja"),
+        el("span", { style: "flex:1 1 180px;min-width:0" }, x.base),
+        el("span", { class: "gris peq" }, x.lectura)))) : null,
+      el("p", { class: "peq gris" }, c.activa
+        ? `Caché: ${c.respuestas} respuestas (${c.kib} KiB) en ${c.carpeta}`
+        : `Caché: ${c.nota}`),
+      el("p", { class: "peq gris" }, g.grabaciones
+        ? `Grabaciones: ${g.grabaciones} respuestas en ${g.carpeta} (${g.desde} → ${g.hasta})`
+        : g.nota),
+      el("div", { class: "fila" },
+        el("button", { class: "btn plano s", onclick: () => traer(true) }, "Probar la API"),
+        el("button", { class: "btn plano s", onclick: async (ev) => {
+          ev.currentTarget.disabled = true;
+          const r = await api.post("/api/cache", {});
+          traer(false);
+          if (!r.error) cuerpo.prepend(msg(`Borrados ${r.borrados} ficheros de caché.`));
+        } }, "Vaciar la caché")),
+      nota("Si «en uso» dice UrllibTransport, Sofascore contestará 403 casi siempre: "
+        + "instala curl_cffi, que imita el TLS de Chrome."));
+  }
+  traer(false);
+  return tarjeta("Diagnóstico", cuerpo);
+}
+
+/* ── la consola: cualquier herramienta, desde cualquier aparato ──── */
+/* Las vistas de arriba cubren lo que se mira a diario. Esto cubre el resto,
+   ahora y cuando se añadan más: la página pide la lista al servidor, así que
+   una herramienta nueva aparece aquí sin tocar nada. */
+function tarjetaConsola() {
+  const cuerpo = el("div", { class: "bloque" });
+  const salida = el("div", { class: "bloque" });
+  api.get("/api/herramientas").then((lista) => {
+    const err = fallo(lista);
+    if (err || !Array.isArray(lista)) { cuerpo.replaceChildren(err || msg("Sin lista.", "mal")); return; }
+    const sel = el("select", { class: "campo", style: "flex:1 1 220px" },
+      ...lista.map((h) => el("option", { value: h.name }, h.name)));
+    const campos = el("div", { class: "bloque" });
+    const descripcion = el("p", { class: "peq gris" });
+    function montar() {
+      const h = lista.find((x) => x.name === sel.value) || {};
+      const esquema = h.input_schema || {};
+      const req = esquema.required || [];
+      descripcion.textContent = h.description || "";
+      campos.replaceChildren(...Object.entries(esquema.properties || {}).map(([clave, def]) =>
+        el("label", { class: "bloque", style: "gap:4px" },
+          el("span", { class: "mini" }, clave + (req.indexOf(clave) >= 0 ? " ·" : "")),
+          def.enum
+            ? el("select", { class: "campo", "data-arg": clave },
+                ...(req.indexOf(clave) >= 0 ? [] : [el("option", { value: "" }, "—")]),
+                ...def.enum.map((v) => el("option", { value: v }, v)))
+            : el("input", { class: "campo", "data-arg": clave,
+                "data-tipo": def.type || "string",
+                type: def.type === "integer" || def.type === "number" ? "number" : "text",
+                placeholder: def.description || "" }),
+          def.enum && def.description ? el("span", { class: "peq gris" }, def.description) : null)));
+      if (!Object.keys(esquema.properties || {}).length)
+        campos.replaceChildren(nota("Esta herramienta no lleva argumentos."));
+    }
+    sel.addEventListener("change", () => { montar(); salida.replaceChildren(); });
+    montar();
+    poner(cuerpo,
+      el("div", { class: "busca" }, sel,
+        el("button", { class: "btn", onclick: async (ev) => {
+          const boton = ev.currentTarget;
+          boton.disabled = true;
+          salida.replaceChildren(espera("Ejecutando " + sel.value + "…"));
+          const args = {};
+          for (const nodo of campos.querySelectorAll("[data-arg]")) {
+            const v = nodo.value.trim();
+            if (!v) continue;
+            const tipo = nodo.dataset.tipo;
+            if (tipo === "integer") args[nodo.dataset.arg] = parseInt(v, 10);
+            else if (tipo === "number") args[nodo.dataset.arg] = Number(v);
+            else if (tipo === "boolean") args[nodo.dataset.arg] = v === "true" || v === "sí";
+            else if (tipo === "array") args[nodo.dataset.arg] = v.split(",").map((x) => x.trim());
+            else args[nodo.dataset.arg] = v;
+          }
+          const d = await api.h(sel.value, args);
+          boton.disabled = false;
+          salida.replaceChildren(volcado(d));
+        } }, "Ejecutar")),
+      descripcion, campos, salida,
+      nota(`Las ${lista.length} herramientas que ve la IA, tal cual. Lo que sale es el JSON `
+        + "que recibiría ella: si algo no está en las pantallas de arriba, está aquí."));
+  });
+  cuerpo.append(espera("Pidiendo la lista de herramientas…"));
+  return tarjeta("Consola de herramientas", cuerpo);
+}
+
+function ajustes(e) {
+  const clave = el("input", { class: "campo", id: "clave", type: "password", value: api.clave,
+    placeholder: "Clave del servidor (si arrancó con --clave)" });
+  return tarjeta("Ajustes",
+    el("form", { class: "busca", onsubmit: (ev) => { ev.preventDefault(); api.clave = clave.value;
+      guardar("clave", clave.value); ir("#/memoria", true); } },
+      clave, el("button", { class: "btn plano", type: "submit" }, "Guardar")),
+    el("div", { class: "fila" }, el("span", { class: "mini" }, "tema"),
+      ...[["auto", "Automático"], ["light", "Claro"], ["dark", "Oscuro"]].map((par) =>
+        el("button", { class: "btn plano s", onclick: () => tema(par[0]) }, par[1]))),
+    el("p", { class: "peq gris" }, `cancha ${e.version || ""} · `
+      + String(e.hora || "").replace("T", " ").slice(0, 16)));
+}
+
+function tema(v) {
+  guardar("tema", v);
+  if (v === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", v);
+}
+
+/* ═══════════════════════════════════════════════════════════ rutas ═══ */
+const NAV = [
+  ["hoy", "Hoy", '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'],
+  ["seguro", "Seguro", '<path d="M12 3l7 3v6c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/>'],
+  ["analista", "Analista", '<path d="M21 12a8.5 8.5 0 1 1-3.4-6.8"/><path d="M8 11h.01M12 11h.01M16 11h.01"/><path d="M7 19.5L5 22v-4"/>'],
+  ["buscar", "Buscar", '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/>'],
+  ["memoria", "Memoria", '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'],
+];
+function nav(activa) {
+  $("#nav").replaceChildren(...NAV.map((fila) =>
+    el("a", { href: "#/" + fila[0], class: fila[0] === activa ? "on" : "" },
+      el("span", { html: svg(fila[2]) }), fila[1], el("span", { class: "punto" }))));
+}
+function ir(hash, forzar) { if (location.hash === hash && forzar) pintar(); else location.hash = hash; }
+
+let actual = "";
+async function pintar() {
+  const partes = location.hash.replace(/^#\/?/, "").split("/");
+  const nombre = V[partes[0]] ? partes[0] : "hoy";
+  nav(nombre);
+  actual = location.hash;
+  const raiz = $("#vista");
+  try { await V[nombre](raiz, partes.slice(1)); }
+  catch (err) { raiz.append(msg("Algo ha fallado en la página: " + err.message, "mal")); }
+  if (location.hash === actual) window.scrollTo({ top: 0 });
+}
+async function pulso() {
+  const e = await api.get("/api/estado");
+  const nodo = $("#pulso");
+  if (!e || e.error) {
+    nodo.replaceChildren(el("span", { class: "led mal" }),
+      el("span", {}, e && e.sin_clave ? "hace falta la clave" : "sin servidor"));
+    return;
+  }
+  const m = e.memoria || {};
+  nodo.replaceChildren(el("span", { class: "led " + (m.partidos ? "" : "off") }),
+    el("span", {}, m.partidos ? `${m.partidos} partidos` : "memoria vacía"));
+}
+
+tema(leer("tema", "auto"));
+window.addEventListener("hashchange", pintar);
+pintar(); pulso();
+if ("serviceWorker" in navigator && location.protocol.startsWith("http"))
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+</script>
+</body>
+</html>
