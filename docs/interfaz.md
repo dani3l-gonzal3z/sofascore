@@ -46,7 +46,7 @@ pinta el mismo QR en pantalla.
 
 ## Qué hay dentro
 
-Cinco pestañas, y la de **Hoy** es la que se abre. **Todo lo que hace el
+Seis pestañas, y la de **Hoy** es la que se abre. **Todo lo que hace el
 framework se puede hacer desde aquí**, también desde el móvil: no hay nada que
 obligue a volver al terminal.
 
@@ -56,6 +56,7 @@ obligue a volver al terminal.
 | **Casi seguro** | Lo que se repite, con su número. Cada aviso lleva la frecuencia, el suelo de confianza, cuántos casos lo sostienen y cuánto se separa de su referencia. La pestaña *Los patrones* enseña la calibración entera. |
 | **Analista** | Pregunta en castellano y un modelo local busca los datos. Los pasos se ven mientras ocurren: qué herramienta pidió y cuánto le contestaron. Debajo, **Dictamen**: el expediente entero de un partido a un modelo de una vez, con el documento que se le manda a la vista y, si usas la nube, el aviso de que eso sale de tu ordenador ([Dictamen](dictamen.md)). |
 | **Buscar** | Partido, equipo, jugador, **liga** o duelo, con un selector arriba. El partido trae alineaciones, cronología, quién mandaba tramo a tramo, historial entre los dos, quién generó el peligro y los datos en crudo de cualquier sección. El equipo y el jugador traen su ficha completa, y el equipo además su Elo. La liga trae clasificación, histórico desde 1993, ranking Elo, agenda y noticias de ESPN y las tablas de FBref. |
+| **Agentes** | Tus analistas, cada uno con su estilo, su modelo y las herramientas a las que llega, y la **clasificación**: quién acierta más, contra el cálculo y contra el mercado ([Agentes](agentes.md)). Con sus dos avisos incómodos: quién apenas se separa del precio y quién predice mucho más tarde que los demás. |
 | **Memoria** | Qué hay guardado, el barrido en segundo plano con su registro, el catálogo de competiciones (y un botón para buscar los ids que faltan), rellenar cuotas, árbitros, fuentes, el QR para abrirlo en el móvil, el **diagnóstico** (lo que dice `cancha doctor`, más la caché), los **[ajustes](ajustes.md)** —donde se le puede poner el token del bot de Telegram sin reiniciar nada, y se ve si está escuchando— y la **consola de herramientas**. |
 
 ### Las tarjetas plegadas
@@ -97,6 +98,11 @@ servidor (lo ya traído no se vuelve a pedir). Además:
 | `POST /api/analista` | Una pregunta al modelo local. Contesta en **NDJSON**, un paso por línea |
 | `GET /api/analista` | Si Ollama está, qué modelos tiene y si LangChain está instalado |
 | `POST /api/dictamen` | Monta el expediente de un partido y se lo da entero a un modelo ([Dictamen](dictamen.md)) |
+| `POST /api/agentes` | Los agentes que hay, con su huella y sus problemas, y las herramientas que se pueden marcar |
+| `POST /api/agente` | Guarda un agente. Si la definición no vale, contesta los problemas en palabras y no escribe nada |
+| `POST /api/agente/borrar` | Lo quita. Lo que ya predijo se queda en el registro |
+| `POST /api/agente/correr` | Pone a un agente a analizar un partido ([Agentes](agentes.md)) |
+| `POST /api/clasificacion` | La tabla: quién acierta más, y por qué no ordena por acierto |
 | `POST /api/barrido` | Lanza un barrido (`fecha`, `grupos`, `max`) en segundo plano |
 | `GET /api/barrido` | Cómo va: líneas de registro y resumen al acabar |
 | `GET /api/diagnostico` | Transportes, credenciales, caché y grabaciones. Con `?red=1` prueba contra la API |

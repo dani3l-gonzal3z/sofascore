@@ -275,10 +275,10 @@ def test_si_ollama_falla_el_error_viaja_por_la_misma_linea(servidor):
     assert lineas and "escuchando" in lineas[-1]["error"]
 
 
-def test_la_pagina_trae_las_cinco_pestanas_y_el_tema(servidor):
+def test_la_pagina_trae_las_seis_pestanas_y_el_tema(servidor):
     _, _, cuerpo = _pedir(servidor, "GET", "/")
     html = cuerpo.decode("utf-8")
-    for pestana in ("Hoy", "Seguro", "Analista", "Buscar", "Memoria"):
+    for pestana in ("Hoy", "Seguro", "Analista", "Buscar", "Agentes", "Memoria"):
         assert f'"{pestana}"' in html, pestana
     # Los tres estados del tema: claro, oscuro por sistema y oscuro elegido.
     assert "prefers-color-scheme: dark" in html
@@ -832,3 +832,57 @@ def test_la_pagina_lee_los_dictamenes_guardados(servidor):
     assert "/api/dictamenes" in html
     assert "mañana seguirá aquí" in html
     assert "con todas las estadísticas" in html, "y se puede elegir cuánto crudo"
+
+
+# ------------------------------------------------------------------ agentes
+
+def test_los_agentes_se_listan_con_las_herramientas_que_puede_elegir(servidor):
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/agentes", {})
+    datos = cuerpo
+    assert datos["agentes"], "la primera vez salen los de ejemplo"
+    assert all("huella" in a and "problemas" in a for a in datos["agentes"])
+    assert len(datos["herramientas"]) > 20, "hay que poder elegir a qué llega"
+
+
+def test_una_definicion_mala_no_se_escribe_y_se_dice_por_que(servidor, tmp_path,
+                                                             monkeypatch):
+    monkeypatch.setenv("CANCHA_AGENTES", str(tmp_path / "ag.json"))
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/agente",
+                          {"clave": "El Mío", "agente": {"instrucciones": "x"}})
+    datos = cuerpo
+    assert datos["guardado"] is False
+    assert any("nombre corto" in p for p in datos["problemas"])
+    assert not (tmp_path / "ag.json").exists(), "no se escribe nada"
+
+
+def test_un_agente_se_guarda_y_se_vuelve_a_leer(servidor, tmp_path, monkeypatch):
+    monkeypatch.setenv("CANCHA_AGENTES", str(tmp_path / "ag.json"))
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/agente", {
+        "clave": "el-mio", "agente": {"nombre": "El mío", "crudo": "todo",
+                                      "instrucciones": "Mira las faltas primero.",
+                                      "herramientas": ["casi_seguro"]}})
+    assert cuerpo["guardado"] is True
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/agentes", {})
+    mio = [a for a in cuerpo["agentes"] if a["clave"] == "el-mio"][0]
+    assert mio["crudo"] == "todo"
+    assert mio["herramientas"] == ["casi_seguro"]
+    assert mio["problemas"] == []
+
+
+def test_borrar_un_agente_que_no_existe_se_dice(servidor):
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/agente/borrar", {"clave": "el-nadie"})
+    assert "No tengo" in cuerpo["error"]
+
+
+def test_correr_un_agente_que_no_existe_no_gasta_nada(servidor):
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/agente/correr",
+                          {"clave": "el-nadie", "partido": "Girona vs Osasuna"})
+    assert "No tengo" in cuerpo["error"]
+
+
+def test_la_clasificacion_contesta_aunque_no_haya_nadie(servidor):
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/clasificacion", {})
+    datos = cuerpo
+    assert datos["clasificacion"] == []
+    assert datos["minimo"] > 0
+    assert any("CLASIFICACIÓN" in linea for linea in datos["lineas"])

@@ -719,7 +719,7 @@ def cmd_seguro(args: argparse.Namespace) -> int:
 
 def cmd_resultados(args: argparse.Namespace) -> int:
     """El registro: qué se predijo y cómo acabó."""
-    from ..registro import anotar, balance, resolver, texto
+    from ..registro import AUTOR_CALCULO, anotar, balance, resolver, texto
 
     almacen = _almacen(args)
     cliente = None
@@ -736,8 +736,18 @@ def cmd_resultados(args: argparse.Namespace) -> int:
             imprimir(f"{hechas['resueltas']} resueltas, "
                      f"{hechas['sin_jugar_todavia']} sin jugar todavía.")
             imprimir("")
+        # Por defecto, el cálculo: es exactamente lo que medía esta pantalla antes
+        # de que hubiera más autores. Con `--autor todos` se piden todos juntos, y
+        # entonces lo que sale es un promedio de gente distinta, que no mide a
+        # nadie: para comparar está `cancha clasificacion`.
+        autor = args.autor or AUTOR_CALCULO
         datos = balance(almacen, desde=args.desde, hasta=args.hasta,
-                        mercado=args.mercado)
+                        mercado=args.mercado,
+                        autor=None if autor == "todos" else autor)
+        if autor == "todos":
+            imprimir("⚠ Esto mezcla a todos los autores en un solo promedio, así "
+                     "que no mide a ninguno. Para compararlos: cancha clasificacion.")
+            imprimir("")
         if args.json:
             imprimir(json.dumps(datos, ensure_ascii=False, indent=2))
             return 0
@@ -927,6 +937,9 @@ def registrar(sub, comun_p, informe, listado) -> None:
                               help="Puntuar antes las que ya tengan resultado.")
     p_resultados.add_argument("--anotar", metavar="PARTIDO",
                               help="Apuntar a mano la predicción de un partido.")
+    p_resultados.add_argument("--autor", help="De quién: calculo (por defecto), "
+                                              "mercado, el nombre de un agente, o "
+                                              "«todos» para mezclarlos.")
     p_resultados.add_argument("--json", action="store_true", help="Volcar el JSON.")
     p_resultados.set_defaults(func=cmd_resultados)
 

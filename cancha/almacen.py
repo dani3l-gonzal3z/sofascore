@@ -32,9 +32,62 @@ from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 7
+VERSION_ESQUEMA = 8
 
-ESQUEMA = """
+#: El DDL de `predicciones`, aparte del resto del esquema y con un hueco para el
+#: nombre de la tabla, porque lo necesitan dos sitios: `ESQUEMA`, que la crea en
+#: una base nueva, y la migración del autor, que la rehace. Escribirlo dos veces
+#: es exactamente cómo se acaba con una tabla vieja y una nueva que ya no son la
+#: misma tabla.
+DDL_PREDICCIONES = """
+-- El registro: lo que se predijo, cuándo, y cómo acabó. Es la tabla que
+-- convierte esto en algo que se puede juzgar. Una predicción se escribe **antes**
+-- del partido y no se toca nunca más: lo único que se rellena después es el
+-- resultado. Un historial que se puede reescribir no vale nada.
+CREATE TABLE IF NOT EXISTS {tabla} (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    partido_id      INTEGER NOT NULL,
+    fecha           TEXT,            -- la del partido
+    hecha_el        TEXT DEFAULT CURRENT_TIMESTAMP,
+    horas_antes     REAL,            -- cuánto faltaba para el saque
+    version         TEXT,            -- con qué cálculo se hizo
+    -- Quién la hizo: «cálculo» (el Poisson), «mercado» (las cuotas) o el nombre
+    -- de un agente. Es lo que convierte el registro en una clasificación: la
+    -- misma vara de medir para todos, sobre los mismos partidos.
+    autor           TEXT NOT NULL,
+    mercado         TEXT NOT NULL,   -- 1x2, mas_2_5, ambos_marcan, corners, tarjetas…
+    seleccion       TEXT NOT NULL,   -- local, empate, visitante, si, no, "2-1"
+    probabilidad    REAL NOT NULL,   -- la nuestra
+    prob_mercado    REAL,            -- la del mercado cuando se predijo, si la había
+    -- Lo que se rellena al resolver:
+    resuelto        INTEGER DEFAULT 0,
+    acerto          INTEGER,
+    valor_real      TEXT,            -- el marcador, los córners, lo que toque
+    prob_cierre     REAL,            -- el mercado en la última cuota vista
+    resuelto_el     TEXT,
+    UNIQUE (partido_id, autor, mercado, seleccion),
+    -- OJO: por este CASCADE, un `INSERT OR REPLACE` sobre `partidos` borraría
+    -- las predicciones de ese partido —REPLACE borra la fila y la vuelve a
+    -- escribir—. El barrido guarda los partidos cada noche, así que ahí se usa
+    -- `ON CONFLICT(id) DO UPDATE`, que actualiza sin borrar. No lo cambies.
+    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
+);
+"""
+
+#: Sus índices, aparte, por un detalle que muerde en silencio: `ALTER TABLE ...
+#: RENAME` **no** renombra los índices de la tabla. Durante la migración los
+#: nombres viejos siguen ocupados por índices colgados de la tabla vieja, así que
+#: un `CREATE INDEX IF NOT EXISTS` no haría nada y el `DROP` se los llevaría: la
+#: tabla se quedaría sin índices y nadie se enteraría. Por eso se crean **después**
+#: de tirar la tabla vieja, y por eso tienen que estar aquí y no dentro del texto.
+INDICES_PREDICCIONES = (
+    "CREATE INDEX IF NOT EXISTS idx_predicciones_fecha ON predicciones(fecha)",
+    "CREATE INDEX IF NOT EXISTS idx_predicciones_resuelto ON predicciones(resuelto)",
+    # Este es nuevo: la clasificación filtra por autor en cada consulta.
+    "CREATE INDEX IF NOT EXISTS idx_predicciones_autor ON predicciones(autor, resuelto)",
+)
+
+_ESQUEMA_ANTES = """
 CREATE TABLE IF NOT EXISTS partidos (
     id              INTEGER PRIMARY KEY,
     custom_id       TEXT,
@@ -161,37 +214,9 @@ CREATE TABLE IF NOT EXISTS ligas (
     visto_en    TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_ligas_id ON ligas(id);
+"""
 
--- El registro: lo que se predijo, cuándo, y cómo acabó. Es la tabla que
--- convierte esto en algo que se puede juzgar. Una predicción se escribe **antes**
--- del partido y no se toca nunca más: lo único que se rellena después es el
--- resultado. Un historial que se puede reescribir no vale nada.
-CREATE TABLE IF NOT EXISTS predicciones (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    partido_id      INTEGER NOT NULL,
-    fecha           TEXT,            -- la del partido
-    hecha_el        TEXT DEFAULT CURRENT_TIMESTAMP,
-    horas_antes     REAL,            -- cuánto faltaba para el saque
-    version         TEXT,            -- con qué cálculo se hizo
-    mercado         TEXT NOT NULL,   -- 1x2, mas_2_5, ambos_marcan, corners, tarjetas…
-    seleccion       TEXT NOT NULL,   -- local, empate, visitante, si, no, "2-1"
-    probabilidad    REAL NOT NULL,   -- la nuestra
-    prob_mercado    REAL,            -- la del mercado cuando se predijo, si la había
-    -- Lo que se rellena al resolver:
-    resuelto        INTEGER DEFAULT 0,
-    acerto          INTEGER,
-    valor_real      TEXT,            -- el marcador, los córners, lo que toque
-    prob_cierre     REAL,            -- el mercado en la última cuota vista
-    resuelto_el     TEXT,
-    UNIQUE (partido_id, mercado, seleccion),
-    -- OJO: por este CASCADE, un `INSERT OR REPLACE` sobre `partidos` borraría
-    -- las predicciones de ese partido —REPLACE borra la fila y la vuelve a
-    -- escribir—. El barrido guarda los partidos cada noche, así que ahí se usa
-    -- `ON CONFLICT(id) DO UPDATE`, que actualiza sin borrar. No lo cambies.
-    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_predicciones_fecha ON predicciones(fecha);
-CREATE INDEX IF NOT EXISTS idx_predicciones_resuelto ON predicciones(resuelto);
+_ESQUEMA_DESPUES = """
 
 -- Lo que ha dicho un modelo sobre un partido. Se guarda entero y para siempre:
 -- cuesta dinero (si va por la nube) y tiempo, y sobre todo es lo que dijo
@@ -219,8 +244,14 @@ CREATE INDEX IF NOT EXISTS idx_dictamenes_partido ON dictamenes(partido_id);
 CREATE TABLE IF NOT EXISTS anotaciones (
     clave  TEXT PRIMARY KEY,
     valor  TEXT
-);
-"""
+);"""
+
+#: Los índices de `predicciones` **no** van aquí: `idx_predicciones_autor` no se
+#: puede crear sobre una tabla vieja que todavía no tiene esa columna, y este
+#: texto se ejecuta antes de migrar. Los crea `_indices_de_predicciones()` al
+#: final de la migración, que es cuando la tabla ya tiene su forma definitiva.
+ESQUEMA = (_ESQUEMA_ANTES + DDL_PREDICCIONES.format(tabla="predicciones")
+           + _ESQUEMA_DESPUES)
 
 
 def _numero(valor: Any) -> float | None:
@@ -278,12 +309,103 @@ class Almacen:
         if "sin_estadisticas" not in columnas:
             self._conexion.execute(
                 "ALTER TABLE partidos ADD COLUMN sin_estadisticas INTEGER DEFAULT 0")
+        self._migrar_autor_de_predicciones()
+        self._indices_de_predicciones()
+        de_dictamenes = {f["name"] for f in self.consulta("PRAGMA table_info(dictamenes)")}
+        for columna, tipo in (("agente", "TEXT"), ("pasos", "TEXT"),
+                              ("sin_numeros", "INTEGER DEFAULT 0")):
+            if columna not in de_dictamenes:
+                self._conexion.execute(
+                    f"ALTER TABLE dictamenes ADD COLUMN {columna} {tipo}")
         de_cuotas = {f["name"] for f in self.consulta("PRAGMA table_info(cuotas)")}
         if "visto_en" not in de_cuotas:
             self._conexion.execute("ALTER TABLE cuotas ADD COLUMN visto_en TEXT")
         if "horas_antes" not in de_cuotas:
             self._conexion.execute("ALTER TABLE cuotas ADD COLUMN horas_antes REAL")
         self._conexion.commit()
+
+    def _indices_de_predicciones(self) -> None:
+        """Los índices de `predicciones`, después de migrar y no antes.
+
+        Van aquí por dos razones que se olvidan enseguida. Una: el de `autor` no
+        se puede crear sobre una tabla que todavía no tiene esa columna, y el
+        esquema se ejecuta antes de migrar. Y dos: `ALTER TABLE ... RENAME` **no**
+        renombra los índices de la tabla, así que mientras la migración tenía la
+        tabla vieja delante los nombres seguían ocupados y un `CREATE INDEX IF
+        NOT EXISTS` no hacía nada; el `DROP` se los llevaba y la tabla se quedaba
+        sin índices sin que nadie se enterara.
+        """
+        for sql in INDICES_PREDICCIONES:
+            self._conexion.execute(sql)
+
+    def _migrar_autor_de_predicciones(self) -> None:
+        """Le añade el autor a `predicciones`, rehaciendo la tabla.
+
+        SQLite no sabe cambiar una restricción `UNIQUE`, y aquí hay que hacerlo:
+        pasa de `(partido, mercado, selección)` a `(partido, **autor**, mercado,
+        selección)`, porque si no dos agentes no pueden opinar del mismo partido
+        y el segundo se pierde en silencio. Rehacer la tabla es el camino que
+        documenta SQLite, y se hace una sola vez: a partir de ahí `ESQUEMA` ya la
+        crea con la forma nueva.
+
+        Lo que había era del cálculo de Poisson, así que eso es lo que se le
+        pone: no se inventa un autor ni se pierde una fila.
+
+        Lo delicado de esto no es el SQL, es que se puede **cortar por la mitad**.
+        Si el proceso muere entre el renombrado y el copiado, las predicciones se
+        quedan en la tabla vieja y, como la tabla nueva ya tiene la columna
+        `autor`, la siguiente apertura se da por migrada y nadie vuelve a mirar
+        ahí. Por eso todo va en **una** transacción, por eso se entra también
+        cuando existe la tabla vieja —una migración a medias se reanuda— y por
+        eso el copiado es `OR IGNORE`: reanudar es repetir.
+        """
+        columnas = {f["name"] for f in self.consulta("PRAGMA table_info(predicciones)")}
+        if not columnas:
+            return
+        a_medias = bool(self.consulta(
+            "SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='predicciones_vieja'"))
+        if "autor" in columnas and not a_medias:
+            return
+
+        # El PRAGMA de las claves ajenas es un no-op dentro de una transacción, y
+        # no se queja: se queda como estaba. Así que primero se cierra lo que
+        # haya abierto, y después se lee de vuelta para confirmar que ha calado.
+        # Más vale no migrar que migrar con las claves puestas y la tabla a medias.
+        self._conexion.commit()
+        self._conexion.execute("PRAGMA foreign_keys = OFF")
+        if self.consulta("PRAGMA foreign_keys")[0]["foreign_keys"]:
+            raise sqlite3.DatabaseError(
+                "No he podido apagar las claves ajenas para rehacer `predicciones`, "
+                "así que no toco nada. Cierra lo que esté usando la memoria y "
+                "vuelve a abrirla.")
+        try:
+            self._conexion.execute("BEGIN IMMEDIATE")
+            if not a_medias:
+                self._conexion.execute(
+                    "ALTER TABLE predicciones RENAME TO predicciones_vieja")
+                self._conexion.execute(DDL_PREDICCIONES.format(tabla="predicciones"))
+            de_la_vieja = {f["name"] for f in
+                           self.consulta("PRAGMA table_info(predicciones_vieja)")}
+            viejas = [c for c in (
+                "id", "partido_id", "fecha", "hecha_el", "horas_antes", "version",
+                "mercado", "seleccion", "probabilidad", "prob_mercado", "resuelto",
+                "acerto", "valor_real", "prob_cierre", "resuelto_el")
+                if c in de_la_vieja]
+            lista = ", ".join(viejas)
+            # Los `id` se copian tal cual: es lo que hace que lo que ya apuntaba a
+            # una fila siga apuntando a la misma. `AUTOINCREMENT` se recupera solo,
+            # porque SQLite reconstruye su cuenta a partir del máximo que ve.
+            self._conexion.execute(
+                f"INSERT OR IGNORE INTO predicciones (autor, {lista}) "
+                f"SELECT ?, {lista} FROM predicciones_vieja", ("calculo",))
+            self._conexion.execute("DROP TABLE predicciones_vieja")
+            self._conexion.execute("COMMIT")
+        except BaseException:
+            self._conexion.execute("ROLLBACK")
+            raise
+        finally:
+            self._conexion.execute("PRAGMA foreign_keys = ON")
 
     # --- contexto ---
 
@@ -521,21 +643,31 @@ class Almacen:
 
     def guardar_dictamen(self, partido_id: int, respuesta: str, modelo: str = "",
                          pregunta: str = "", expediente: str = "",
-                         en_la_nube: bool = False, tokens: dict | None = None) -> int:
+                         en_la_nube: bool = False, tokens: dict | None = None,
+                         agente: str = "", pasos: Any = None,
+                         sin_numeros: bool = False) -> int:
         """Guarda lo que ha dicho un modelo de un partido. Devuelve su id.
 
         No sustituye al anterior: se apilan. Pedir otro dictamen es querer otra
         opinión, no borrar la primera.
+
+        `agente` es quién lo dijo, con el **mismo nombre** que lleva en
+        `predicciones.autor`: es lo que permite leer en la misma frase lo que
+        escribió y lo que acertó. `sin_numeros` marca el dictamen que no terminó
+        dando probabilidades: se guarda igual, porque se lee, pero no puntúa.
         """
         cuentas = tokens or {}
         cursor = self._conexion.execute(
             """INSERT INTO dictamenes
                (partido_id, modelo, en_la_nube, pregunta, respuesta, expediente,
-                caracteres, tokens_prompt, tokens_respuesta)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
+                caracteres, tokens_prompt, tokens_respuesta, agente, pasos,
+                sin_numeros)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (partido_id, modelo, 1 if en_la_nube else 0, pregunta, respuesta,
              expediente, len(expediente or ""), cuentas.get("prompt_eval_count"),
-             cuentas.get("eval_count")))
+             cuentas.get("eval_count"), agente,
+             json.dumps(pasos, ensure_ascii=False) if pasos else None,
+             1 if sin_numeros else 0))
         self._conexion.commit()
         return int(cursor.lastrowid or 0)
 
@@ -543,7 +675,8 @@ class Almacen:
                       con_expediente: bool = False) -> list[dict]:
         """Los dictámenes guardados de un partido, del más reciente atrás."""
         columnas = ("id, partido_id, hecho_el, modelo, en_la_nube, pregunta, "
-                    "respuesta, caracteres, tokens_prompt, tokens_respuesta"
+                    "respuesta, caracteres, tokens_prompt, tokens_respuesta, "
+                    "agente, pasos, sin_numeros"
                     + (", expediente" if con_expediente else ""))
         return self.consulta(
             f"""SELECT {columnas} FROM dictamenes WHERE partido_id = ?

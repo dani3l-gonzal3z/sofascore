@@ -260,6 +260,9 @@ pasar por tu bot. No lo subas a ningún sitio.
 | `/jugador Vinicius` | Forma y rachas |
 | `/memoria` | Qué hay guardado y cuándo fue la última guardia |
 | `/resultados` | Cómo va acertando ([El registro](registro.md)) |
+| `/agentes` | Tus analistas, cada uno con su estilo ([Agentes](agentes.md)) |
+| `/agente el-esceptico Girona vs Osasuna` | Que uno de ellos lo analice. Es la orden más cara del bot |
+| `/clasificacion` | Quién acierta más: ellos, el cálculo y el mercado |
 
 **Las horas son las de tu reloj.** Antes salían en UTC sin decirlo, así que un
 partido a las 14:15 UTC se leía como las dos y cuarto cuando en España empezaba

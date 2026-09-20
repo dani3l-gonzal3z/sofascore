@@ -221,6 +221,43 @@ def test_la_ayuda_menciona_el_pronostico(bot):
     assert "/pronostico" in solo.responder("/ayuda")
 
 
+# ------------------------------------------------------------------ agentes
+
+def test_la_ayuda_lista_los_agentes(bot):
+    solo, _ = bot
+    respuesta = solo.responder("/ayuda")
+    for orden in ("/agentes", "/agente", "/clasificacion"):
+        assert orden in respuesta
+
+
+def test_los_agentes_se_listan_por_su_nombre_corto(bot):
+    """Hace falta el nombre corto: es lo que se escribe después de /agente."""
+    solo, _ = bot
+    respuesta = solo.responder("/agentes")
+    assert "el-esceptico" in respuesta
+    assert "/agente" in respuesta
+
+
+def test_agente_sin_partido_dice_como_se_escribe(bot):
+    solo, _ = bot
+    respuesta = solo.responder("/agente el-esceptico")
+    assert "Girona vs Osasuna" in respuesta
+
+
+def test_un_agente_que_no_existe_se_dice_con_los_que_hay(bot):
+    solo, _ = bot
+    respuesta = solo.responder("/agente el-nadie Girona vs Osasuna")
+    assert "No tengo" in respuesta
+    assert "el-esceptico" in respuesta, "y se dicen los que sí hay"
+
+
+def test_la_clasificacion_contesta_sin_muestra(bot):
+    solo, _ = bot
+    respuesta = solo.responder("/clasificacion")
+    assert "Clasificación" in respuesta
+    assert "casos resueltos" in respuesta
+
+
 # ------------------------------------------------- averiguar el id de chat
 
 def test_quien_escribe_sin_permiso_queda_apuntado(bot):

@@ -66,6 +66,13 @@ cancha dictamen "…" --guardados            # los que ya dijo, sin pedir otro
 cancha doctor --tls                        # ¿hay un antivirus o un proxy abriendo tu HTTPS?
 cancha resultados                          # el registro: calibración, Brier y CLV
 cancha resultados --mercado 1x2 --desde 2026-08-01
+
+cancha agentes                             # tus analistas, cada uno con su estilo
+cancha agentes --crear el-escrupuloso      # el esqueleto de uno nuevo
+cancha agente el-esceptico "Girona vs Osasuna"
+cancha agente el-esceptico "Girona vs Osasuna" --solo-expediente
+cancha clasificacion                       # quién acierta más, contra el mercado
+cancha clasificacion --comparar el-esceptico calculo
 ```
 
 Opciones más usadas de `match`:

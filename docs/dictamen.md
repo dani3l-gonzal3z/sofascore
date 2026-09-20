@@ -210,3 +210,10 @@ ronda el 10-12 %. Un modelo grande escribe mejor esa frase, pero no la cambia.
 ---
 
 [← Volver al índice](../README.md)
+
+## Y si quieres varios, con estilos distintos
+
+El dictamen es un modelo leyendo el expediente entero de una vez, con las
+instrucciones de la casa. Si lo que quieres es **varios analistas con su propia
+forma de mirar**, cada uno llegando solo a los datos que le dejes, y una tabla que
+diga cuál acierta más, eso son los [agentes](agentes.md).

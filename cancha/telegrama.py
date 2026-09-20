@@ -530,6 +530,10 @@ def _ayuda(bot: Bot, _resto: str) -> str:
         "/jugador Vinicius — forma y rachas\n"
         "/memoria — qué hay guardado y cuándo fue la última guardia\n"
         "/resultados — cómo voy acertando: calibración, Brier y contra el mercado\n\n"
+        "<b>Los agentes</b>\n"
+        "/agentes — los analistas que tienes, cada uno con su estilo\n"
+        "/agente el-esceptico Girona vs Osasuna — que uno lo analice\n"
+        "/clasificacion — quién acierta más: ellos, el cálculo y el mercado\n\n"
         f"<i>Sigo estas competiciones: {_escapar(ligas)}. Se cambian en la "
         "interfaz, en Ajustes.</i>\n"
         "<i>Cualquier otra cosa se la paso al analista, si lo tienes arrancado.</i>")
@@ -851,6 +855,76 @@ def _resultados(bot: Bot, resto: str) -> str:
             + "\n\n<i>" + _escapar(datos["lo_que_no_dice"]) + "</i>")
 
 
+def _agentes(bot: Bot, _resto: str) -> str:
+    """Los agentes analistas que hay, para poder llamar a uno por su nombre."""
+    from .agentes import cargar, huella
+
+    agentes = cargar()
+    if not agentes:
+        return ("No tienes agentes. Se crean en la interfaz, en la pestaña Agentes, "
+                "y lo único imprescindible es escribirle a cada uno su estilo.")
+    lineas = ["🧠 <b>Tus agentes</b>", ""]
+    for clave, agente in sorted(agentes.items()):
+        cuantas = (f"{len(agente.herramientas)} herramientas"
+                   if agente.herramientas else "todas las herramientas")
+        lineas.append(f"<b>{_escapar(agente.nombre)}</b> — <code>{_escapar(clave)}</code>"
+                      + ("" if agente.activo else " (apagado)"))
+        lineas.append(f"<i>{_escapar(agente.instrucciones[:180])}"
+                      + ("…" if len(agente.instrucciones) > 180 else "") + "</i>")
+        lineas.append(f"{agente.vueltas} vueltas · crudo: {agente.crudo} · {cuantas} "
+                      f"· [{huella(agente)}]")
+        lineas.append("")
+    lineas.append("Ponlo a analizar con: /agente &lt;nombre&gt; Girona vs Osasuna")
+    lineas.append("Y mira quién acierta con /clasificacion")
+    return "\n".join(lineas)
+
+
+def _agente(bot: Bot, resto: str) -> str:
+    """Un agente analizando un partido, desde el móvil. Es la orden más cara."""
+    from .agentes import cargar, correr
+    from .analista import OllamaNoDisponible
+
+    partes = resto.strip().split(None, 1)
+    if len(partes) < 2:
+        return ("Dime cuál y de qué partido:\n"
+                "/agente el-esceptico Girona vs Osasuna\n\n"
+                "Los que tienes, con /agentes.")
+    clave, consulta = partes[0], partes[1]
+    agentes = cargar()
+    agente = agentes.get(clave)
+    if agente is None:
+        return (f"No tengo ningún agente «{_escapar(clave)}».\n"
+                "Los que hay: " + _escapar(", ".join(sorted(agentes)) or "ninguno"))
+    try:
+        salida = correr(bot.sesion.almacen, bot.sesion.cliente, agente, consulta,
+                        modelo_por_defecto=bot.modelo)
+    except (OllamaNoDisponible, OSError) as exc:
+        return _sin_analista(bot, exc)
+    if not salida.get("disponible"):
+        return salida.get("nota", "No he podido con ese partido.")
+
+    cabeza = (f"🧠 <b>{_escapar(salida['nombre'])}</b> sobre "
+              f"{_escapar(salida['partido'])}\n")
+    cuerpo = _escapar(salida.get("respuesta") or "")
+    if salida["sin_numeros"]:
+        cola = ("\n\n<i>No ha terminado dando probabilidades, así que esto se guarda "
+                "y se lee pero no puntúa: no se puede comparar con nadie.</i>")
+    else:
+        cola = (f"\n\n<i>{salida['apuntadas']} predicciones apuntadas a su nombre. "
+                "Cuando se juegue el partido se resuelven solas.</i>")
+    return cabeza + "\n" + cuerpo + cola
+
+
+def _clasificacion(bot: Bot, _resto: str) -> str:
+    """Quién acierta más: los agentes, el cálculo y el mercado, en la misma tabla."""
+    from .registro import tabla, texto_tabla
+
+    datos = tabla(bot.sesion.almacen)
+    cuerpo = "\n".join(texto_tabla(datos))
+    return ("📊 <b>Clasificación</b>\n\n<pre>" + _escapar(cuerpo) + "</pre>\n\n<i>"
+            + _escapar(datos["como_leerlo"]) + "</i>")
+
+
 def _memoria(bot: Bot, _resto: str) -> str:
     datos = bot.sesion.almacen.resumen()
     lineas = [
@@ -909,6 +983,8 @@ ORDENES: dict[str, Callable[[Bot, str], str]] = {
     "pronóstico": _pronostico,
     "equipo": _equipo, "jugador": _jugador, "memoria": _memoria,
     "resultados": _resultados, "acierto": _resultados,
+    "agentes": _agentes, "agente": _agente,
+    "clasificacion": _clasificacion, "clasificación": _clasificacion,
 }
 
 

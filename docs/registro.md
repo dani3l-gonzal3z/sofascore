@@ -15,6 +15,17 @@ cancha resultados --resolver       # puntuar las que ya se han jugado
 
 En la interfaz es **Seguro → Cómo acierto**, y en el bot `/resultados`.
 
+Cada predicción lleva además **quién la hizo**. `calculo` es el Poisson de
+siempre, `mercado` son las cuotas apuntadas como un concursante más —gratis, y es
+el listón—, y un [agente](agentes.md) es cualquier analista que le hayas escrito.
+Varios pueden opinar del mismo suceso del mismo partido, y eso es lo que hace
+posible la [clasificación](agentes.md#la-clasificación-y-por-qué-no-ordena-por-lo-que-parece).
+
+```bash
+cancha resultados --autor calculo    # el balance de uno solo
+cancha clasificacion                 # todos, ordenados por la ventaja sobre el mercado
+```
+
 ## Se apunta solo
 
 La guardia nocturna, cuando prepara el día siguiente, apunta el pronóstico de

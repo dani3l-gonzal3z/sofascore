@@ -63,8 +63,34 @@ MERCADOS = ("1x2", "mas_2_5", "ambos_marcan", "corners", "tarjetas", "marcador")
 
 # ------------------------------------------------------------------ apuntar
 
+#: Los dos concursantes que no son agentes. El cálculo es el Poisson de
+#: siempre; el mercado son las cuotas. Están para que se pueda saber si un
+#: agente aporta algo: sin ellos se corona al mejor de varios malos.
+#:
+#: Sin tilde, y esto no es descuido. Un autor viaja por `--autor` en el terminal,
+#: por `?autor=` en una petición, por una orden del bot y por JavaScript, y la
+#: comparación de SQLite es byte a byte: `'cálculo' = 'calculo'` da **falso**.
+#: Quien escribiera `cancha resultados --autor calculo` se llevaría cero filas y
+#: ninguna explicación, y dos formas Unicode de la misma tilde se ven iguales y
+#: no lo son. Lo que se guarda es un nombre corto de teclado; lo que se lee en
+#: pantalla sale de `NOMBRES_DE_AUTOR`.
+AUTOR_CALCULO = "calculo"
+AUTOR_MERCADO = "mercado"
+
+#: Cómo se llaman los concursantes fijos cuando hay que enseñarlos. Un agente se
+#: llama como lo haya llamado su dueño, así que no está aquí.
+NOMBRES_DE_AUTOR = {AUTOR_CALCULO: "el cálculo", AUTOR_MERCADO: "el mercado"}
+
+
+def nombre_de_autor(autor: str) -> str:
+    """Cómo se enseña un autor. Los fijos tienen nombre; un agente es su clave."""
+    return NOMBRES_DE_AUTOR.get(autor, autor)
+
+
 def anotar(almacen: Almacen, partido: Any, pronostico: dict | None = None,
-           cliente=None, version: str = VERSION_MODELO) -> dict:
+           cliente=None, version: str = VERSION_MODELO,
+           autor: str = AUTOR_CALCULO, con_mercado: bool = True,
+           probabilidades: dict | None = None) -> dict:
     """Apunta lo que se predice de un partido. No pisa lo ya apuntado.
 
     Que no pise es la mitad del asunto: si se pudiera volver a escribir encima,
@@ -91,15 +117,74 @@ def anotar(almacen: Almacen, partido: Any, pronostico: dict | None = None,
 
     mercado = ((datos.get("mercado") or {}).get("mercado") or {})
     horas = _horas_hasta(evento)
-    filas = list(_del_pronostico(datos, mercado))
+    filas = (list(_de_un_dict(probabilidades, mercado)) if probabilidades is not None
+             else list(_del_pronostico(datos, mercado)))
     guardadas = 0
     for mercado_nombre, seleccion, probabilidad, prob_mercado in filas:
-        guardadas += _insertar(almacen, evento, mercado_nombre, seleccion,
+        guardadas += _insertar(almacen, evento, autor, mercado_nombre, seleccion,
                                probabilidad, prob_mercado, horas, version)
+
+    # El mercado, apuntado como un concursante más. Es gratis —las cuotas ya
+    # están— y es el listón contra el que se mide todo lo demás. Solo se apunta
+    # una vez por partido, no una por cada agente que opine.
+    del_mercado = 0
+    if con_mercado and mercado:
+        for lado in ("local", "empate", "visitante"):
+            valor = _sacar(mercado, lado)
+            if valor is not None:
+                del_mercado += _insertar(almacen, evento, AUTOR_MERCADO, "1x2", lado,
+                                         valor, valor, horas, "cuotas")
     almacen._conexion.commit()
-    return {"partido_id": evento.id, "fecha": evento.date, "guardadas": guardadas,
-            "ya_estaban": len(filas) - guardadas, "version": version,
-            "horas_antes": horas}
+    return {"partido_id": evento.id, "fecha": evento.date, "autor": autor,
+            "guardadas": guardadas, "ya_estaban": len(filas) - guardadas,
+            "del_mercado": del_mercado, "version": version, "horas_antes": horas}
+
+
+def _de_un_dict(probabilidades: dict, mercado: dict):
+    """Las predicciones que vienen ya dadas —las de un agente— validadas.
+
+    Un agente contesta con un JSON; aquí se comprueba que lo que dice sean
+    probabilidades y no cualquier cosa. Lo que no cuadre se descarta en vez de
+    guardarse: una fila con un 1,4 de probabilidad envenena la calibración de
+    todo el registro, y además no se ve venir.
+    """
+    uno = (probabilidades.get("1x2") or {})
+    en_porcentaje = _son_porcentajes(uno)
+    for lado in ("local", "empate", "visitante"):
+        valor = _probabilidad(uno.get(lado), en_porcentaje)
+        if valor is not None:
+            yield "1x2", lado, valor, _sacar(mercado, lado)
+    for clave, seleccion in (("mas_2_5", "si"), ("ambos_marcan", "si"),
+                             ("corners", "mas_9_5"), ("tarjetas", "mas_3_5")):
+        valor = _probabilidad(probabilidades.get(clave), en_porcentaje)
+        if valor is not None:
+            yield clave, seleccion, valor, None
+    marcador = probabilidades.get("marcador") or {}
+    if isinstance(marcador, dict):
+        cual = str(marcador.get("marcador") or "").strip()
+        valor = _probabilidad(marcador.get("probabilidad"), en_porcentaje)
+        if cual and valor is not None:
+            yield "marcador", cual, valor, None
+
+
+def _son_porcentajes(uno_x_dos: dict) -> bool:
+    """¿Escribe este agente 55 o 0,55? Se decide por la suma del 1X2.
+
+    Es la única señal que no es ambigua. Mirar un número suelto no vale: un 1,4
+    puede ser «1,4 %» o una probabilidad mal escrita, y tratarlo como lo primero
+    convierte un disparate en un 0,014 que parece razonable y se cuela.
+    """
+    numeros = [float(v) for v in (uno_x_dos or {}).values()
+               if isinstance(v, (int, float)) and not isinstance(v, bool)]
+    return len(numeros) == 3 and 80 <= sum(numeros) <= 120
+
+
+def _probabilidad(valor: Any, en_porcentaje: bool = False) -> float | None:
+    """Un número entre 0 y 1, o nada."""
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return None
+    numero = float(valor) / 100 if en_porcentaje else float(valor)
+    return round(numero, 6) if 0 <= numero <= 1 else None
 
 
 def _del_pronostico(datos: dict, mercado: dict):
@@ -146,15 +231,15 @@ def _horas_hasta(evento) -> float | None:
     return round((cuando - datetime.now(timezone.utc)).total_seconds() / 3600, 2)
 
 
-def _insertar(almacen: Almacen, evento, mercado: str, seleccion: str,
+def _insertar(almacen: Almacen, evento, autor: str, mercado: str, seleccion: str,
               probabilidad: float, prob_mercado: float | None,
               horas: float | None, version: str) -> int:
     cursor = almacen._conexion.execute(
         """INSERT OR IGNORE INTO predicciones
-           (partido_id, fecha, horas_antes, version, mercado, seleccion,
+           (partido_id, fecha, horas_antes, version, autor, mercado, seleccion,
             probabilidad, prob_mercado)
-           VALUES (?,?,?,?,?,?,?,?)""",
-        (evento.id, evento.date, horas, version, mercado, seleccion,
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (evento.id, evento.date, horas, version, autor, mercado, seleccion,
          round(float(probabilidad), 6),
          None if prob_mercado is None else round(float(prob_mercado), 6)))
     return int(cursor.rowcount or 0)
@@ -304,14 +389,16 @@ def calibracion(predicciones: list[dict]) -> list[dict]:
 
 
 def balance(almacen: Almacen, desde: str | None = None, hasta: str | None = None,
-            mercado: str | None = None, version: str | None = None) -> dict:
+            mercado: str | None = None, version: str | None = None,
+            autor: str | None = None) -> dict:
     """Qué tal lo hace, con todo lo que hace falta para juzgarlo."""
     from .seguro import wilson
 
     condiciones = ["resuelto = 1"]
     parametros: list = []
     for campo, valor, operador in (("fecha", desde, ">="), ("fecha", hasta, "<="),
-                                   ("mercado", mercado, "="), ("version", version, "=")):
+                                   ("mercado", mercado, "="), ("version", version, "="),
+                                   ("autor", autor, "=")):
         if valor:
             condiciones.append(f"{campo} {operador} ?")
             parametros.append(valor)
@@ -338,6 +425,7 @@ def balance(almacen: Almacen, desde: str | None = None, hasta: str | None = None
                 sum(f["probabilidad"] for f in suyas) / len(suyas), 4),
         }
     return {
+        "autor": autor,
         "casos": len(filas),
         "desde": filas[0]["fecha"], "hasta": filas[-1]["fecha"],
         "aciertos": aciertos,
@@ -363,6 +451,218 @@ def balance(almacen: Almacen, desde: str | None = None, hasta: str | None = None
             "Esto mide si el cálculo describe bien el fútbol, no si algo es "
             "rentable: aquí no hay cuotas jugadas, ni unidades, ni ROI. Y se mide "
             "sobre los partidos que tú barres, que no son una muestra del fútbol."),
+    }
+
+
+def tabla(almacen: Almacen, desde: str | None = None, hasta: str | None = None,
+          minimo: int = MINIMO_PARA_JUZGAR) -> dict:
+    """La clasificación: quién predice mejor, y contra qué.
+
+    **Ordena por la ventaja sobre el mercado, no por el Brier a secas**, y el
+    motivo importa: un Brier bueno se puede conseguir prediciendo solo partidos
+    fáciles. Si un agente solo opina de favoritos claros, acertará mucho y su
+    Brier será estupendo sin haber aportado nada. Comparándolo con lo que decía
+    el mercado **en esos mismos partidos**, la dificultad se cancela y lo que
+    queda es el agente.
+
+    Quien no llegue a ``minimo`` casos resueltos sale aparte, en «todavía sin
+    muestra». No es un adorno: con veinte predicciones, el orden de una tabla
+    así es casi todo azar.
+    """
+    autores = [f["autor"] for f in almacen.consulta(
+        "SELECT DISTINCT autor FROM predicciones WHERE resuelto = 1 ORDER BY autor")]
+    clasificados, sin_muestra = [], []
+    for autor in autores:
+        suyo = balance(almacen, desde=desde, hasta=hasta, autor=autor)
+        if not suyo.get("casos"):
+            continue
+        contra = suyo.get("contra_el_mercado") or {}
+        fila = {
+            "autor": autor,
+            "casos": suyo["casos"],
+            "brier": suyo["brier"],
+            "log_loss": suyo["log_loss"],
+            "acierto": suyo["acierto"],
+            "desvio_de_calibracion": _desvio(suyo["calibracion"]),
+            "ventaja_sobre_el_mercado": contra.get("diferencia"),
+            "casos_comparables": contra.get("casos", 0),
+            "clv": (suyo.get("clv") or {}).get("proporcion_a_favor"),
+            "desde": suyo["desde"], "hasta": suyo["hasta"],
+            **_a_que_distancia(almacen, autor, desde, hasta),
+        }
+        (clasificados if suyo["casos"] >= minimo else sin_muestra).append(fila)
+
+    # Los que no se pueden comparar con el mercado van al final, no primeros por
+    # tener un None: no haber podido medirse no es una ventaja.
+    clasificados.sort(key=lambda f: (f["ventaja_sobre_el_mercado"] is None,
+                                     -(f["ventaja_sobre_el_mercado"] or 0)))
+    sin_muestra.sort(key=lambda f: -f["casos"])
+    return {
+        "clasificacion": clasificados,
+        "todavia_sin_muestra": sin_muestra,
+        "minimo": minimo,
+        "como_leerlo": (
+            "Ordena la ventaja sobre el mercado: cuánto mejor es su Brier que el "
+            "de las cuotas en los mismos partidos. Positivo es ganarle al mercado, "
+            "y es raro. El Brier suelto engaña —se mejora prediciendo solo partidos "
+            f"fáciles—, y el acierto más todavía. Con menos de {minimo} casos "
+            "resueltos nadie entra en la tabla."),
+        "avisos": _avisos_de_la_tabla(clasificados + sin_muestra),
+    }
+
+
+def _a_que_distancia(almacen: Almacen, autor: str, desde: str | None,
+                     hasta: str | None) -> dict:
+    """Dos cifras que dicen si la fila de arriba significa algo.
+
+    `distancia_al_mercado` es la media de |la suya − la del mercado|. No la pide
+    nadie y es la más valiosa de la tabla: el expediente **le enseña las cuotas**,
+    así que un agente puede limitarse a repetirlas y salir clasificado. Con una
+    distancia de 0,01 lo que la tabla mide no es quién analiza mejor, es quién
+    copia mejor.
+
+    `horas_antes_media` es la otra trampa, y es de fábrica: el cálculo se apunta
+    en la guardia de las tres de la mañana y un agente se corre a mano, a lo mejor
+    media hora antes del saque. El que llega tarde tiene **más información**, no
+    más talento, y sin esta columna la tabla premia eso.
+    """
+    filas = almacen.consulta(
+        "SELECT probabilidad, prob_mercado, horas_antes FROM predicciones "
+        "WHERE autor = ? AND resuelto = 1"
+        + (" AND fecha >= ?" if desde else "") + (" AND fecha <= ?" if hasta else ""),
+        tuple([autor] + [x for x in (desde, hasta) if x]))
+    distancias = [abs(f["probabilidad"] - f["prob_mercado"]) for f in filas
+                  if f["prob_mercado"] is not None]
+    horas = [f["horas_antes"] for f in filas if f["horas_antes"] is not None]
+    return {
+        "distancia_al_mercado": round(sum(distancias) / len(distancias), 4)
+                                if distancias else None,
+        "horas_antes_media": round(sum(horas) / len(horas), 1) if horas else None,
+    }
+
+
+#: Por debajo de esta distancia media al mercado, un autor no está analizando:
+#: está copiando el precio con otro decorado.
+DISTANCIA_DE_COPIAR = 0.02
+
+#: Y a partir de esta diferencia de horas entre concursantes, la tabla no los está
+#: comparando: uno sabía más cosas cuando habló.
+HORAS_QUE_DESNIVELAN = 6.0
+
+
+def _avisos_de_la_tabla(filas: list[dict]) -> list[str]:
+    """Lo que hay que decir antes de que alguien se crea el orden de la tabla."""
+    avisos = []
+    copiones = [nombre_de_autor(f["autor"]) for f in filas
+                if f["autor"] != AUTOR_MERCADO
+                and f.get("distancia_al_mercado") is not None
+                and f["distancia_al_mercado"] < DISTANCIA_DE_COPIAR]
+    if copiones:
+        avisos.append(
+            f"{', '.join(copiones)} apenas se separa del mercado (menos de "
+            f"{DISTANCIA_DE_COPIAR:.2f} de media). El expediente le enseña las "
+            "cuotas, así que lo más probable es que las esté repitiendo: su puesto "
+            "no mide su análisis.")
+    horas = [(nombre_de_autor(f["autor"]), f["horas_antes_media"])
+             for f in filas
+             if f.get("horas_antes_media") is not None]
+    if len(horas) > 1:
+        pronto = max(horas, key=lambda x: x[1])
+        tarde = min(horas, key=lambda x: x[1])
+        if pronto[1] - tarde[1] >= HORAS_QUE_DESNIVELAN:
+            avisos.append(
+                f"{tarde[0]} predice a {tarde[1]:.0f} h del saque y {pronto[0]} a "
+                f"{pronto[1]:.0f} h. El que llega más tarde sabe más cosas —quién "
+                "juega, cómo se ha movido la cuota—, así que esto no es una "
+                "comparación limpia.")
+    return avisos
+
+
+def texto_tabla(datos: dict) -> list[str]:
+    """La clasificación en líneas, con las columnas que la hacen honesta."""
+    lineas = ["CLASIFICACIÓN", ""]
+    filas = datos.get("clasificacion") or []
+    if not filas:
+        lineas.append(f"Todavía no hay nadie con {datos.get('minimo')} casos "
+                      "resueltos, que es lo mínimo para ordenar a alguien.")
+    else:
+        lineas.append(f"{'#':<3}{'quién':<20}{'casos':>7}{'ventaja':>10}"
+                      f"{'brier':>8}{'dist.mdo':>10}{'h.antes':>9}")
+        for puesto, fila in enumerate(filas, 1):
+            lineas.append(
+                f"{puesto:<3}{nombre_de_autor(fila['autor'])[:19]:<20}"
+                f"{fila['casos']:>7}"
+                f"{_pinta(fila['ventaja_sobre_el_mercado'], '+.2%'):>10}"
+                f"{_pinta(fila['brier'], '.4f'):>8}"
+                f"{_pinta(fila.get('distancia_al_mercado'), '.3f'):>10}"
+                f"{_pinta(fila.get('horas_antes_media'), '.0f'):>9}")
+    verdes = datos.get("todavia_sin_muestra") or []
+    if verdes:
+        lineas += ["", "Todavía sin muestra —se enseñan, pero no tienen puesto:"]
+        for fila in verdes:
+            faltan = (datos.get("minimo") or 0) - fila["casos"]
+            lineas.append(f"    {nombre_de_autor(fila['autor'])}: {fila['casos']} "
+                          f"casos, le faltan {faltan}")
+    for aviso in datos.get("avisos") or []:
+        lineas += ["", f"⚠ {aviso}"]
+    return lineas
+
+
+def _pinta(valor, formato: str) -> str:
+    """Un número, o un guion si no hay con qué medirlo. Nunca un cero inventado."""
+    return "—" if valor is None else format(valor, formato)
+
+
+def _desvio(calibracion: list[dict]) -> float | None:
+    """Cuánto se aleja la curva de calibración de la diagonal, en media.
+
+    Un número solo para poder ordenar y comparar; la curva entera sigue estando,
+    que es donde se ve *dónde* falla: si se pasa de confiado arriba o abajo.
+    """
+    casos = sum(t["casos"] for t in calibracion)
+    if not casos:
+        return None
+    return round(sum(abs(t["desvio"]) * t["casos"] for t in calibracion) / casos, 4)
+
+
+def comparar(almacen: Almacen, uno: str, otro: str) -> dict:
+    """Dos autores, **sobre los mismos partidos**. Es la comparación que vale.
+
+    Comparar dos balances sueltos es comparar dos exámenes distintos. Esto cruza
+    las predicciones por partido, mercado y selección, se queda solo con las que
+    hicieron los dos, y ahí sí la diferencia es de ellos y no de a qué partidos
+    se presentó cada uno.
+
+    Es lo que contesta «¿el cuaderno de este agente sirve para algo?»: el mismo
+    agente con y sin él, sobre los mismos partidos, con el mismo rival enfrente.
+    """
+    filas = almacen.consulta(
+        """SELECT a.mercado, a.seleccion, a.partido_id, a.acerto,
+                  a.probabilidad AS p_uno, b.probabilidad AS p_otro
+           FROM predicciones a JOIN predicciones b
+             ON a.partido_id = b.partido_id AND a.mercado = b.mercado
+            AND a.seleccion = b.seleccion
+          WHERE a.autor = ? AND b.autor = ? AND a.resuelto = 1 AND b.resuelto = 1""",
+        (uno, otro))
+    if not filas:
+        return {"casos": 0, "uno": uno, "otro": otro,
+                "nota": f"«{uno}» y «{otro}» no han predicho todavía nada en común. "
+                        "Hasta que no opinen de los mismos partidos, compararlos "
+                        "sería comparar dos exámenes distintos."}
+    brier_uno = round(sum((f["p_uno"] - f["acerto"]) ** 2 for f in filas) / len(filas), 4)
+    brier_otro = round(sum((f["p_otro"] - f["acerto"]) ** 2 for f in filas) / len(filas), 4)
+    gana = uno if brier_uno < brier_otro else (otro if brier_otro < brier_uno else "")
+    return {
+        "uno": uno, "otro": otro, "casos": len(filas),
+        "brier_uno": brier_uno, "brier_otro": brier_otro,
+        "diferencia": round(brier_otro - brier_uno, 4),
+        "gana": gana,
+        "suficiente": len(filas) >= MINIMO_PARA_JUZGAR,
+        "lectura": (
+            f"Sobre los mismos {len(filas)} sucesos: «{uno}» saca {brier_uno} y "
+            f"«{otro}», {brier_otro}. " + (f"Gana «{gana}»." if gana else "Empate.")
+            + ("" if len(filas) >= MINIMO_PARA_JUZGAR else
+               f" Con menos de {MINIMO_PARA_JUZGAR} esto es un indicio, no un juicio.")),
     }
 
 
@@ -454,5 +754,8 @@ def texto(datos: dict, ancho: int = 72) -> list[str]:
     return lineas
 
 
-__all__ = ["MERCADOS", "MINIMO_PARA_JUZGAR", "TRAMOS", "VERSION_MODELO", "anotar",
-           "balance", "brier", "calibracion", "log_loss", "resolver", "texto"]
+__all__ = ["AUTOR_CALCULO", "AUTOR_MERCADO", "MERCADOS", "MINIMO_PARA_JUZGAR",
+           "NOMBRES_DE_AUTOR", "TRAMOS", "VERSION_MODELO", "anotar", "balance",
+           "brier", "calibracion", "comparar", "log_loss", "nombre_de_autor",
+           "resolver", "tabla", "texto",
+           "texto_tabla"]

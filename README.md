@@ -194,6 +194,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [Certificados](docs/certificados.md) | Si un antivirus o un proxy abre tu HTTPS y nada se conecta |
 | [Casi seguro](docs/seguro.md) | Lo que se repite, medido: frecuencia, suelo de Wilson y elevación |
 | [El registro](docs/registro.md) | Qué predijo y cómo acabó: calibración, Brier y CLV |
+| [Agentes](docs/agentes.md) | Varios analistas con su estilo, compitiendo contra el cálculo y el mercado |
 | [El pronóstico](docs/pronostico.md) | Marcador exacto, córners y tarjetas, calculados y contra el mercado |
 | [El analista local](docs/analista.md) | Ollama con Hermes, y el adaptador a LangChain |
 | [Dictamen](docs/dictamen.md) | El expediente entero a un modelo grande, con la nube de Ollama |

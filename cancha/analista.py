@@ -218,6 +218,64 @@ def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 300.0,
         return json.loads(respuesta.read().decode("utf-8"))
 
 
+#: Lo que se le pide además del análisis: los mismos mercados que puntúa el
+#: registro. Sin esto un agente no se puede comparar con otro —ni con el
+#: cálculo, ni con el mercado—, y entonces no hay clasificación que valga.
+ESQUEMA_NUMEROS = """\
+{
+  "1x2": {"local": 0.00, "empate": 0.00, "visitante": 0.00},
+  "mas_2_5": 0.00,
+  "ambos_marcan": 0.00,
+  "corners": 0.00,
+  "tarjetas": 0.00,
+  "marcador": {"marcador": "1-1", "probabilidad": 0.00}
+}\
+"""
+
+INSTRUCCIONES_NUMEROS = f"""\
+
+TERMINA SIEMPRE CON TUS NÚMEROS
+Después del análisis, y en la última línea, un bloque ```json con **exactamente**
+esta forma:
+
+```json
+{ESQUEMA_NUMEROS}
+```
+
+- Probabilidades entre 0 y 1, no porcentajes.
+- El 1X2 tiene que sumar 1.
+- `corners` es «más de 9,5 córners»; `tarjetas`, «más de 3,5 amarillas»;
+  `mas_2_5`, «más de 2,5 goles»; `ambos_marcan`, «marcan los dos».
+- Si de un mercado no tienes ni idea, pon `null` y ya: inventarse un número es
+  peor que no darlo, porque luego se te mide por él.
+- Nada después del bloque.\
+"""
+
+
+def extraer_numeros(texto: str) -> dict | None:
+    """El último bloque JSON de una respuesta, si lo hay y si se puede leer.
+
+    Se coge el **último** a propósito: un modelo que se explica a sí mismo
+    escribe a veces un ejemplo antes del bueno. Y se intenta también sin las
+    comillas del bloque, porque no todos los modelos las ponen.
+    """
+    import re
+
+    candidatos = re.findall(r"```(?:json)?\s*(\{.*?\})\s*```", texto, re.S)
+    if not candidatos:
+        # Sin bloque: el último objeto que parezca JSON y empiece por «{"1x2»
+        # o similar. Se prueba desde la última llave de apertura hacia atrás.
+        candidatos = re.findall(r"(\{[^{}]*\"1x2\".*\})", texto, re.S)
+    for crudo in reversed(candidatos):
+        try:
+            datos = json.loads(crudo)
+        except ValueError:
+            continue
+        if isinstance(datos, dict):
+            return datos
+    return None
+
+
 @dataclass
 class Paso:
     """Una cosa que ha hecho el analista, para poder enseñarla."""
@@ -263,6 +321,8 @@ class Analista:
     #: contexto TLS, que es otra cosa con el mismo nombre en castellano.
     contexto: int = 16384
     max_vueltas: int = MAX_VUELTAS
+    #: Con qué herramientas se le deja trabajar. Vacío = todas.
+    solo_herramientas: tuple[str, ...] = ()
     #: Tope de caracteres por respuesta de herramienta. Más bajo que el de MCP:
     #: un modelo de 8B se atraganta con veinte mil caracteres de una tacada.
     max_chars: int = 6000
@@ -356,10 +416,14 @@ class Analista:
     def _esquemas(self) -> list[dict]:
         from .herramientas import esquemas
 
+        # Un agente puede tener solo unas cuantas: es lo que de verdad hace a
+        # dos agentes distintos —a qué datos llegan—, más que cómo escriben.
+        permitidas = set(self.solo_herramientas or ())
         return [{"type": "function",
                  "function": {"name": e["name"], "description": e["description"],
                               "parameters": e["input_schema"]}}
-                for e in esquemas()]
+                for e in esquemas()
+                if not permitidas or e["name"] in permitidas]
 
     def _ejecutar(self, nombre: str, argumentos: Any) -> Any:
         from .herramientas import ejecutar
@@ -372,6 +436,58 @@ class Analista:
         if not isinstance(argumentos, dict):
             argumentos = {}
         return ejecutar(nombre, argumentos, sesion=self.sesion, max_chars=self.max_chars)
+
+    def analizar(self, expediente: str, pregunta: str = "", instrucciones: str = "",
+                 al_paso: Callable[[Paso], None] | None = None) -> dict:
+        """Un agente trabajando: el expediente delante, y que pida lo que quiera.
+
+        Es el bucle de herramientas de :meth:`preguntar` —ahí está lo de «voy a
+        informarme de esto que veo necesario»— pero arrancando con el expediente
+        ya montado y con una condición: termina dando sus números. Sin números no
+        se puede comparar con nadie, y un análisis que no se puede comparar es
+        una opinión.
+        """
+        sistema = (instrucciones or INSTRUCCIONES_DICTAMEN) + INSTRUCCIONES_NUMEROS
+        peticion = pregunta.strip() or (
+            "Analiza este partido: qué esperas que pase y por qué, qué te parece "
+            "lo más aprovechable y qué te haría cambiar de opinión.")
+        # El expediente va en el mensaje del usuario, y la pregunta detrás: el
+        # bucle de `preguntar` añade la pregunta él solo, así que aquí solo se
+        # le pasa el sistema y el documento como historial.
+        salida = self.preguntar(
+            peticion,
+            historial=[{"role": "system", "content": sistema},
+                       {"role": "user", "content": expediente}],
+            al_paso=al_paso)
+        numeros = extraer_numeros(salida.get("respuesta") or "")
+        if numeros is None:
+            numeros = self._pedir_los_numeros(salida, al_paso)
+        salida["probabilidades"] = numeros
+        salida["sin_numeros"] = numeros is None
+        return salida
+
+    def _pedir_los_numeros(self, salida: dict, al_paso=None) -> dict | None:
+        """Una segunda oportunidad, y solo una.
+
+        A veces el modelo escribe un análisis impecable y se deja el bloque. Se
+        le pide otra vez, a secas. Si vuelve a fallar se guarda lo que ha
+        escrito y se marca que no puntúa: insistir en bucle cuesta dinero y no
+        convence a un modelo que no sabe hacerlo.
+        """
+        avisar = al_paso or (lambda _p: None)
+        avisar(Paso("aviso", texto="No ha dado los números; se los pido otra vez."))
+        mensajes = list(salida.get("historial") or [])
+        mensajes.append({
+            "role": "user",
+            "content": ("Te has dejado los números. Contesta **solo** con el bloque "
+                        f"```json de antes, nada más:\n\n{ESQUEMA_NUMEROS}")})
+        respuesta = self.pedir("/api/chat", {
+            "model": self.modelo, "messages": mensajes, "stream": False,
+            "options": {"temperature": 0, "num_ctx": self.contexto},
+        }) or {}
+        texto = ((respuesta.get("message") or {}).get("content") or "").strip()
+        salida["reparado"] = True
+        return extraer_numeros(texto)
 
     def dictaminar(self, expediente: str, pregunta: str = "",
                    instrucciones: str | None = None) -> dict:

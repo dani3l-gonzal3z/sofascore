@@ -351,6 +351,14 @@ table.tb td:first-child, table.tb th:first-child { white-space: normal; min-widt
 .sug:hover { background: var(--cal-2); }
 .sug.on { background: var(--cesped); border-color: var(--cesped); color: #fff; }
 
+/* Una casilla con su texto al lado, que es la forma de elegir a qué llega un
+   agente. Cuarenta y cinco de estas caben porque van en `.sugeridas`. */
+.casilla { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px;
+           border: 1px solid var(--linea-2); background: var(--cal); border-radius: 999px;
+           padding: 4px 11px 4px 8px; cursor: pointer; }
+.casilla:hover { background: var(--cal-2); }
+.casilla input { margin: 0; flex: none; }
+
 .registro { font: 12.5px/1.45 var(--mono); background: var(--cal-2); border-radius: var(--r-s);
             padding: 10px 12px; max-height: 240px; overflow: auto; white-space: pre-wrap; }
 details > summary { cursor: pointer; font-weight: 600; font-size: 13.5px; color: var(--cesped);
@@ -1320,6 +1328,7 @@ async function pintarPartido(raiz, consulta) {
   raiz.append(abastecer(p.id));
   raiz.append(tarjetaPronostico(consulta));
   raiz.append(tarjetaDictamen(consulta));
+  raiz.append(tarjetaAgentes(consulta));
 
   raiz.append(tarjeta("Los once y los que salieron",
     plegable("Alineaciones, minutos y notas", async () => {
@@ -1910,6 +1919,230 @@ async function pintarDuelo(raiz, jugador, rival) {
 }
 
 /* ── MEMORIA ─────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════ agentes ═══ */
+/* Varios analistas con su propio estilo, y una tabla que dice cuál acierta.
+   Lo que hace que esto sea algo más que varios prompts es la obligación de
+   terminar dando probabilidades: sin números no hay tabla, y sin tabla esto
+   serían opiniones mejor o peor escritas. */
+V.agentes = async (raiz, [modo]) => {
+  modo = modo === "quienes" ? "quienes" : "tabla";
+  raiz.replaceChildren(
+    el("div", { class: "titular" }, el("h1", {}, "Agentes"),
+      el("div", { class: "resto fila" },
+        el("div", { class: "seg" },
+          el("button", { class: modo === "tabla" ? "on" : "", onclick: () => ir("#/agentes/tabla") }, "Clasificación"),
+          el("button", { class: modo === "quienes" ? "on" : "", onclick: () => ir("#/agentes/quienes") }, "Quiénes son")))),
+    espera("Cargando…"));
+
+  if (modo === "tabla") {
+    const d = await api.post("/api/clasificacion", {});
+    raiz.lastChild.remove();
+    const err = fallo(d);
+    if (err) { raiz.append(err); return; }
+    const filas = d.clasificacion || [];
+    if (!filas.length) {
+      raiz.append(tarjeta(null,
+        msg(`Todavía no hay nadie con ${d.minimo} casos resueltos, que es lo mínimo `
+          + "para darle un puesto a alguien.", "ojo"),
+        nota("El cálculo y el mercado ya concursan solos —se apuntan cuando la "
+          + "guardia prepara el día—; un agente entra en cuanto lo pongas a analizar "
+          + "un partido y ese partido se juegue.")));
+    } else {
+      raiz.append(tarjeta("Quién acierta más",
+        el("div", { class: "desliza" }, tabla(
+          [{ t: "#", k: "puesto", n: true }, { t: "Quién", k: "autor" },
+           { t: "Casos", k: "casos", n: true }, { t: "Ventaja", k: "ventaja", n: true },
+           { t: "Brier", k: "brier", n: true },
+           { t: "Dist. mercado", k: "dist", n: true },
+           { t: "h. antes", k: "horas", n: true }],
+          filas.map((f, i) => ({ ...f, puesto: i + 1 })),
+          (f, c) => c.k === "ventaja"
+            ? (f.ventaja_sobre_el_mercado === null ? "—"
+                : el("b", { style: `color:var(--${f.ventaja_sobre_el_mercado > 0 ? "cesped" : "bandera"})` },
+                    (f.ventaja_sobre_el_mercado > 0 ? "+" : "") + pc(f.ventaja_sobre_el_mercado, 2)))
+            : c.k === "dist" ? (f.distancia_al_mercado === null ? "—" : f.distancia_al_mercado.toFixed(3))
+            : c.k === "horas" ? (f.horas_antes_media === null ? "—" : f.horas_antes_media + " h")
+            : c.k === "autor" ? el("b", {}, f.autor)
+            : f[c.k])),
+        ...(d.avisos || []).map((a) => msg(a, "ojo")),
+        nota(d.como_leerlo)));
+    }
+    if ((d.todavia_sin_muestra || []).length) {
+      raiz.append(tarjeta("Todavía sin muestra",
+        el("p", { class: "peq gris" }, "Se enseñan, pero no tienen puesto: con esta "
+          + "muestra el orden sería casi todo azar."),
+        el("ul", { class: "lista" }, ...d.todavia_sin_muestra.map((f) => el("li", {},
+          el("span", { style: "flex:1 1 160px" }, f.autor),
+          el("span", { class: "gris peq" }, `${f.casos} casos, le faltan ${d.minimo - f.casos}`))))));
+    }
+    return;
+  }
+
+  const d = await api.post("/api/agentes", {});
+  raiz.lastChild.remove();
+  const err = fallo(d);
+  if (err) { raiz.append(err); return; }
+  const editor = el("div", {});
+
+  const abrir = (a) => {
+    const nombre = el("input", { class: "campo", value: a ? a.nombre : "" });
+    const clave = el("input", { class: "campo", value: a ? a.clave : "",
+      placeholder: "el-escrupuloso", disabled: !!a });
+    const instrucciones = el("textarea", { class: "campo", rows: 7,
+      placeholder: "Cómo quieres que mire un partido. Es lo único que lo convierte "
+        + "en un agente y no en el analista de siempre con otro nombre." },
+      a ? a.instrucciones : "");
+    const modelo = el("input", { class: "campo", value: a ? a.modelo : "",
+      placeholder: "vacío = el de los ajustes" });
+    const vueltas = el("input", { class: "campo", type: "number", min: 1, max: 20,
+      value: a ? a.vueltas : 6, style: "flex:0 1 90px" });
+    const crudo = el("select", { class: "campo", style: "flex:0 1 210px" },
+      el("option", { value: "todo" }, "con todas las estadísticas"),
+      el("option", { value: "tabla" }, "con una tabla por partido"),
+      el("option", { value: "no" }, "sin datos en crudo"));
+    crudo.value = a ? a.crudo : "tabla";
+    const activo = el("input", { type: "checkbox" });
+    activo.checked = a ? a.activo : true;
+    const marcadas = new Set(a ? a.herramientas : []);
+    const casillas = (d.herramientas || []).map((h) => {
+      const c = el("input", { type: "checkbox" });
+      c.checked = marcadas.has(h);
+      c.dataset.nombre = h;
+      return el("label", { class: "casilla" }, c, h);
+    });
+    const aviso = el("div", {});
+
+    poner(editor, tarjeta(a ? `Editar «${a.clave}»` : "Un agente nuevo",
+      el("div", { class: "fila" }, el("label", { style: "flex:1 1 200px" }, "Nombre", nombre),
+        el("label", { style: "flex:1 1 200px" }, "Nombre corto", clave)),
+      el("label", {}, "Su estilo", instrucciones),
+      el("div", { class: "fila" }, el("label", { style: "flex:1 1 200px" }, "Modelo", modelo),
+        el("label", {}, "Vueltas", vueltas),
+        el("label", { style: "flex:1 1 210px" }, "Expediente", crudo),
+        el("label", { class: "casilla" }, activo, "activo")),
+      el("details", {}, el("summary", {},
+          `A qué herramientas llega (ninguna marcada = a todas las ${(d.herramientas || []).length})`),
+        el("p", { class: "peq gris" }, "Esto es lo que de verdad hace distintos a dos "
+          + "agentes. Uno que solo llega a los árbitros no escribe distinto: piensa "
+          + "distinto, porque no sabe lo mismo."),
+        el("div", { class: "sugeridas" }, ...casillas)),
+      aviso,
+      el("div", { class: "fila" },
+        el("button", { class: "btn", onclick: async () => {
+          const r = await api.post("/api/agente", { clave: clave.value.trim(), agente: {
+            nombre: nombre.value, instrucciones: instrucciones.value,
+            modelo: modelo.value, vueltas: Number(vueltas.value), crudo: crudo.value,
+            activo: activo.checked,
+            herramientas: casillas.map((l) => l.firstChild)
+              .filter((c) => c.checked).map((c) => c.dataset.nombre) } });
+          if (r.problemas) { poner(aviso, ...r.problemas.map((x) => msg(x, "mal"))); return; }
+          const e = fallo(r);
+          if (e) { poner(aviso, e); return; }
+          ir("#/agentes/quienes", true);
+        } }, "Guardar"),
+        el("button", { class: "btn fino", onclick: () => editor.replaceChildren() }, "Dejarlo"),
+        a ? el("button", { class: "btn fino", onclick: async () => {
+          const r = await api.post("/api/agente/borrar", { clave: a.clave });
+          const e = fallo(r);
+          if (e) { poner(aviso, e); return; }
+          ir("#/agentes/quienes", true);
+        } }, "Borrar") : null)));
+    editor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  };
+
+  raiz.append(tarjeta(null,
+    el("p", { class: "peq gris" }, `${(d.agentes || []).length} agentes · ${d.fichero}`),
+    el("button", { class: "btn", onclick: () => abrir(null) }, "Crear un agente")));
+  raiz.append(editor);
+  for (const a of d.agentes || []) {
+    raiz.append(tarjeta(null,
+      el("div", { class: "fila" },
+        el("b", { style: "flex:1 1 auto;font-size:17px" }, a.nombre),
+        a.activo ? null : etiqueta("apagado", "gris"),
+        etiqueta(a.huella, "azul"),
+        el("button", { class: "btn fino", onclick: () => abrir(a) }, "Editar")),
+      el("p", { class: "peq gris" }, `${a.clave} · ${a.modelo || "el modelo de los ajustes"}`
+        + ` · ${a.vueltas} vueltas · crudo: ${a.crudo} · `
+        + (a.herramientas.length ? `${a.herramientas.length} herramientas` : "todas las herramientas")),
+      el("p", {}, a.instrucciones),
+      ...(a.problemas || []).map((x) => msg(x, "mal"))));
+  }
+  raiz.append(nota("Un agente está obligado a terminar dando probabilidades. Si no "
+    + "las da, su análisis se guarda y se lee, pero no puntúa: no se puede comparar "
+    + "con nadie. Que eso le pase a menudo es, en sí, información sobre él."));
+};
+
+/* En la pantalla del partido: que lo vea uno de los tuyos. */
+function tarjetaAgentes(consulta) {
+  const cuerpo = el("div", { class: "bloque" });
+  const quien = el("select", { class: "campo", style: "flex:1 1 200px" });
+  const boton = el("button", { class: "btn", type: "button" }, "Que lo vea");
+  let cargados = [];
+
+  const traer = async () => {
+    const d = await api.post("/api/agentes", {});
+    if (fallo(d)) return;
+    cargados = (d.agentes || []).filter((a) => a.activo && !(a.problemas || []).length);
+    quien.replaceChildren(...cargados.map((a) =>
+      el("option", { value: a.clave }, a.nombre)));
+    if (!cargados.length) {
+      poner(cuerpo, nota("No tienes ningún agente listo. Se crean en la pestaña "
+        + "Agentes, y lo único imprescindible es escribirle su estilo."));
+      boton.disabled = true;
+    }
+  };
+
+  boton.addEventListener("click", async () => {
+    const elegido = cargados.find((a) => a.clave === quien.value);
+    boton.disabled = true;
+    boton.textContent = "Mirando…";
+    cuerpo.replaceChildren(espera(`${elegido ? elegido.nombre : "El agente"} está `
+      + "montando su expediente y pidiendo lo que le falta. Con varias vueltas esto "
+      + "tarda; puedes irte a otra pantalla."));
+    const d = await api.post("/api/agente/correr",
+      { clave: quien.value, partido: String(consulta) });
+    boton.disabled = false;
+    boton.textContent = "Que lo vea otro";
+    const err = fallo(d);
+    if (err) { cuerpo.replaceChildren(err); return; }
+    const p = d.probabilidades || {};
+    poner(cuerpo,
+      el("div", { class: "fila peq gris" }, etiqueta(d.nombre || d.agente, "azul"),
+        el("span", {}, `${d.vueltas || 1} vuelta${d.vueltas === 1 ? "" : "s"}`),
+        el("span", {}, `${(d.expediente || {}).tokens_aprox || "?"} tokens de expediente`),
+        d.sin_numeros ? etiqueta("no puntúa", "ambar")
+          : etiqueta(`${d.apuntadas} predicciones apuntadas`, "verde")),
+      el("div", { class: "bloque" }, ...(d.respuesta || "").split("\n\n")
+        .filter((x) => x.trim()).map((x) => el("p", {}, x))),
+      p["1x2"] ? el("ul", { class: "lista" },
+        el("li", {}, el("span", { style: "flex:1 1 auto" }, "Gana el local"),
+          el("b", {}, pc(p["1x2"].local))),
+        el("li", {}, el("span", { style: "flex:1 1 auto" }, "Empate"),
+          el("b", {}, pc(p["1x2"].empate))),
+        el("li", {}, el("span", { style: "flex:1 1 auto" }, "Gana el visitante"),
+          el("b", {}, pc(p["1x2"].visitante)))) : null,
+      (d.herramientas_pedidas || []).length
+        ? el("details", {}, el("summary", {},
+            `Lo que ha ido a buscar por su cuenta (${d.herramientas_pedidas.length})`),
+            el("ul", { class: "lista" }, ...d.herramientas_pedidas.map((h) =>
+              el("li", {}, el("code", {}, h)))))
+        : null,
+      d.sin_numeros
+        ? msg("No ha terminado dando probabilidades, así que su análisis se guarda y "
+            + "se lee, pero no entra en la clasificación: no se puede comparar con "
+            + "nadie.", "ojo")
+        : nota("Sus probabilidades ya están en el registro a su nombre. Cuando el "
+            + "partido se juegue se resuelven solas y su puesto se mueve."));
+  });
+
+  traer();
+  return tarjeta("Que lo vea…",
+    el("div", { class: "fila" }, quien, boton), cuerpo,
+    nota("Un agente tuyo, con su estilo y con acceso solo a los datos que le hayas "
+      + "dejado. A diferencia del dictamen, este puede ir pidiendo por su cuenta lo "
+      + "que vea que le falta, y termina obligado a dar sus números."));
+}
+
 V.memoria = async (raiz) => {
   raiz.replaceChildren(el("h1", {}, "Memoria"), espera());
   const e = await api.get("/api/estado");
@@ -2549,6 +2782,7 @@ const NAV = [
   ["seguro", "Seguro", '<path d="M12 3l7 3v6c0 4-3 7.5-7 9-4-1.5-7-5-7-9V6z"/><path d="M9 12l2 2 4-4"/>'],
   ["analista", "Analista", '<path d="M21 12a8.5 8.5 0 1 1-3.4-6.8"/><path d="M8 11h.01M12 11h.01M16 11h.01"/><path d="M7 19.5L5 22v-4"/>'],
   ["buscar", "Buscar", '<circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/>'],
+  ["agentes", "Agentes", '<circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.4"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M15.5 20c0-2.2 1.4-3.8 3.5-3.8s2.5 1.2 2.5 2.6"/>'],
   ["memoria", "Memoria", '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'],
 ];
 function nav(activa) {

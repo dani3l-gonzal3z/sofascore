@@ -46,6 +46,14 @@ def _huella(clave: str) -> str:
     return f"{len(clave)} caracteres, acaba en …{clave[-4:]}" if clave else "vacía"
 
 
+def _agente_de(clave: str, datos: dict):
+    """Un `Agente` desde lo que llega por la petición, con lo que no venga por
+    defecto. La validación ya ha pasado antes de llegar aquí."""
+    from ..agentes import construir
+
+    return construir(clave, datos)
+
+
 class Servidor:
     """Lo que comparten las peticiones: la sesión, el barrido y la clave."""
 
@@ -197,6 +205,80 @@ class Servidor:
     def borrar_dictamen(self, dictamen_id: int) -> dict:
         with self.cerrojo:
             return {"borrado": self.sesion.almacen.borrar_dictamen(int(dictamen_id))}
+
+    # --- agentes ---
+
+    def agentes(self) -> dict:
+        """Los agentes que hay, con lo que tengan mal dicho en palabras."""
+        from ..agentes import cargar, huella, ruta, validar
+        from ..herramientas import TOOLS
+
+        donde = ruta(None)
+        agentes = cargar(donde)
+        return {
+            "fichero": str(donde),
+            "agentes": [{**a.as_dict(), "clave": c, "huella": huella(a),
+                         "problemas": validar(c, a.as_dict())}
+                        for c, a in sorted(agentes.items())],
+            "herramientas": sorted(TOOLS),
+        }
+
+    def poner_agente(self, clave: str, datos: dict) -> dict:
+        """Guarda un agente. Si la definición no vale, no se escribe nada."""
+        from ..agentes import cargar, guardar, ruta, validar
+
+        clave = str(clave or "").strip()
+        problemas = validar(clave, datos)
+        if problemas:
+            return {"problemas": problemas, "guardado": False}
+        donde = ruta(None)
+        with self.cerrojo:
+            agentes = cargar(donde)
+            agentes[clave] = _agente_de(clave, datos)
+            guardar(agentes, donde)
+        return {"guardado": True, "clave": clave}
+
+    def borrar_agente(self, clave: str) -> dict:
+        """Quita un agente. Lo que ya predijo se queda: el registro no se reescribe."""
+        from ..agentes import cargar, guardar, ruta
+
+        donde = ruta(None)
+        with self.cerrojo:
+            agentes = cargar(donde)
+            if clave not in agentes:
+                return {"error": f"No tengo ningún agente «{clave}»."}
+            del agentes[clave]
+            guardar(agentes, donde)
+        return {"borrado": True, "clave": clave,
+                "nota": "Sus predicciones siguen en el registro: un historial que se "
+                        "puede reescribir no vale nada."}
+
+    def correr_agente(self, clave: str, partido: str) -> dict:
+        """Pone a un agente a analizar un partido. Lo más caro que hace esto.
+
+        El cerrojo se coge **por tramos** y no durante toda la llamada al modelo:
+        un agente con seis vueltas puede tardar minutos, y sostenerlo entero
+        dejaría la página congelada para cualquier otra cosa mientras tanto.
+        """
+        from ..agentes import cargar, correr, ruta
+
+        agente = cargar(ruta(None)).get(clave)
+        if agente is None:
+            return {"error": f"No tengo ningún agente «{clave}»."}
+        if not partido:
+            return {"error": "Falta el partido."}
+        analista = self.analista(agente.modelo or None)
+        return correr(self.sesion.almacen, self.sesion.cliente, agente, partido,
+                      modelo_por_defecto=analista.modelo, api_key=analista.api_key,
+                      url=analista.url)
+
+    def clasificacion(self, desde: str | None = None, hasta: str | None = None) -> dict:
+        """La tabla: quién acierta más, contra el cálculo y contra el mercado."""
+        from ..registro import tabla, texto_tabla
+
+        with self.cerrojo:
+            datos = tabla(self.sesion.almacen, desde=desde, hasta=hasta)
+        return {**datos, "lineas": texto_tabla(datos)}
 
     # --- casi seguro ---
 
@@ -687,6 +769,19 @@ class Manejador(BaseHTTPRequestHandler):
             return self._json(self.app.dictamen(str(cuerpo.get("partido") or ""),
                                                 str(cuerpo.get("pregunta") or ""),
                                                 str(cuerpo.get("crudo") or "todo")))
+        if ruta == "/api/agentes":
+            return self._json(self.app.agentes())
+        if ruta == "/api/agente":
+            return self._json(self.app.poner_agente(
+                str(cuerpo.get("clave") or ""), cuerpo.get("agente") or {}))
+        if ruta == "/api/agente/borrar":
+            return self._json(self.app.borrar_agente(str(cuerpo.get("clave") or "")))
+        if ruta == "/api/agente/correr":
+            return self._json(self.app.correr_agente(
+                str(cuerpo.get("clave") or ""), str(cuerpo.get("partido") or "")))
+        if ruta == "/api/clasificacion":
+            return self._json(self.app.clasificacion(
+                cuerpo.get("desde") or None, cuerpo.get("hasta") or None))
         if ruta == "/api/cache":
             return self._json(self.app.limpiar_cache())
         if ruta == "/api/ligas":

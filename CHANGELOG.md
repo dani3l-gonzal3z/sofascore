@@ -4,6 +4,98 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.16.0
+
+Los agentes analistas: varios estilos mirando el mismo partido, y una tabla que
+dice cuál acierta. Y dos arreglos de la migración del esquema que se llevaban
+datos por delante.
+
+### Arreglos
+
+- **Rehacer una tabla se llevaba sus índices, en silencio.** `predicciones` tenía
+  que cambiar su restricción `UNIQUE` para admitir el autor, y en SQLite eso
+  obliga a rehacer la tabla entera. Pero `ALTER TABLE ... RENAME` **no** renombra
+  los índices: se quedaban con su nombre viejo colgados de la tabla vieja, así
+  que el `CREATE INDEX IF NOT EXISTS` de después no hacía nada —el nombre ya
+  existía— y el `DROP TABLE` se los llevaba. La tabla se quedaba con cero índices
+  y la única señal era que todo iba lento.
+
+  Ahora se crean después de tirar la tabla vieja, y hay una prueba que los cuenta.
+
+- **Una migración cortada por la mitad perdía las predicciones para siempre.** Un
+  Ctrl-C al arrancar `cancha web` en el momento justo dejaba lo guardado en
+  `predicciones_vieja` y la tabla nueva vacía; y como la nueva ya tenía la columna
+  `autor`, la siguiente apertura se daba por migrada y nadie volvía a mirar ahí.
+
+  Ahora el rehacer va en **una** transacción, se entra también cuando existe la
+  tabla vieja —una migración a medias se reanuda— y el `PRAGMA foreign_keys = OFF`
+  se lee de vuelta para confirmar que ha calado, porque dentro de una transacción
+  no hace nada y no avisa. Más vale no migrar que migrar a medias.
+
+- **El autor se guarda sin tilde.** `cálculo` viajaba por `--autor`, por una
+  petición, por una orden del bot y hasta un `UNIQUE`, y SQLite compara byte a
+  byte: `'cálculo' = 'calculo'` es falso. Quien escribiera `--autor calculo` se
+  llevaba cero filas y ninguna explicación. Se guarda `calculo`, y el nombre
+  bonito solo se usa para enseñarlo.
+
+- **`cancha resultados` medía a todo el mundo a la vez.** En cuanto hay más de un
+  autor, un promedio de gente distinta no mide a nadie. Ahora mide el cálculo por
+  defecto —que es exactamente lo que medía antes— y `--autor` elige a otro.
+
+### Novedades
+
+- **Agentes analistas.** Un agente es el analista de siempre con nombre y
+  carácter: sus instrucciones, su modelo, su presupuesto de vueltas y —lo que de
+  verdad los diferencia— **a qué datos llega**. Uno que solo pueda mirar árbitros
+  y tarjetas no escribe distinto que otro que lo mire todo: piensa distinto,
+  porque no sabe lo mismo.
+
+  Se definen en `datos/agentes.json` o en la pestaña **Agentes**, y vienen tres de
+  ejemplo escritos para que se noten en la tabla. Cada uno lleva su **huella**:
+  el día que le reescribas las instrucciones deja de ser el mismo analista, y su
+  balance no puede mezclar lo que acertaba antes con lo que acierta después.
+
+- **Un agente está obligado a terminar dando probabilidades.** Es lo que convierte
+  esto en algo más que varios prompts: con números, lo que dice entra en el
+  registro a su nombre y se mide con la misma vara que todo lo demás. Si no los
+  da, se le piden **una** vez más, a secas; si vuelve a fallar, su análisis se
+  guarda y se lee pero **no puntúa**. No se rebusca un «45 %» en su prosa: eso
+  convertiría un fallo del modelo en un número inventado con cara de dato.
+
+- **La clasificación.** `cancha clasificacion`, la pestaña Agentes y
+  `/clasificacion` en el bot. Compiten los agentes y **dos concursantes fijos**:
+  `calculo` (el Poisson) y `mercado` (las cuotas, apuntadas gratis). Sin ellos se
+  coronaría al mejor de varios malos.
+
+  **No ordena por acierto**, que es la cifra que mejor se vende y la que menos
+  informa. **Ni por el Brier a secas**, que depende de la dificultad de los casos:
+  dos agentes que han opinado de partidos distintos no son comparables aunque los
+  dos tengan un Brier. Ordena la **ventaja sobre el mercado** en los mismos
+  partidos, que es donde la dificultad se cancela. Y con menos de 50 casos
+  resueltos se sale en la tabla pero **sin puesto**.
+
+- **Las dos columnas incómodas de la tabla.** El expediente le enseña las cuotas
+  al agente, así que puede limitarse a repetirlas y salir clasificado arriba: con
+  una distancia media al precio de 0,01, lo que la tabla mide no es quién analiza
+  mejor, es quién copia mejor. Y como los agentes se corren a mano y el cálculo se
+  apunta en la guardia de las tres de la mañana, el que habla media hora antes del
+  saque tiene **más información, no más talento**. Las dos cosas son columnas
+  fijas, y la tabla avisa sola cuando pasan.
+
+- **Comparar dos, cara a cara.** `cancha clasificacion --comparar el-esceptico
+  calculo` mide solo los sucesos sobre los que han opinado **los dos**: es la
+  única comparación que no arrastra la diferencia de dificultad.
+
+- **Pestaña Agentes**, con la clasificación y el editor —incluidas las casillas de
+  las 45 herramientas—, y en la pantalla del partido la tarjeta **«Que lo vea…»**,
+  que enseña lo que el agente ha ido a buscar por su cuenta. En el bot,
+  `/agentes`, `/agente` y `/clasificacion`.
+
+- **Documentación**: [Agentes](docs/agentes.md), con lo que esto **no** es —un
+  agente no es un oráculo, y sesenta predicciones son pocas—, la condición escrita
+  de antemano para el código propio por agente, y por qué se ejecutan a mano y no
+  cada noche (con una clave de la nube puesta, cada vuelta es dinero).
+
 ## 0.15.0
 
 Los datos en crudo para el modelo, el dictamen que se queda guardado, y el
