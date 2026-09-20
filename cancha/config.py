@@ -89,6 +89,16 @@ class Settings:
     language: str = "es"
     #: Secciones pedidas a la vez. 1 = de una en una (como antes).
     concurrency: int = 4
+    #: Fichero .pem con certificados de confianza propios. Hace falta cuando
+    #: algo abre tu HTTPS por el camino —un antivirus que «revisa webs
+    #: seguras», el proxy de una empresa, una VPN— y Python no conoce a quien
+    #: firma el certificado que te presentan. Vacío = los del sistema, o los
+    #: del almacén del sistema si tienes ``truststore`` instalado. Ver
+    #: :mod:`cancha.tls`.
+    ca_bundle: str = ""
+    #: No comprobar con quién se está hablando. Último recurso, y el programa
+    #: lo dice cada vez que lo usa.
+    sin_verificar: bool = False
 
     # --- Caché en disco ---
     cache_dir: Path = Path(".cancha-cache")
@@ -139,7 +149,7 @@ class Settings:
         ajustes = cls()
         for campo in ("base_url", "user_agent", "language", "plus_cookie", "plus_token",
                       "plus_cookie_file", "sport", "transport", "grabar_en",
-                      "reproducir_de"):
+                      "reproducir_de", "ca_bundle"):
             valor = leer(fuente, campo)
             if valor:
                 setattr(ajustes, campo, valor)
@@ -154,6 +164,16 @@ class Settings:
         offline = leer(fuente, "offline")
         if offline is not None:
             ajustes.offline = _as_bool(offline)
+        sin_verificar = leer(fuente, "sin_verificar")
+        if sin_verificar is not None:
+            ajustes.sin_verificar = _as_bool(sin_verificar)
+        if not ajustes.ca_bundle:
+            # Las variables de siempre (SSL_CERT_FILE y compañía). Quien tiene
+            # un proxy de empresa suele tenerlas ya puestas para que funcione
+            # pip, y entonces esto funciona sin configurar nada.
+            from .tls import ruta_ca
+
+            ajustes.ca_bundle = ruta_ca()
         if leer(fuente, "cache_dir"):
             ajustes.cache_dir = Path(leer(fuente, "cache_dir"))
         crudo = leer(fuente, "fallback_base_urls")
@@ -197,6 +217,8 @@ class Settings:
             "offline": self.offline,
             "sport": self.sport,
             "plus_credentials": "configuradas" if self.has_plus_credentials() else "no",
+            "ca_bundle": self.ca_bundle or None,
+            "sin_verificar": self.sin_verificar,
             "grabar_en": self.grabar_en or None,
             "reproducir_de": self.reproducir_de or None,
         }

@@ -61,6 +61,7 @@ cancha analista "…" [--modelo hermes3]     # pregunta y un modelo local lo bus
 cancha dictamen "Girona vs Osasuna"        # el expediente entero a un modelo, que ate cabos
 cancha dictamen "…" --solo-expediente      # solo el documento: qué se le manda
 cancha dictamen "…" --api-key ...          # con un modelo grande de la nube de Ollama
+cancha doctor --tls                        # ¿hay un antivirus o un proxy abriendo tu HTTPS?
 ```
 
 Opciones más usadas de `match`:

@@ -44,6 +44,24 @@ class Response:
         return self.body.decode("utf-8", errors="replace")
 
 
+def _por_que(url: str, motivo: Any) -> str:
+    """El mensaje de «no se pudo conectar», con la explicación si la hay.
+
+    Un error de certificado no se entiende por su texto: dice
+    «self-signed certificate in certificate chain» y parece cosa de la API,
+    cuando lo que pasa es que algo en medio está abriendo tu HTTPS. Aquí se
+    explica en el sitio donde se nota, que es el único que la gente lee.
+    """
+    base = f"No se pudo conectar con {url}: {motivo}"
+    from .tls import es_de_certificado, explicar
+
+    if es_de_certificado(str(motivo)):
+        from urllib.parse import urlsplit
+
+        return base + "\n\n" + explicar(urlsplit(url).hostname or "")
+    return base
+
+
 class Transport(Protocol):
     """Contrato que debe cumplir cualquier transporte."""
 
@@ -56,13 +74,17 @@ class Transport(Protocol):
 class UrllibTransport:
     """Transporte por defecto, basado en ``urllib.request`` (sin dependencias)."""
 
-    def __init__(self, timeout: float = 15.0) -> None:
+    def __init__(self, timeout: float = 15.0, contexto: Any = None) -> None:
         self.timeout = timeout
+        #: Contexto TLS, cuando hay algo que decir sobre en quién confiar.
+        #: ``None`` es el de Python. Lo monta :mod:`cancha.tls`.
+        self.contexto = contexto
 
     def request(self, method: str, url: str, headers: dict[str, str]) -> Response:
         peticion = urllib.request.Request(url, method=method, headers=headers)
         try:
-            with urllib.request.urlopen(peticion, timeout=self.timeout) as respuesta:
+            with urllib.request.urlopen(peticion, timeout=self.timeout,
+                                        context=self.contexto) as respuesta:
                 return Response(
                     status=respuesta.status,
                     url=url,
@@ -80,7 +102,7 @@ class UrllibTransport:
                 headers={k.lower(): v for k, v in (exc.headers or {}).items()},
             )
         except urllib.error.URLError as exc:
-            raise TransportError(f"No se pudo conectar con {url}: {exc.reason}") from exc
+            raise TransportError(_por_que(url, exc.reason)) from exc
         except TimeoutError as exc:
             raise TransportError(f"Timeout ({self.timeout}s) pidiendo {url}") from exc
 
@@ -88,11 +110,16 @@ class UrllibTransport:
 class HttpxTransport:
     """Transporte opcional sobre ``httpx`` (HTTP/2, conexiones reutilizadas)."""
 
-    def __init__(self, timeout: float = 15.0, client: Any = None) -> None:
+    def __init__(self, timeout: float = 15.0, client: Any = None,
+                 contexto: Any = None) -> None:
         if client is None:
             import httpx  # import perezoso: httpx es opcional
 
-            client = httpx.Client(timeout=timeout, follow_redirects=True, http2=False)
+            # httpx acepta un SSLContext en `verify`, así que el arreglo del
+            # HTTPS interceptado vale igual aquí.
+            extra = {"verify": contexto} if contexto is not None else {}
+            client = httpx.Client(timeout=timeout, follow_redirects=True, http2=False,
+                                  **extra)
         self._client = client
 
     def request(self, method: str, url: str, headers: dict[str, str]) -> Response:
@@ -101,7 +128,7 @@ class HttpxTransport:
         try:
             r = self._client.request(method, url, headers=headers)
         except httpx.HTTPError as exc:
-            raise TransportError(f"No se pudo conectar con {url}: {exc}") from exc
+            raise TransportError(_por_que(url, exc)) from exc
         return Response(
             status=r.status_code,
             url=url,
@@ -136,13 +163,18 @@ class CurlTransport:
     DEFAULT_IMPERSONATE = "chrome"
 
     def __init__(self, timeout: float = 15.0, impersonate: str | None = None,
-                 session: Any = None) -> None:
+                 session: Any = None, verificar: Any = None) -> None:
         self.timeout = timeout
         self.impersonate = impersonate or self.DEFAULT_IMPERSONATE
         if session is None:
             from curl_cffi import requests as curl_requests  # import perezoso
 
-            session = curl_requests.Session(impersonate=self.impersonate, timeout=timeout)
+            # curl_cffi lleva sus propios certificados y no entiende un
+            # SSLContext de Python: solo una ruta a un .pem o False. Así que
+            # `truststore` no le sirve, pero un ca_bundle sí.
+            extra = {"verify": verificar} if verificar is not None else {}
+            session = curl_requests.Session(impersonate=self.impersonate, timeout=timeout,
+                                            **extra)
         self._session = session
 
     def request(self, method: str, url: str, headers: dict[str, str]) -> Response:
@@ -152,7 +184,7 @@ class CurlTransport:
         try:
             r = self._session.request(method, url, headers=limpias)
         except Exception as exc:  # noqa: BLE001 - curl_cffi tiene su propia jerarquía
-            raise TransportError(f"No se pudo conectar con {url}: {exc}") from exc
+            raise TransportError(_por_que(url, exc)) from exc
         return Response(
             status=r.status_code,
             url=url,
@@ -263,17 +295,24 @@ def transport_disponible(kind: str) -> bool:
     return True
 
 
-def build_transport(kind: str = "auto", timeout: float = 15.0) -> Transport:
+def build_transport(kind: str = "auto", timeout: float = 15.0,
+                    ca_bundle: str = "", sin_verificar: bool = False) -> Transport:
     """Devuelve el transporte pedido: ``curl``, ``httpx``, ``urllib`` o ``auto``.
 
     ``auto`` coge el mejor de los que estén instalados. ``curl`` va primero
     porque es el único que atraviesa el anti-bot de Cloudflare: imita el
     handshake TLS de Chrome, no solo sus cabeceras.
     """
+    from .tls import contexto as contexto_tls
+
+    # Solo se monta si hay algo que decir; si no, cada transporte hace lo suyo.
+    ctx = contexto_tls(ca_bundle, sin_verificar)
+    # curl_cffi no entiende un SSLContext: a él se le da la ruta, o False.
+    para_curl = False if sin_verificar else (ca_bundle or None)
     constructores = {
-        "curl": lambda: CurlTransport(timeout=timeout),
-        "httpx": lambda: HttpxTransport(timeout=timeout),
-        "urllib": lambda: UrllibTransport(timeout=timeout),
+        "curl": lambda: CurlTransport(timeout=timeout, verificar=para_curl),
+        "httpx": lambda: HttpxTransport(timeout=timeout, contexto=ctx),
+        "urllib": lambda: UrllibTransport(timeout=timeout, contexto=ctx),
     }
     if kind in constructores:
         return constructores[kind]()

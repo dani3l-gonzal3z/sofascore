@@ -4,6 +4,52 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.12.1
+
+Un error que no se entendía leyéndolo, y que no era de este programa.
+
+### Arreglos
+
+- **«No llego a Telegram: [SSL: CERTIFICATE_VERIFY_FAILED] self-signed
+  certificate in certificate chain».** No era el bot, ni Telegram: era algo en el
+  ordenador poniéndose en medio de las conexiones seguras —un antivirus con la
+  revisión de webs encendida, el proxy de una empresa, una VPN— presentando su
+  propio certificado. Python no conoce a quien lo firma y corta, que es lo que
+  tiene que hacer. Pero el mensaje hablaba de certificados y parecía que lo roto
+  fuera Telegram.
+
+  Ahora hay tres cosas donde antes no había ninguna:
+
+  1. **Se dice quién es.** `cancha doctor --tls` se asoma al certificado que te
+     presentan y saca el nombre de quien lo firma, que casi siempre es el nombre
+     del antivirus o del proxy, tal cual. Desde el móvil, el botón «¿Alguien abre
+     mi HTTPS?» en Memoria → Diagnóstico.
+  2. **Se puede arreglar.** Con `truststore` instalado se usa el almacén de
+     certificados del sistema —donde esos programas dejan el suyo—, que es el
+     arreglo bueno y no baja ninguna guardia. Y si no se puede instalar nada,
+     `red.ca_bundle` acepta un `.pem`, igual que `--ca-bundle`, `CANCHA_CA_BUNDLE`
+     y las variables de siempre (`SSL_CERT_FILE` y compañía) que quien tiene un
+     proxy de empresa ya suele llevar puestas.
+  3. **Se explica donde se lee.** El fallo de certificado ya no sale como un
+     volcado de OpenSSL: sale diciendo qué pasa y los cuatro arreglos por orden,
+     en el terminal, en la página y en el mensaje del bot.
+
+  Los certificados se ponen **una vez** y valen para todo lo que sale a internet:
+  Sofascore y las demás fuentes, el bot, las cuotas y la nube de Ollama. Con una
+  salvedad que está dicha: `curl_cffi` lleva sus propios certificados y no entiende
+  el almacén del sistema, así que con él `truststore` no sirve y hay que darle la
+  ruta del `.pem` —que se le pasa sola en cuanto la pongas—.
+
+  Hay un `red.sin_verificar` para cuando no hay otra. Deja de comprobar con quién
+  se habla, así que va con su aviso al arrancar y en los ajustes, cada vez.
+  Está porque a veces hace falta, no porque sea una alternativa.
+
+  Todo en **[Certificados](docs/certificados.md)**.
+
+  Probado contra un TLS de verdad: las pruebas fabrican un certificado
+  autofirmado y levantan un servidor en `localhost` que lo presenta, que es
+  exactamente lo que hace un antivirus que abre el HTTPS. 1.000 pruebas, sin red.
+
 ## 0.12.0
 
 Un modelo grande mirando el partido entero, y el arreglo del bot que no

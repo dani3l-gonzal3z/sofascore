@@ -87,7 +87,9 @@ class SofascoreClient:
         self.settings = settings or Settings.from_env()
         self.transport = preparar_transporte(
             transport or build_transport(
-                self.settings.transport, timeout=self.settings.timeout
+                self.settings.transport, timeout=self.settings.timeout,
+                ca_bundle=self.settings.ca_bundle,
+                sin_verificar=self.settings.sin_verificar,
             ),
             self.settings,
         )

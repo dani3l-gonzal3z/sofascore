@@ -40,6 +40,8 @@ cancha ajustes guardia.hora=02:00         # a partir de ahora
 | `web.puerto` | Puerto de la interfaz | `8765` |
 | `web.lan` | Abrirla a la wifi | `true` |
 | `web.clave` | Clave de la interfaz | vacía |
+| `red.ca_bundle` | Fichero `.pem` con los certificados de confianza, si algo abre tu HTTPS ([Certificados](certificados.md)) | vacío |
+| `red.sin_verificar` | No comprobar con quién se habla. Último recurso | `false` |
 | `telegram.token` | Token del bot | vacío |
 | `telegram.chats` | Quién puede hablarle | vacío |
 | `memoria`, `briefings` | Dónde viven los ficheros | `datos/…` |

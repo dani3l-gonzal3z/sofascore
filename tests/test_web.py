@@ -708,3 +708,46 @@ def test_la_pagina_avisa_de_que_la_nube_saca_los_datos_de_tu_ordenador(servidor)
     assert "clave de la nube de ollama" in html
     assert "SALE de tu ordenador" in html
     assert "tarjetaDictamen" in html
+
+
+# ------------------------------------------------------------- certificados
+
+def test_la_ruta_de_tls_dice_si_alguien_abre_el_https(servidor):
+    """Para poder mirarlo desde el móvil, que es donde se mira cuando falla."""
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/tls?host=localhost")
+    assert "lectura" in cuerpo, "con qué certificados se habla"
+    assert "interceptado" in cuerpo
+
+
+def test_el_diagnostico_lleva_el_estado_de_los_certificados(servidor):
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/diagnostico")
+    assert cuerpo["tls"]["lectura"]
+    assert "sin_verificar" in cuerpo["tls"]
+
+
+def test_la_pagina_deja_mirar_quien_abre_el_https(servidor):
+    html = _pagina()
+    assert "/api/tls" in html
+    assert "¿Alguien abre mi HTTPS?" in html
+    assert "fichero de certificados" in html, "y se puede arreglar desde ahí"
+
+
+def test_los_certificados_se_guardan_desde_la_pagina(servidor, tmp_path):
+    ruta = tmp_path / "aj_tls.json"
+    servidor.ruta_ajustes = str(ruta)
+    pem = tmp_path / "bueno.pem"
+    pem.write_text("-----BEGIN CERTIFICATE-----\n")
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes",
+                          {"red": {"ca_bundle": str(pem), "sin_verificar": False}})
+    assert cuerpo["guardado"] is True, cuerpo
+    assert cuerpo["hace_falta_reiniciar"] == [], "el cliente los coge al construirse"
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/ajustes")
+    assert cuerpo["ajustes"]["red"]["ca_bundle"] == str(pem)
+
+
+def test_un_fichero_de_certificados_que_no_esta_no_se_guarda(servidor, tmp_path):
+    servidor.ruta_ajustes = str(tmp_path / "aj_tls2.json")
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes",
+                          {"red": {"ca_bundle": "/no/existe.pem"}})
+    assert cuerpo["guardado"] is False
+    assert any("no está" in x for x in cuerpo["problemas"])

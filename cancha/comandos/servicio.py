@@ -267,6 +267,9 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
         "clave": valor(args, "clave", guardados["web"]["clave"]) or "",
         "grupos": _ligas(args, guardados),
         "modelo": args.modelo or guardados["modelo"] or "",
+        # Los certificados van juntos porque los quieren los tres: el cliente,
+        # el bot y el analista de la nube.
+        "red": comun.tls_de_ajustes(args),
     }
 
     cliente = comun.construir_cliente(args)
@@ -281,6 +284,13 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
              f"{memoria['con_estadisticas']} con estadísticas")
     imprimir(f"  transporte   {estado.get('en_uso', '?')}")
     imprimir(f"  credenciales {estado.get('credenciales', '?')}")
+    # Solo se dice cuando hay algo que decir: en un ordenador normal esta línea
+    # sería ruido, pero con un antivirus en medio es la mitad del problema.
+    if opciones["red"]["sin_verificar"]:
+        imprimir("  certificados ⚠ sin comprobar con quién hablas "
+                 "(red.sin_verificar en tus ajustes)")
+    elif opciones["red"]["ca_bundle"]:
+        imprimir(f"  certificados los de {opciones['red']['ca_bundle']}")
     imprimir("  ligas        " + (", ".join(opciones["grupos"]) if opciones["grupos"]
                                   else "todo el catálogo"))
     if not memoria["partidos"]:
@@ -350,6 +360,7 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
                                 ruta_almacen=opciones["memoria"]),
                   modelo=opciones["modelo"],
                   api_key=guardados.get("ollama_api_key") or "",
+                  **opciones["red"],
                   releer=lambda: modulo_ajustes.cargar(getattr(args, "ajustes", None)))
         quien = None
         if token:
@@ -379,6 +390,7 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
                           carpeta_briefings=opciones["briefings"],
                           modelo=opciones["modelo"], ollama=guardados["ollama"],
                           api_key=guardados.get("ollama_api_key") or "",
+                          **opciones["red"],
                           ruta_ajustes=getattr(args, "ajustes", None))
     # Para que la pestaña Ajustes pueda decir si el bot está escuchando de
     # verdad, en vez de dejarte adivinándolo desde el móvil.

@@ -40,6 +40,7 @@ from typing import Any
 
 from .errors import SofascoreError
 from .sesion import Sesion
+from .tls import SIN_MONTAR
 
 API = "https://api.telegram.org"
 #: Telegram corta los mensajes en 4096 caracteres. Se parte un poco antes para
@@ -58,18 +59,21 @@ RECORDAR_VISTOS = 5
 NOTA_VISTOS = "telegram_vistos"
 
 
+
 class TelegramNoDisponible(SofascoreError):
     """Telegram no contesta, o el token no vale."""
 
 
-def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 60.0) -> Any:
+def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 60.0,
+                contexto: Any = None) -> Any:
     detalle = ""
     datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
     peticion = urllib.request.Request(
         url, data=datos, method="POST" if datos is not None else "GET",
         headers={"Content-Type": "application/json"})
     try:
-        respuesta = urllib.request.urlopen(peticion, timeout=timeout)  # noqa: S310
+        respuesta = urllib.request.urlopen(  # noqa: S310
+            peticion, timeout=timeout, context=contexto)
     except urllib.error.HTTPError as exc:
         with suppress(Exception):  # el cuerpo es un extra; puede no haberlo
             detalle = exc.read().decode("utf-8", "replace")[:300]
@@ -87,6 +91,15 @@ def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 60.0) -> 
                 "telegram`) y este empezará a contestar.") from exc
         raise TelegramNoDisponible(f"Telegram ha contestado {exc.code}: {detalle}") from exc
     except OSError as exc:
+        from .tls import es_de_certificado, explicar
+
+        # El error de certificado se explica aquí porque es el sitio donde se
+        # lee. «No llego a Telegram: [SSL: CERTIFICATE_VERIFY_FAILED]» no dice
+        # nada de lo que de verdad pasa, que es que algo en medio está
+        # abriendo tu HTTPS.
+        if es_de_certificado(exc):
+            raise TelegramNoDisponible(
+                f"No llego a Telegram. {explicar('api.telegram.org')}") from exc
         raise TelegramNoDisponible(f"No llego a Telegram: {exc}") from exc
     with respuesta:
         return json.loads(respuesta.read().decode("utf-8"))
@@ -127,6 +140,11 @@ class Bot:
     #: lo que hace que poner el token desde el móvil valga para algo sin
     #: reiniciar nada. Ver ``refrescar``.
     releer: Callable[[], dict] | None = field(default=None, repr=False)
+    #: Certificados propios, para cuando algo abre tu HTTPS por el camino
+    #: (antivirus, proxy de empresa, VPN). Ver :mod:`cancha.tls`.
+    ca_bundle: str = ""
+    #: No comprobar con quién se habla. Último recurso.
+    sin_verificar: bool = False
     #: El token viene de la línea de comandos o del entorno, así que los
     #: ajustes no lo tocan. Sin esto, un ``--token`` se lo comería el primer
     #: ``releer`` que devolviese los ajustes de fábrica, que van vacíos.
@@ -139,17 +157,27 @@ class Bot:
     _callado: bool = field(default=False, repr=False)
     _ultimo_error: str = field(default="", repr=False)
     _escuchando: bool = field(default=False, repr=False)
+    _contexto: Any = field(default=SIN_MONTAR, repr=False)
 
     def __post_init__(self) -> None:
         if self.pedir is None:
             self.pedir = lambda metodo, cuerpo=None: _pedir_http(
                 f"{API}/bot{self.token}/{metodo}", cuerpo,
-                timeout=ESPERA + 15 if metodo == "getUpdates" else 60)
+                timeout=ESPERA + 15 if metodo == "getUpdates" else 60,
+                contexto=self._tls())
         if self.sesion is None:
             self.sesion = Sesion()
             self._propia = True
 
     # --- hablar ---
+
+    def _tls(self):
+        """El contexto TLS, montado una vez y rehecho si cambian los ajustes."""
+        if self._contexto is SIN_MONTAR:
+            from .tls import contexto
+
+            self._contexto = contexto(self.ca_bundle, self.sin_verificar)
+        return self._contexto
 
     def comprobar(self) -> dict:
         """Quién soy, según Telegram. Lo primero que hay que poder responder."""
@@ -359,6 +387,15 @@ class Bot:
         if clave != self.api_key:
             cambios.append("clave de la nube puesta" if clave else "clave de la nube quitada")
             self.api_key = clave
+        red = frescos.get("red") or {}
+        bundle = str(red.get("ca_bundle") or "")
+        flojo = bool(red.get("sin_verificar"))
+        if (bundle, flojo) != (self.ca_bundle, self.sin_verificar):
+            cambios.append("certificados: " + (
+                "sin comprobar con quién hablo (⚠)" if flojo
+                else f"los de {bundle}" if bundle else "los del sistema"))
+            self.ca_bundle, self.sin_verificar = bundle, flojo
+            self._contexto = SIN_MONTAR  # se rehace en la petición siguiente
         return cambios
 
     def estado(self) -> dict:

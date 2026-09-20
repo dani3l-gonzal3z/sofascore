@@ -1,6 +1,6 @@
 [project]
 name = "cancha"
-version = "0.12.0"
+version = "0.12.1"
 description = "Le dices un partido y te devuelve todos sus datos, de Sofascore y de otras fuentes, listos para analizar (también por una IA)"
 requires-python = ">=3.10"
 readme = "README.md"
@@ -15,6 +15,11 @@ dependencies = []
 curl = ["curl_cffi>=0.7"]
 # Transporte alternativo (conexiones reutilizadas, timeouts finos).
 http = ["httpx>=0.27"]
+# Para redes donde algo abre el HTTPS por el camino —un antivirus que «revisa
+# webs seguras», el proxy de una empresa, una VPN—: hace que Python use el
+# almacén de certificados del sistema, que es donde esos programas dejan el
+# suyo. Ver docs/certificados.md.
+tls = ["truststore>=0.9"]
 # Tablas: informe.frames() devuelve DataFrames en vez de listas de diccionarios.
 pandas = ["pandas>=2.0"]
 # Las librerías de referencia, para FBref, Transfermarkt y Capology a través de

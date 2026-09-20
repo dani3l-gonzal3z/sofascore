@@ -100,6 +100,7 @@ servidor (lo ya traído no se vuelve a pedir). Además:
 | `POST /api/barrido` | Lanza un barrido (`fecha`, `grupos`, `max`) en segundo plano |
 | `GET /api/barrido` | Cómo va: líneas de registro y resumen al acabar |
 | `GET /api/diagnostico` | Transportes, credenciales, caché y grabaciones. Con `?red=1` prueba contra la API |
+| `GET /api/tls` | Si algo está abriendo el HTTPS, y quién ([Certificados](certificados.md)) |
 | `POST /api/cache` | Vacía la caché de disco |
 | `POST /api/ligas` | Busca los ids de competición que falten (necesita red) |
 | `GET /api/red` | Por dónde se llega a este servidor, con la matriz del QR ya calculada |

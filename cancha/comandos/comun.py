@@ -16,9 +16,37 @@ from ..client import SofascoreClient
 from ..config import Settings
 
 
+def tls_de_ajustes(args: argparse.Namespace) -> dict:
+    """Los certificados que digan tus ajustes guardados, si no los dice la orden.
+
+    Devuelve siempre valores concretos —``""`` y ``False``— porque así los
+    quieren el bot y el servidor. Quien se lo pase a ``Settings`` tiene que
+    convertir el vacío en ``None``, que allí es lo que significa «no lo has
+    dicho» y deja pasar las variables de entorno.
+
+    Esto vive aquí porque el HTTPS interceptado no distingue de comandos: si un
+    antivirus está en medio, lo está para Sofascore, para Telegram y para todo.
+    Se arregla una vez en Ajustes y valen todos los comandos.
+    """
+    from .. import ajustes as modulo_ajustes
+
+    guardado = modulo_ajustes.cargar(getattr(args, "ajustes", None)).get("red") or {}
+    return {
+        "ca_bundle": str(getattr(args, "ca_bundle", None)
+                         or guardado.get("ca_bundle") or ""),
+        "sin_verificar": bool(getattr(args, "sin_verificar", False)
+                              or guardado.get("sin_verificar")),
+    }
+
+
 def construir_cliente(args: argparse.Namespace) -> SofascoreClient:
     """Un cliente con lo que se haya pedido por línea de comandos."""
+    red = tls_de_ajustes(args)
     ajustes = Settings.from_env(
+        # Vacío es «no lo has dicho»: `from_env` descarta los None, y así el
+        # fichero de certificados que venga de SSL_CERT_FILE no se machaca.
+        ca_bundle=red["ca_bundle"] or None,
+        sin_verificar=red["sin_verificar"] or None,
         language=getattr(args, "lang", None),
         sport=getattr(args, "sport", None),
         rate_limit=getattr(args, "rate", None),
@@ -72,6 +100,12 @@ def parsers_padre() -> tuple[argparse.ArgumentParser, ...]:
                        help="Secciones que se piden a la vez (1 = de una en una).")
     comun.add_argument("--transport", choices=["auto", "curl", "httpx", "urllib"],
                        help="Cómo se hacen las peticiones (por defecto: auto).")
+    comun.add_argument("--ca-bundle", metavar="FICHERO",
+                       help="Fichero .pem con los certificados de confianza. Hace falta "
+                            "si algo abre tu HTTPS por el camino (antivirus, proxy de "
+                            "empresa, VPN). Mira quién es con: cancha doctor --tls")
+    comun.add_argument("--sin-verificar", action="store_true",
+                       help="No comprobar con quién se habla. Último recurso.")
     comun.add_argument("--debug", action="store_true",
                        help="Muestra contadores de peticiones y ajustes en uso.")
     comun.add_argument("--record", metavar="CARPETA",

@@ -51,6 +51,10 @@ POR_DEFECTO: dict[str, Any] = {
         "registro": "datos/guardia.log",
     },
     "web": {"puerto": 8765, "lan": True, "clave": ""},
+    #: Cuando algo abre tu HTTPS por el camino —un antivirus que «revisa webs
+    #: seguras», el proxy de una empresa, una VPN—, Python no conoce a quien
+    #: firma el certificado y no se conecta a nada. Ver :mod:`cancha.tls`.
+    "red": {"ca_bundle": "", "sin_verificar": False},
     "telegram": {"token": "", "chats": []},
 }
 
@@ -206,7 +210,7 @@ def aplicar_desde_fuera(ajustes: dict, cambios: dict) -> dict:
 
 # ------------------------------------------------------------------ revisar
 
-def revisar(ajustes: dict) -> list[str]:
+def revisar(ajustes: dict) -> list[str]:  # noqa: C901 - es una lista de avisos
     """Qué hay mal en estos ajustes, en palabras. Vacío es que están bien."""
     from .guardia import segundos_hasta
     from .ligas import competiciones_de
@@ -235,6 +239,15 @@ def revisar(ajustes: dict) -> list[str]:
             int(chat)
         except (TypeError, ValueError):
             problemas.append(f"«{chat}» no es un identificador de chat: es un número.")
+    red = ajustes.get("red") or {}
+    bundle = str(red.get("ca_bundle") or "").strip()
+    if bundle and not Path(bundle).is_file():
+        problemas.append(f"El fichero de certificados «{bundle}» no está. "
+                         "Tiene que ser un .pem que exista en este ordenador.")
+    if red.get("sin_verificar"):
+        problemas.append("Estás sin comprobar con quién hablas (red.sin_verificar). "
+                         "Funciona, pero cualquiera que se ponga en medio puede leer "
+                         "y cambiar lo que pasa por ahí, incluido el token del bot.")
     puerto = (ajustes.get("web") or {}).get("puerto")
     if not isinstance(puerto, int) or not (1 <= puerto <= 65535):
         problemas.append(f"El puerto «{puerto}» no vale.")

@@ -78,7 +78,7 @@ partido.available()            # secciones con datos
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
   respuesta es *no se sabe*.
-- **Probado sin red.** 965 tests en menos de doce segundos, y un modo de grabar
+- **Probado sin red.** 1.000 tests en menos de quince segundos, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
@@ -90,7 +90,23 @@ pip install -e .             # instala el comando `sofascore`
 pip install curl_cffi        # muy recomendable: ver abajo
 pip install -e ".[pandas]"   # además, informe.frames() devuelve DataFrames
 pip install -e ".[dev]"      # además, pytest para los tests
+pip install truststore       # si un antivirus o un proxy abre tu HTTPS: ver abajo
 ```
+
+### Si nada se conecta y el error habla de certificados
+
+```
+[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: self-signed
+certificate in certificate chain
+```
+
+Eso no es un fallo del framework: es que algo en tu ordenador o en tu red está
+abriendo tus conexiones seguras —un antivirus que «revisa webs seguras», el proxy
+de una empresa, una VPN— y Python no conoce a quien firma el certificado que te
+presentan. `cancha doctor --tls` te dice **quién es**, por su nombre, y
+`pip install truststore` lo arregla casi siempre, porque entonces se usa el
+almacén de certificados del sistema. Está contado en
+**[Certificados](docs/certificados.md)**.
 
 ### Por qué `curl_cffi`
 
@@ -148,6 +164,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [La interfaz](docs/interfaz.md) | `cancha web`: una página que se instala en Windows y en iOS |
 | [Dejarlo funcionando](docs/dejarlo-funcionando.md) | `cancha arrancar`: la guardia nocturna y el bot de Telegram |
 | [Ajustes](docs/ajustes.md) | La hora, las ligas, el modelo: decidirlo una vez |
+| [Certificados](docs/certificados.md) | Si un antivirus o un proxy abre tu HTTPS y nada se conecta |
 | [Casi seguro](docs/seguro.md) | Lo que se repite, medido: frecuencia, suelo de Wilson y elevación |
 | [El pronóstico](docs/pronostico.md) | Marcador exacto, córners y tarjetas, calculados y contra el mercado |
 | [El analista local](docs/analista.md) | Ollama con Hermes, y el adaptador a LangChain |

@@ -155,7 +155,7 @@ def test_la_clave_va_en_la_cabecera_y_no_en_el_cuerpo(monkeypatch):
         def __exit__(self, *_a):
             return False
 
-    def urlopen_falso(peticion, timeout=None):
+    def urlopen_falso(peticion, timeout=None, **_k):
         vistas["cabeceras"] = dict(peticion.header_items())
         vistas["cuerpo"] = peticion.data.decode("utf-8")
         vistas["url"] = peticion.full_url
@@ -174,7 +174,7 @@ def test_una_clave_mala_se_explica_en_vez_de_dar_un_401_a_secas(monkeypatch):
 
     import cancha.analista as modulo
 
-    def urlopen_falso(peticion, timeout=None):
+    def urlopen_falso(peticion, timeout=None, **_k):
         raise urllib.error.HTTPError(peticion.full_url, 401, "no", {}, None)
 
     monkeypatch.setattr(modulo.urllib.request, "urlopen", urlopen_falso)
@@ -188,7 +188,7 @@ def test_sin_saldo_tambien_se_explica(monkeypatch):
 
     import cancha.analista as modulo
 
-    def urlopen_falso(peticion, timeout=None):
+    def urlopen_falso(peticion, timeout=None, **_k):
         raise urllib.error.HTTPError(peticion.full_url, 402, "no", {}, None)
 
     monkeypatch.setattr(modulo.urllib.request, "urlopen", urlopen_falso)

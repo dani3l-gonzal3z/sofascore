@@ -105,6 +105,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     """Dice con qué está pidiendo y si Sofascore le contesta."""
     from ..diagnostico import diagnostico
 
+    if args.tls:
+        return _doctor_tls(args)
     cliente = comun.construir_cliente(args)
     try:
         d = diagnostico(cliente, cache_dir=args.cache_dir, con_red=True)
@@ -115,6 +117,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if d.get("aviso"):
             imprimir(f"  ⚠  {d['aviso']}")
         imprimir(f"Credenciales Plus: {d['credenciales']}")
+        imprimir(f"Certificados: {d['tls']['lectura']}")
         cache = d["cache"]
         imprimir(f"Caché: {cache.get('respuestas', 0)} respuestas "
                  f"({cache.get('kib', 0)} KiB) en {cache.get('carpeta', '—')}"
@@ -129,6 +132,38 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         return 0
     finally:
         cliente.close()
+
+
+def _doctor_tls(args: argparse.Namespace) -> int:
+    """``cancha doctor --tls``: quién está abriendo tu HTTPS, si es que alguien.
+
+    Es la respuesta a un error que no se entiende solo —«self-signed certificate
+    in certificate chain»— y que además no parece lo que es: parece que la API
+    o Telegram estén rotos, cuando lo que pasa es que hay algo en medio de tu
+    propio ordenador.
+    """
+    from ..diagnostico import probar_tls
+    from ..tls import explicar
+
+    ajustes = comun.construir_cliente(args).settings
+    for host in (args.host or "api.telegram.org,api.sofascore.com").split(","):
+        d = probar_tls(host.strip(), ajustes)
+        imprimir("")
+        imprimir(f"  {host.strip()}")
+        imprimir(f"    certificados  {d['lectura']}")
+        if d["interceptado"] is None:
+            imprimir(f"    ⚠  {d['nota']}")
+            continue
+        if not d["interceptado"]:
+            imprimir(f"    ✓  {d['nota']}")
+            continue
+        imprimir(f"    🚫 {d['nota']}")
+        imprimir("")
+        # Ya viene partido: volver a partirlo aquí descolocaba la numeración.
+        for linea in explicar(host.strip(), ancho=68).splitlines():
+            imprimir(f"    {linea}")
+    imprimir("")
+    return 0
 
 
 def cmd_cache(args: argparse.Namespace) -> int:
@@ -253,6 +288,10 @@ def registrar(sub, comun, informe, listado) -> None:
 
     p_doctor = sub.add_parser("doctor", parents=[comun],
                               help="Comprueba el transporte y si la API contesta.")
+    p_doctor.add_argument("--tls", action="store_true",
+                          help="Mira si algo está abriendo tu HTTPS por el camino "
+                               "(antivirus, proxy de empresa, VPN) y dice quién es.")
+    p_doctor.add_argument("--host", help="Qué hosts probar con --tls, separados por comas.")
     p_doctor.set_defaults(func=cmd_doctor)
 
     p_cache = sub.add_parser("cache", help="Estado de la caché.")

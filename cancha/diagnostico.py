@@ -63,6 +63,34 @@ def estado_grabaciones(carpeta: str = "grabaciones") -> dict:
     return {"carpeta": carpeta, **datos}
 
 
+def estado_tls(ajustes: Any = None) -> dict:
+    """Con qué certificados se habla, sin pedir nada a nadie."""
+    from .tls import ENV_CA, hay_truststore, ruta_ca
+
+    bundle = ruta_ca(getattr(ajustes, "ca_bundle", None) if ajustes else None)
+    flojo = bool(getattr(ajustes, "sin_verificar", False)) if ajustes else False
+    if flojo:
+        lectura = ("⚠ sin comprobar con quién se habla (red.sin_verificar). "
+                   "Cualquiera que se ponga en medio puede leer y cambiar lo que pasa.")
+    elif bundle:
+        lectura = f"los certificados de {bundle}"
+    elif hay_truststore():
+        lectura = "los del almacén del sistema (truststore está instalado)"
+    else:
+        lectura = ("los que trae Python. Si algo abre tu HTTPS por el camino "
+                   "—antivirus, proxy de empresa, VPN— no vas a poder conectarte: "
+                   "pip install truststore lo arregla casi siempre.")
+    return {"ca_bundle": bundle, "sin_verificar": flojo,
+            "truststore": hay_truststore(), "variable": ENV_CA, "lectura": lectura}
+
+
+def probar_tls(host: str = "api.telegram.org", ajustes: Any = None) -> dict:
+    """¿Hay alguien abriendo el HTTPS por el camino? Esto sí toca la red."""
+    from .tls import inspeccionar
+
+    return {**estado_tls(ajustes), **inspeccionar(host)}
+
+
 def probar_api(cliente) -> list[dict]:
     """Le pregunta a los dos hosts de Sofascore si contestan.
 
@@ -94,6 +122,7 @@ def diagnostico(cliente=None, cache_dir: str | Path | None = None,
         "transportes": transportes(),
         "cache": estado_cache(cache_dir),
         "grabaciones": estado_grabaciones(carpeta_grabaciones),
+        "tls": estado_tls(getattr(cliente, "settings", None)),
     }
     if cliente is not None:
         en_uso = type(cliente.transport).__name__
@@ -109,4 +138,4 @@ def diagnostico(cliente=None, cache_dir: str | Path | None = None,
 
 
 __all__ = ["PARA_QUE", "diagnostico", "estado_cache", "estado_grabaciones",
-           "limpiar_cache", "probar_api", "transportes"]
+           "estado_tls", "limpiar_cache", "probar_api", "probar_tls", "transportes"]

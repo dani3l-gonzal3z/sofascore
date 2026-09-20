@@ -35,6 +35,7 @@ from typing import Any
 
 from .errors import SofascoreError
 from .sesion import Sesion
+from .tls import SIN_MONTAR
 
 #: Dónde escucha Ollama si no le han dicho otra cosa.
 URL_OLLAMA = "http://localhost:11434"
@@ -129,7 +130,7 @@ class OllamaNoDisponible(SofascoreError):
 
 
 def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 300.0,
-                flujo: bool = False, api_key: str = "") -> Any:
+                flujo: bool = False, api_key: str = "", contexto: Any = None) -> Any:
     """Un POST (o GET) a Ollama, en casa o en su nube.
 
     Con ``api_key`` se manda la cabecera ``Authorization``, que es lo único que
@@ -143,7 +144,8 @@ def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 300.0,
         url, data=datos, method="POST" if datos is not None else "GET",
         headers=cabeceras)
     try:
-        respuesta = urllib.request.urlopen(peticion, timeout=timeout)  # noqa: S310
+        respuesta = urllib.request.urlopen(  # noqa: S310
+            peticion, timeout=timeout, context=contexto)
     except urllib.error.HTTPError as exc:
         detalle = exc.read().decode("utf-8", "replace")[:300]
         if exc.code in (401, 403):
@@ -156,6 +158,12 @@ def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 300.0,
                 f"No te queda saldo en la nube de Ollama. Dijo: {detalle}") from exc
         raise OllamaNoDisponible(f"Ollama ha contestado {exc.code}: {detalle}") from exc
     except OSError as exc:
+        from .tls import es_de_certificado, explicar
+
+        if es_de_certificado(exc):
+            # La nube de Ollama va por HTTPS, así que le pasa lo mismo que a
+            # Telegram cuando algo se pone en medio.
+            raise OllamaNoDisponible(f"No llego a {url}. {explicar()}") from exc
         if url.startswith("https://"):
             raise OllamaNoDisponible(
                 f"No llego a {url}. ¿Hay internet?") from exc
@@ -204,7 +212,15 @@ class Analista:
     #: Clave para la nube de Ollama. Vacía = el de tu máquina, gratis y en
     #: local. Con clave, los datos del partido salen de tu ordenador.
     api_key: str = ""
+    _contexto_tls: Any = field(default=SIN_MONTAR, repr=False)
+    #: Certificados propios, para cuando algo abre tu HTTPS por el camino. Solo
+    #: hace falta para la nube; el Ollama de casa va por HTTP. Ver
+    #: :mod:`cancha.tls`.
+    ca_bundle: str = ""
+    sin_verificar: bool = False
     temperatura: float = 0.2
+    #: Ventana del modelo, en tokens. Ojo: esto no tiene nada que ver con el
+    #: contexto TLS, que es otra cosa con el mismo nombre en castellano.
     contexto: int = 16384
     max_vueltas: int = MAX_VUELTAS
     #: Tope de caracteres por respuesta de herramienta. Más bajo que el de MCP:
@@ -218,7 +234,8 @@ class Analista:
     def __post_init__(self) -> None:
         if self.pedir is None:
             self.pedir = lambda ruta, cuerpo=None: _pedir_http(
-                f"{self.url.rstrip('/')}{ruta}", cuerpo, api_key=self.api_key)
+                f"{self.url.rstrip('/')}{ruta}", cuerpo, api_key=self.api_key,
+                contexto=self._tls())
         # Con clave y sin decir a dónde, se supone la nube: nadie pone una
         # clave de pago para hablar con el Ollama de su propio portátil.
         if self.api_key and self.url == URL_OLLAMA:
@@ -226,6 +243,14 @@ class Analista:
         if self.sesion is None:
             self.sesion = Sesion()
             self._propia = True
+
+    def _tls(self):
+        """El contexto TLS para hablar con la nube. ``None`` si no hay nada que decir."""
+        if self._contexto_tls is SIN_MONTAR:
+            from .tls import contexto as contexto_tls
+
+            self._contexto_tls = contexto_tls(self.ca_bundle, self.sin_verificar)
+        return self._contexto_tls
 
     def close(self) -> None:
         if self._propia and self.sesion is not None:

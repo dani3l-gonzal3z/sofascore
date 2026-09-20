@@ -43,7 +43,8 @@ class Servidor:
     def __init__(self, sesion: Sesion | None = None, ruta_almacen: str = "datos/cancha.db",
                  clave: str = "", carpeta_briefings: str = "datos/briefings",
                  modelo: str = "", ollama: str = "", api_key: str = "",
-                 ruta_ajustes: str | None = None) -> None:
+                 ruta_ajustes: str | None = None, ca_bundle: str = "",
+                 sin_verificar: bool = False) -> None:
         from ..analista import MODELO_POR_DEFECTO, URL_OLLAMA
 
         self.sesion = sesion or Sesion(ruta_almacen=ruta_almacen)
@@ -52,6 +53,9 @@ class Servidor:
         self.modelo = modelo or MODELO_POR_DEFECTO
         self.ollama = ollama or URL_OLLAMA
         self.api_key = api_key
+        #: Certificados, para la nube del analista. Ver :mod:`cancha.tls`.
+        self.ca_bundle = ca_bundle
+        self.sin_verificar = sin_verificar
         self.ruta_ajustes = ruta_ajustes
         #: El bot, si lo hay, para poder decir en Ajustes si está escuchando.
         #: Lo pone ``cancha arrancar``; sin él la página funciona igual.
@@ -105,8 +109,10 @@ class Servidor:
 
         clave = modelo or self.modelo
         if clave not in self._analistas:
-            self._analistas[clave] = Analista(sesion=self.sesion, modelo=clave,
-                                              url=self.ollama, api_key=self.api_key)
+            self._analistas[clave] = Analista(
+                sesion=self.sesion, modelo=clave, url=self.ollama,
+                api_key=self.api_key, ca_bundle=self.ca_bundle,
+                sin_verificar=self.sin_verificar)
         return self._analistas[clave]
 
     def estado_analista(self, modelo: str | None = None) -> dict:
@@ -232,6 +238,16 @@ class Servidor:
         }
 
     # --- diagnóstico y mantenimiento ---
+
+    def tls(self, host: str = "api.telegram.org") -> dict:
+        """Si algo está abriendo el HTTPS, para poder verlo desde el móvil."""
+        from ..diagnostico import probar_tls
+        from ..tls import explicar
+
+        datos = probar_tls(host, self.sesion.cliente.settings)
+        if datos.get("interceptado"):
+            datos["que_hacer"] = explicar(host)
+        return datos
 
     def diagnostico(self, con_red: bool = False) -> dict:
         """Lo que dice ``cancha doctor``, para poder verlo desde el móvil."""
@@ -535,6 +551,9 @@ class Manejador(BaseHTTPRequestHandler):
         if ruta == "/api/diagnostico":
             con_red = (consulta.get("red") or ["0"])[0] not in ("0", "", "no")
             return self._json(self.app.diagnostico(con_red=con_red))
+        if ruta == "/api/tls":
+            return self._json(self.app.tls((consulta.get("host") or
+                                            ["api.telegram.org"])[0]))
         if ruta == "/api/red":
             return self._json(self.app.red())
         if ruta == "/api/ajustes":

@@ -175,6 +175,10 @@ casos que hay:
   abiertos: cierra uno.
 * **«Telegram dice que el token no vale»**. El token está mal copiado o
   @BotFather lo ha revocado. Cámbialo en Ajustes; se coge al vuelo.
+* **Algo de un certificado** («CERTIFICATE_VERIFY_FAILED», «self-signed
+  certificate in certificate chain»). Eso no es del bot: hay un antivirus o un
+  proxy abriendo tu HTTPS. `cancha doctor --tls` dice quién, y
+  [Certificados](certificados.md) cómo se arregla.
 
 Y si no está en tu lista de permitidos, el bot contesta «No tengo nada para ti»
 a propósito: ver el punto siguiente.

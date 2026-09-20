@@ -1953,6 +1953,19 @@ function tarjetaRed() {
 /* ── diagnóstico ─────────────────────────────────────────────────── */
 function tarjetaDiagnostico() {
   const cuerpo = el("div", { class: "bloque" });
+  const cajaTls = el("div", { class: "bloque" });
+  async function mirarTls(boton) {
+    if (boton) { boton.disabled = true; boton.textContent = "Mirando…"; }
+    poner(cajaTls, espera("Mirando quién hay en medio…"));
+    const d = await api.get("/api/tls");
+    if (boton) { boton.disabled = false; boton.textContent = "¿Alguien abre mi HTTPS?"; }
+    const err = fallo(d);
+    if (err) { poner(cajaTls, err); return; }
+    if (d.interceptado === null) { poner(cajaTls, msg(d.nota, "ojo")); return; }
+    if (!d.interceptado) { poner(cajaTls, msg(`${d.host}: ${d.nota}`, "bien")); return; }
+    poner(cajaTls, msg(`${d.host}: ${d.nota}`, "mal"),
+      el("pre", { class: "registro" }, d.que_hacer || ""));
+  }
   async function traer(conRed) {
     cuerpo.replaceChildren(espera(conRed ? "Preguntando a Sofascore…" : "Mirando…"));
     const d = await api.get("/api/diagnostico" + (conRed ? "?red=1" : ""));
@@ -1975,8 +1988,15 @@ function tarjetaDiagnostico() {
       el("p", { class: "peq gris" }, g.grabaciones
         ? `Grabaciones: ${g.grabaciones} respuestas en ${g.carpeta} (${g.desde} → ${g.hasta})`
         : g.nota),
+      el("p", { class: "peq gris" }, "Certificados: ", (d.tls || {}).lectura || "—"),
+      cajaTls,
       el("div", { class: "fila" },
         el("button", { class: "btn plano s", onclick: () => traer(true) }, "Probar la API"),
+        /* El HTTPS interceptado es de los fallos que más cuesta entender —el
+           error habla de certificados y parece que la API esté rota— y de los
+           que no se pueden mirar desde el móvil sin esto. */
+        el("button", { class: "btn plano s", onclick: (ev) => mirarTls(ev.currentTarget) },
+          "¿Alguien abre mi HTTPS?"),
         el("button", { class: "btn plano s", onclick: async (ev) => {
           ev.currentTarget.disabled = true;
           const r = await api.post("/api/cache", {});
@@ -2065,6 +2085,7 @@ function tarjetaAjustes() {
     const err = fallo(d);
     if (err) { poner(cuerpo, err); return; }
     const a = d.ajustes, g = a.guardia, w = a.web, t = a.telegram;
+    const red = a.red || {};
     const campos = {};
     const campo = (clave, etiquetaTexto, attrs, ayuda) => {
       campos[clave] = el("input", { class: "campo", ...attrs });
@@ -2245,6 +2266,28 @@ function tarjetaAjustes() {
           + "medio minuto. El puerto, la clave y la wifi sí piden reiniciar.")),
 
       el("hr", { class: "hr" }),
+      el("div", { class: "bloque" },
+        el("h3", {}, "Certificados"),
+        nota("Solo hace falta tocar esto si algo está abriendo tu HTTPS por el "
+          + "camino: un antivirus que «revisa webs seguras», el proxy de una "
+          + "empresa o un colegio, o una VPN. Se nota porque nada se conecta y el "
+          + "error habla de certificados. En Memoria → Diagnóstico, el botón "
+          + "«¿Alguien abre mi HTTPS?» dice quién es."),
+        campo("ca", "fichero de certificados (.pem)", { value: red.ca_bundle || "",
+          placeholder: "vacío = los del sistema" },
+          "Lo normal es no necesitarlo: pip install truststore lo arregla casi "
+          + "siempre, porque entonces se usa el almacén de Windows."),
+        el("label", { class: "fila peq", style: "gap:6px" },
+          campos.sinVerificar = el("input", { type: "checkbox",
+            checked: !!red.sin_verificar }),
+          el("span", {}, "no comprobar con quién hablo")),
+        red.sin_verificar
+          ? msg("Ahora mismo no se comprueba con quién se habla. Funciona, pero "
+              + "cualquiera que se ponga en medio puede leer y cambiar lo que pasa "
+              + "por ahí, incluido el token del bot. Es el último recurso.", "mal")
+          : nota("Último recurso, y solo si sabes lo que hay en medio.")),
+
+      el("hr", { class: "hr" }),
       avisoAjustes,
       el("button", { class: "btn", type: "button", onclick: async (ev) => {
         const boton = ev.currentTarget;
@@ -2259,6 +2302,8 @@ function tarjetaAjustes() {
             max: Number(campos.max.value) },
           web: { puerto: Number(campos.puerto.value), lan: campos.lan.checked,
             clave: campos.clave.value },
+          red: { ca_bundle: campos.ca.value.trim(),
+            sin_verificar: campos.sinVerificar.checked },
           telegram: { token: campos.token.value,
             chats: campos.chats.value.split(",").map((x) => x.trim()).filter(Boolean)
               .map(Number) },

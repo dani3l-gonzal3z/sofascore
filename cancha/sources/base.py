@@ -79,6 +79,8 @@ class Fuente:
             self.transport or build_transport(
                 self.transporte_preferido or self.settings.transport,
                 timeout=self.timeout or self.settings.timeout,
+                ca_bundle=self.settings.ca_bundle,
+                sin_verificar=self.settings.sin_verificar,
             ),
             self.settings,
         )
