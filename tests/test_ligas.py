@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from cancha.almacen import Almacen
+from cancha.almacen import VERSION_ESQUEMA, Almacen
 from cancha.cache import MemoryCache
 from cancha.client import SofascoreClient
 from cancha.config import Settings
@@ -156,7 +156,7 @@ def test_una_base_vieja_sin_la_tabla_no_rompe_el_resolver(tmp_path):
     viejo.commit()
     viejo.close()
     with Almacen(ruta) as almacen:
-        assert almacen.nota("version_esquema") == "4"
+        assert almacen.nota("version_esquema") == str(VERSION_ESQUEMA)
         assert resolver(["grandes"], almacen)[8] == "Spain La Liga"
 
 

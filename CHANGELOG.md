@@ -4,6 +4,46 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.8.0
+
+Buscar un partido ya no exige haber barrido antes: lo trae.
+
+### Novedades
+
+- **Abastecer un partido.** `cancha previa <partido> --abastecer`, o el botón
+  «Memoria de este partido» en la interfaz, trae y guarda todo lo que cuesta
+  entenderlo: los **últimos diez de cada equipo por separado**, los que han
+  **jugado entre ellos** y los del **árbitro**, con estadísticas,
+  alineaciones, tiros y cuotas. Unos cuarenta partidos, minuto y medio la
+  primera vez.
+
+  Con `--plan` dice antes lo que va a costar —cuántos partidos hacen falta,
+  cuántos ya están y cuántas peticiones son— porque decidir a ciegas cuánto le
+  pides a un servidor ajeno no es decidir. Y se puede cortar con `--max`: lo
+  guardado queda guardado y al repetirlo sigue por donde falte.
+
+  **No crece exponencialmente: se satura.** Los últimos diez de un equipo son
+  también los últimos diez de media liga, así que el cuarto análisis de una
+  competición cuesta la mitad y el cuadragésimo, una sexta parte. Está medido
+  y la tabla está en `docs/memoria.md`.
+
+- **Nada de mirar el futuro.** Los partidos que se traen se cortan por la fecha
+  del que se analiza, en el origen. Promediar «sus últimos diez» con uno que
+  todavía no se había jugado es la manera más silenciosa de construir un
+  análisis que acierta en el pasado y falla mañana. Hay un test que lo vigila.
+
+- **Las cuotas llevan fecha** (esquema 5). Antes se sobrescribían sin dejar
+  rastro: una de apertura y una de cierre eran la misma fila. Ahora guardan
+  `visto_en` y `horas_antes` del saque. No cambia nada hoy; es lo que hará
+  posible entrenar algo con esto algún día, porque para eso la de cierre es la
+  única que vale. Las bases antiguas ganan las columnas sin perder una fila.
+
+### Arreglos
+
+- **`abastecer` devolvía cero partidos «ya guardados»** cuando los había: dos
+  diccionarios fusionados compartían la clave `ya_estaban` con significados
+  distintos y ganaba el que siempre valía cero. Lo encontró su propio test.
+
 ## 0.7.0
 
 Una pasada mirando el proyecto de lejos. Sale de una pregunta incómoda: la

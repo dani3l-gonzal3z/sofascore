@@ -27,11 +27,12 @@ import re
 import sqlite3
 from contextlib import closing, suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 4
+VERSION_ESQUEMA = 5
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS partidos (
@@ -131,6 +132,11 @@ CREATE TABLE IF NOT EXISTS cuotas (
     partido_id      INTEGER PRIMARY KEY,
     fuente          TEXT,
     mercado         TEXT,
+    -- Cuándo se pidieron, y a cuántas horas del saque estaba el partido. Una
+    -- cuota de tres días antes y una de cierre no valen lo mismo, y sin esto
+    -- no hay manera de distinguirlas: la fila se sobrescribe y se pierde.
+    visto_en        TEXT DEFAULT CURRENT_TIMESTAMP,
+    horas_antes     REAL,
     local           REAL,
     empate          REAL,
     visitante       REAL,
@@ -200,6 +206,11 @@ class Almacen:
         for columna in ("formacion_local", "formacion_visitante"):
             if columna not in columnas:
                 self._conexion.execute(f"ALTER TABLE partidos ADD COLUMN {columna} TEXT")
+        de_cuotas = {f["name"] for f in self.consulta("PRAGMA table_info(cuotas)")}
+        if "visto_en" not in de_cuotas:
+            self._conexion.execute("ALTER TABLE cuotas ADD COLUMN visto_en TEXT")
+        if "horas_antes" not in de_cuotas:
+            self._conexion.execute("ALTER TABLE cuotas ADD COLUMN horas_antes REAL")
         self._conexion.commit()
 
     # --- contexto ---
@@ -270,13 +281,30 @@ class Almacen:
         cuotas, probs = mercado["cuotas"], mercado["probabilidades"]
         self._conexion.execute(
             """INSERT OR REPLACE INTO cuotas
-               (partido_id, fuente, mercado, local, empate, visitante,
-                prob_local, prob_empate, prob_visitante) VALUES (?,?,?,?,?,?,?,?,?)""",
+               (partido_id, fuente, mercado, visto_en, horas_antes, local, empate,
+                visitante, prob_local, prob_empate, prob_visitante)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
             (partido_id, fuente, mercado.get("mercado"),
+             datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             self._horas_antes(partido_id),
              cuotas.get("local"), cuotas.get("empate"), cuotas.get("visitante"),
              probs.get("local"), probs.get("empate"), probs.get("visitante")),
         )
         return True
+
+    def _horas_antes(self, partido_id: int) -> float | None:
+        """A cuántas horas del saque se pidieron estas cuotas.
+
+        Es una sola columna y vale mucho: sin ella, una cuota de apertura y una
+        de cierre son la misma fila y no hay forma de saber cuál tienes. Para
+        cualquier cosa que se quiera entrenar algún día, la de cierre es la
+        buena, porque es la que ya ha absorbido las alineaciones y las bajas.
+        """
+        filas = self.consulta("SELECT momento FROM partidos WHERE id = ?", (partido_id,))
+        if not filas or not filas[0].get("momento"):
+            return None
+        ahora = datetime.now(timezone.utc).timestamp()
+        return round((filas[0]["momento"] - ahora) / 3600, 2)
 
     def cuotas_de(self, partido_id: int) -> dict | None:
         """El 1X2 guardado de un partido, con quién era favorito."""

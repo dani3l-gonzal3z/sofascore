@@ -305,6 +305,32 @@ def cmd_previa(args: argparse.Namespace) -> int:
     almacen = _almacen(args)
     cliente = comun.construir_cliente(args)
     try:
+        if getattr(args, "abastecer", False) or getattr(args, "plan", False):
+            from ..abastecer import abastecer, planear
+
+            if args.plan:
+                plan = planear(cliente, almacen, args.consulta, ultimos=args.contexto)
+                cuentas = plan.cuentas(almacen)
+                imprimir(f"{cuentas['partido']}")
+                imprimir(f"  hacen falta {cuentas['en_total']} partidos: "
+                         f"{cuentas['de_cada_uno']['local']} del local, "
+                         f"{cuentas['de_cada_uno']['visitante']} del visitante, "
+                         f"{cuentas['entre_ellos']} entre ellos"
+                         + (f", {cuentas['del_arbitro']} de {cuentas['arbitro']}"
+                            if cuentas["arbitro"] else ""))
+                imprimir(f"  ya están {cuentas['ya_estaban']}; faltan "
+                         f"{cuentas['hay_que_pedir']} (~{cuentas['peticiones_estimadas']} "
+                         "peticiones)")
+                return 0
+            resumen = abastecer(cliente, almacen, args.consulta, ultimos=args.contexto,
+                                maximo_peticiones=args.max, avisar=imprimir)
+            imprimir("")
+            imprimir(f"{resumen['guardados']} traídos, {resumen['ya_estaban']} ya estaban, "
+                     f"{resumen['peticiones']} peticiones, {resumen['fallos']} fallos.")
+            for linea in envolver(resumen["como_leerlo"], 74):
+                imprimir(f"  {linea}")
+            imprimir("")
+
         datos = previa(almacen, args.consulta, cliente=cliente,
                        ultimos=args.ultimos, jugadores_por_equipo=args.jugadores)
         if args.stdout_json:
@@ -724,6 +750,16 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_previa.add_argument("consulta", help="Id, URL o 'Equipo A vs Equipo B'.")
     p_previa.add_argument("--jugadores", type=int, default=4,
                           help="Cuántos jugadores destacar por equipo.")
+    p_previa.add_argument("--abastecer", action="store_true",
+                          help="Traer antes todo lo que falte: los últimos partidos de "
+                               "cada equipo, los que han jugado entre ellos y los del "
+                               "árbitro. La primera vez tarda; las siguientes, no.")
+    p_previa.add_argument("--plan", action="store_true",
+                          help="Solo decir qué haría falta traer y cuánto costaría.")
+    p_previa.add_argument("--contexto", type=int, default=10,
+                          help="Partidos anteriores de cada equipo al abastecer (10).")
+    p_previa.add_argument("--max", type=int, default=0,
+                          help="Tope de peticiones al abastecer (0 = sin tope).")
     p_previa.set_defaults(func=cmd_previa)
 
     p_sistema = sub.add_parser(

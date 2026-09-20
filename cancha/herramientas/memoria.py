@@ -208,6 +208,37 @@ def _estado_de_la_memoria(sesion):
 
 
 @herramienta(
+    "abastecer_partido",
+    "TRAE Y GUARDA todo lo que hace falta para analizar un partido: los últimos "
+    "de cada equipo por separado, lo que han jugado entre ellos y lo que ha "
+    "pitado el árbitro, con estadísticas, alineaciones, tiros y cuotas. Úsala "
+    "cuando otra herramienta diga que no hay datos de ese partido, en vez de "
+    "contestar que la memoria está vacía. Cuesta minuto y medio la primera vez "
+    "y casi nada las siguientes, porque lo guardado no se vuelve a pedir. Con "
+    "'solo_plan' dice qué pediría y cuánto costaría sin pedir nada.",
+    {
+        "partido": {"type": "string", "description": "Id, URL o 'Equipo A vs Equipo B'."},
+        "ultimos": {"type": "integer",
+                    "description": "Partidos anteriores de cada equipo (por defecto 10)."},
+        "solo_plan": {"type": "boolean",
+                      "description": "Solo decir qué haría falta y qué costaría."},
+        "maximo": {"type": "integer",
+                   "description": "Tope de peticiones. 0 o sin poner, sin tope."},
+    },
+    ["partido"],
+)
+def _abastecer_partido(sesion, partido: str, ultimos: int = 10,
+                       solo_plan: bool = False, maximo: int = 0):
+    from ..abastecer import abastecer, planear
+
+    if solo_plan:
+        plan = planear(sesion.cliente, sesion.almacen, partido, ultimos=ultimos)
+        return plan.cuentas(sesion.almacen)
+    return abastecer(sesion.cliente, sesion.almacen, partido, ultimos=ultimos,
+                     maximo_peticiones=maximo)
+
+
+@herramienta(
     "sistema_de_equipo",
     "CON QUÉ PLANTEA un equipo: dibujo más repetido, posesión, cuánto presiona "
     "y qué concede, con una etiqueta relativa a SU liga ('bloque bajo', "

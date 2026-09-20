@@ -566,6 +566,54 @@ function plegable(titulo, cargar, abierta) {
    desde el móvil y tener que ir al ordenador a por el terminal. */
 const volcado = (o) => el("pre", { class: "registro" }, JSON.stringify(o, null, 1));
 
+/* Traer a la memoria todo el contexto de un partido: los últimos de cada
+   equipo, lo que han jugado entre ellos y lo del árbitro. Primero se pregunta
+   qué costaría y se enseña; pedir doscientas cosas a un servidor ajeno sin
+   decir cuántas son no es pedir, es disparar. */
+function abastecer(idPartido, alTerminar) {
+  const cuerpo = el("div", { class: "bloque" });
+  const boton = el("button", { class: "btn", disabled: true }, "Mirando qué falta…");
+  boton.addEventListener("click", async () => {
+    boton.disabled = true;
+    boton.textContent = "Trayendo…";
+    cuerpo.replaceChildren(espera("Esto tarda: son varias peticiones a Sofascore, "
+      + "de tres en tres por segundo. Puedes irte a otra pantalla."));
+    const d = await api.h("abastecer_partido", { partido: String(idPartido) });
+    boton.disabled = false;
+    boton.textContent = "Traer lo que falte";
+    const err = fallo(d);
+    if (err) { cuerpo.replaceChildren(err); return; }
+    cuerpo.replaceChildren(
+      cifras([[d.guardados, "traídos ahora"], [d.ya_estaban, "ya estaban"],
+        [d.peticiones, "peticiones"], [d.fallos, "fallos"]]),
+      d.completo ? msg("Ya está todo el contexto de este partido en la memoria.")
+        : msg("Falta algo por traer: vuelve a darle y sigue por donde lo dejó.", "ojo"),
+      nota(d.como_leerlo));
+    if (alTerminar) alTerminar();
+  });
+
+  api.h("abastecer_partido", { partido: String(idPartido), solo_plan: true }).then((plan) => {
+    const err = fallo(plan);
+    if (err) { cuerpo.replaceChildren(err); boton.remove(); return; }
+    boton.disabled = plan.hay_que_pedir === 0;
+    boton.textContent = plan.hay_que_pedir
+      ? `Traer ${plan.hay_que_pedir} partidos` : "Nada que traer";
+    cuerpo.replaceChildren(
+      cifras([[plan.en_total, "hacen falta"], [plan.ya_estaban, "ya están"],
+        [plan.hay_que_pedir, "faltan"], [plan.peticiones_estimadas, "peticiones"]]),
+      el("p", { class: "peq gris" },
+        `${plan.de_cada_uno.local} del local · ${plan.de_cada_uno.visitante} del visitante · `
+        + `${plan.entre_ellos} entre ellos`
+        + (plan.arbitro ? ` · ${plan.del_arbitro} de ${plan.arbitro}` : "")),
+      plan.hay_que_pedir
+        ? nota("La segunda vez que pidas un partido de esta liga costará mucho menos: "
+            + "los últimos de un equipo son también los últimos de sus rivales.")
+        : nota("Todo el contexto de este partido ya está guardado."));
+  });
+  cuerpo.append(espera("Mirando qué hace falta…"));
+  return tarjeta("Memoria de este partido", cuerpo, boton);
+}
+
 function carrera(c) {
   if (!c || !c.disponible || !(c.serie || []).length) return null;
   const nombres = Object.keys(c.total || {});
@@ -850,6 +898,9 @@ function previaDentro(pv, p) {
   partes.push(el("div", { class: "fila" },
     el("a", { class: "btn plano s", href: `#/buscar/partido/${p.id}` }, "Abrir el partido entero"),
     (pv.memoria || {}).consejo ? el("span", { class: "gris peq" }, pv.memoria.consejo) : null));
+  // Si la previa se ha montado con poca memoria, el sitio de arreglarlo es
+  // aquí mismo, no un mensaje que te manda a otra pantalla a adivinar.
+  if ((pv.memoria || {}).consejo) partes.push(abastecer(p.id));
   return partes;
 }
 
@@ -1151,6 +1202,8 @@ async function pintarPartido(raiz, consulta) {
       el("span", { style: "font-family:var(--display);font-weight:800;font-size:17px;width:38px;flex:none" }, j.rating),
       el("a", { href: `#/buscar/jugador/${encodeURIComponent(j.jugador)}`, style: "flex:1 1 auto" }, j.jugador),
       el("span", { class: "gris peq" }, j.posicion))))));
+
+  raiz.append(abastecer(p.id));
 
   raiz.append(tarjeta("Los once y los que salieron",
     plegable("Alineaciones, minutos y notas", async () => {

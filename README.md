@@ -41,7 +41,10 @@ partido.available()            # secciones con datos
   números que un modelo calcularía mal.
 - **Memoria.** Una base local con lo que se va viendo, para poder decir cómo
   juega un equipo *comparado con su liga* o cuántos partidos lleva alguien sin
-  rematar entre palos. Eso no se contesta mirando un partido.
+  rematar entre palos. Eso no se contesta mirando un partido. Y si falta algo,
+  `--abastecer` trae los últimos diez de cada equipo, lo que han jugado entre
+  ellos y lo del árbitro: unos cuarenta partidos, minuto y medio la primera
+  vez y casi nada las siguientes, porque la memoria se solapa consigo misma.
 - **Una interfaz sin dependencias.** `cancha web` sirve una página desde tu
   ordenador que se instala como app en Windows y en iOS. Los partidos del día
   vienen plegados en una línea y se abren donde están, y **todo lo que sabe
@@ -53,7 +56,7 @@ partido.available()            # secciones con datos
   ids que no estaban contrastados **se descubren solos**, comprobando país y
   género: aquí no se inventa un número que barrería otra liga en silencio.
 - **Un analista en tu máquina.** `cancha analista` habla con Ollama y le da las
-  41 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
+  42 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
   cifra que no le hayan dado.
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
@@ -133,7 +136,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
 | [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
 | [Fuentes de datos](docs/fuentes.md) | Understat, ClubElo, el cruce y de dónde salen las rutas |
-| [Para una IA local](docs/ia.md) | Las 41 herramientas, MCP y cómo indaga |
+| [Para una IA local](docs/ia.md) | Las 42 herramientas, MCP y cómo indaga |
 | [La línea de comandos](docs/comandos.md) | Todos los comandos y sus opciones |
 | [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
 | [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |

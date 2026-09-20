@@ -10,7 +10,78 @@ Para eso hace falta algo que el framework no tenía: **acordarse**.
 cancha barrido                    # trae los partidos del día y el historial de quien juega
 cancha memoria                    # qué hay guardado
 cancha previa "Girona vs Osasuna" # todo lo que se sabe antes de jugarse
+cancha previa "Girona vs Osasuna" --abastecer   # …y trae antes lo que falte
 ```
+
+## Dos maneras de llenarla
+
+**El barrido** es al por mayor: todo lo que se juega hoy y el historial de
+quien juega. **El abastecimiento** es al detalle: un partido concreto y todo lo
+que cuesta entenderlo. El primero se lanza una vez al día; el segundo, cuando
+te interesa un partido y la memoria no llega.
+
+## Abastecer un partido
+
+```bash
+cancha previa "Girona vs Osasuna" --plan        # qué haría falta y qué costaría
+cancha previa "Girona vs Osasuna" --abastecer   # traerlo y guardarlo
+```
+
+Trae, con detalle completo y guardado: los **últimos diez de cada equipo por
+separado**, los que han **jugado entre ellos**, y los del **árbitro**. Unos
+cuarenta partidos, seis peticiones cada uno: unas 240, minuto y medio al ritmo
+por defecto de tres por segundo.
+
+Antes de pedir nada dice lo que va a costar, porque decidir a ciegas cuánto le
+vas a pedir a un servidor ajeno no es decidir:
+
+```
+Girona - Osasuna
+  hacen falta 38 partidos: 10 del local, 10 del visitante, 3 entre ellos, 15 de Jesús Gil
+  ya están 12; faltan 26 (~156 peticiones)
+```
+
+### Por qué no crece exponencialmente
+
+Es la pregunta natural —«cuarenta partidos por análisis»— y la respuesta es que
+**se satura**. Los últimos diez del Girona son también los últimos diez de
+media LaLiga, así que el segundo análisis de la misma competición ya encuentra
+la mitad hecho, y el décimo casi todo. Simulando una liga de veinte equipos,
+partido a partido:
+
+| Análisis | Pide | Nuevos | Ya estaban | Coste en peticiones |
+| --- | --- | --- | --- | --- |
+| 1.º | 20 | 20 | 0 | 120 |
+| 4.º | 21 | 8 | 13 | 48 |
+| 12.º | 19 | 3 | 16 | 18 |
+| 40.º | 20 | 1 | 19 | 6 |
+
+Cuarenta análisis de una liga dejan 245 de sus 380 partidos guardados, y el
+último ha costado una sexta parte que el primero. Una memoria que crece
+exponencialmente es una memoria rota; esta hace lo contrario, que es su trabajo.
+
+### Lo que ocupa
+
+Un partido con todo el detalle —estadísticas por periodo, los veintidós con sus
+números, los tiros, las incidencias y las cuotas— son unos **35 KiB**. Medido,
+no estimado:
+
+| Lo que guardes | Partidos | En disco |
+| --- | --- | --- |
+| Un análisis | 40 | 1,4 MiB |
+| Diez análisis | 400 | 14 MiB |
+| Una temporada de las cinco grandes | 3.800 | 131 MiB |
+| Diez temporadas | 38.000 | 1,3 GiB |
+
+El disco no es el límite. El límite es la paciencia con el ritmo de peticiones,
+y por eso importa que la segunda vez no cueste.
+
+### Mirar el futuro, no
+
+Al traer «los últimos diez» se cortan por la fecha del partido que se analiza,
+en el origen. Meter en la memoria un partido posterior y luego promediarlo como
+si fuera historia previa es la manera más silenciosa de construir un análisis
+que acierta en el pasado y falla en el futuro. Hay un test que lo vigila.
 
 ## El barrido
 
@@ -173,3 +244,34 @@ cancha duelo "Vinicius" "Getafe"
 ---
 
 [← Volver al índice](../README.md)
+
+## Pensando en un modelo, algún día
+
+Guardar todo para poder entrenar algo más adelante es razonable, y la memoria
+está montada para que sirva. Lo que hace falta para que sirva de verdad no es
+volumen, es **disciplina temporal**: cada fila tiene que poder leerse *como se
+veía antes del partido*, o el modelo aprenderá del futuro y acertará
+maravillosamente en los datos de entrenamiento.
+
+Lo que ya está:
+
+- Cada partido lleva su `momento`, así que se puede reconstruir qué se sabía en
+  cualquier fecha.
+- Los partidos terminados no cambian: lo guardado es lo que pasó.
+- Las cuotas llevan `visto_en` y `horas_antes`, porque una de apertura y una de
+  cierre no valen lo mismo y antes se sobrescribían sin dejar rastro. Para
+  entrenar, la de cierre es la buena: ya ha absorbido alineaciones y bajas.
+- La separación `Antes` / `Despues` de `cancha.seguro`, que hace
+  **estructuralmente imposible** que una condición previa mire el resultado.
+
+Lo que faltaría el día que se quiera hacer:
+
+- Un exportador de conjunto de datos: una fila por partido con sus rasgos
+  previos y el desenlace, construido solo con lo anterior al saque.
+- Validación hacia delante, no partición al azar. La partición por fecha de
+  `cancha seguro --calibrar` es el mismo principio en pequeño.
+- Y la parte incómoda: el mercado ya es un modelo, y es bueno. Cualquier cosa
+  que se entrene aquí hay que medirla **contra la cuota de cierre**, no contra
+  acertar o no. Batir al azar es fácil; batir a Pinnacle es otra conversación.
+
+Nada de esto cambia lo que hay que hacer hoy, que es guardar bien.

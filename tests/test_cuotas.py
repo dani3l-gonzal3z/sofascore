@@ -11,7 +11,7 @@ import json
 import pytest
 from conftest import EVENT_ID
 
-from cancha.almacen import Almacen
+from cancha.almacen import VERSION_ESQUEMA, Almacen
 from cancha.cuotas import (
     UMBRAL_FAVORITO,
     desde_fila,
@@ -129,7 +129,7 @@ def test_una_base_vieja_gana_la_tabla_de_cuotas_sin_perder_nada(tmp_path):
     with Almacen(ruta) as base:
         assert base.consulta("SELECT local FROM partidos")[0]["local"] == "Sigo aquí"
         assert base.cuotas_de(1) is None
-        assert base.nota("version_esquema") == "4"
+        assert base.nota("version_esquema") == str(VERSION_ESQUEMA)
 
 
 # ------------------------------------------------------ el sistema o el contexto
@@ -260,3 +260,52 @@ def test_la_previa_sin_cliente_ni_cuotas_lo_dice(almacen, cliente):
     almacen.guardar_informe(build_report(cliente, EVENT_ID, sections=["statistics"]))
     datos = previa(almacen, EVENT_ID, cliente=None)
     assert datos["mercado"]["disponible"] is False
+
+
+def test_una_base_con_cuotas_viejas_gana_la_fecha_sin_perder_las_filas(tmp_path):
+    """Migrar no puede costar un rebarrido: la columna se añade, los datos siguen."""
+    import sqlite3
+
+    ruta = tmp_path / "v4.db"
+    viejo = sqlite3.connect(str(ruta))
+    viejo.execute("CREATE TABLE partidos (id INTEGER PRIMARY KEY, custom_id TEXT, fecha TEXT, "
+                  "momento INTEGER, deporte TEXT, liga_id INTEGER, liga TEXT, temporada_id "
+                  "INTEGER, jornada INTEGER, local_id INTEGER, local TEXT, visitante_id INTEGER, "
+                  "visitante TEXT, goles_local INTEGER, goles_visitante INTEGER, estado TEXT, "
+                  "arbitro TEXT, sede TEXT, formacion_local TEXT, formacion_visitante TEXT, "
+                  "visto_en TEXT)")
+    # La tabla de cuotas tal como era en la versión 4: sin fecha.
+    viejo.execute("CREATE TABLE cuotas (partido_id INTEGER PRIMARY KEY, fuente TEXT, "
+                  "mercado TEXT, local REAL, empate REAL, visitante REAL, prob_local REAL, "
+                  "prob_empate REAL, prob_visitante REAL)")
+    viejo.execute("INSERT INTO partidos (id, local) VALUES (1, 'Sigo aquí')")
+    viejo.execute("INSERT INTO cuotas (partido_id, fuente, mercado, local, empate, visitante, "
+                  "prob_local, prob_empate, prob_visitante) "
+                  "VALUES (1, 'vieja', 'FT', 1.5, 4.0, 6.0, 0.62, 0.22, 0.16)")
+    viejo.commit()
+    viejo.close()
+
+    with Almacen(ruta) as base:
+        columnas = {f["name"] for f in base.consulta("PRAGMA table_info(cuotas)")}
+        assert {"visto_en", "horas_antes"} <= columnas
+        guardadas = base.cuotas_de(1)
+        assert guardadas is not None, "las cuotas de antes siguen ahí"
+        assert guardadas["probabilidades"]["local"] == 0.62
+        assert base.nota("version_esquema") == str(VERSION_ESQUEMA)
+
+
+def test_las_cuotas_nuevas_dejan_dicho_cuando_se_vieron(tmp_path, cliente):
+    """Una de apertura y una de cierre no valen lo mismo; hay que distinguirlas."""
+    from conftest import EVENT_ID
+
+    from cancha.match import build_report
+
+    with Almacen(tmp_path / "f.db") as base:
+        base.guardar_informe(build_report(cliente, EVENT_ID, sections=["all"]))
+        fila = base.consulta("SELECT * FROM cuotas WHERE partido_id = ?", (EVENT_ID,))[0]
+    assert fila["visto_en"], "sin fecha no se sabe si son de apertura o de cierre"
+    assert fila["visto_en"].startswith("20")
+    # El partido de ejemplo ya se jugó, así que faltan horas negativas: eso es
+    # exactamente lo que hay que poder leer después.
+    assert fila["horas_antes"] is not None
+    assert fila["horas_antes"] < 0
