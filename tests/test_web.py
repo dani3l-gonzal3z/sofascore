@@ -571,3 +571,32 @@ def test_un_fallo_al_leer_tambien_se_contesta(servidor, monkeypatch):
     monkeypatch.setattr(type(servidor), "estado", revienta)
     estado, _, cuerpo = _pedir(servidor, "GET", "/api/estado")
     assert estado == 500 and "ValueError" in cuerpo["error"]
+
+
+def test_buscar_los_ids_que_faltan_funciona(servidor):
+    """El botón «Buscar los ids que faltan» llamaba a asegurar con el cliente y
+    la memoria cambiados de orden, y salía un AttributeError a media página."""
+    # Con «grandes» no falta ningún id y no se llega a buscar nada: hace falta
+    # un grupo con competiciones sin identificar para recorrer el camino entero.
+    estado, _, cuerpo = _pedir(servidor, "POST", "/api/ligas", {"grupos": "europeas"})
+    assert estado == 200, cuerpo
+    assert "encontradas" in cuerpo
+    assert "catalogo" in cuerpo and "competiciones" in cuerpo["catalogo"]
+
+
+def test_los_ajustes_ofrecen_quien_ha_escrito_al_bot(servidor, tmp_path):
+    """Para no tener que copiar el número a mano de Telegram a la interfaz."""
+    from cancha.telegrama import NOTA_VISTOS
+
+    servidor.ruta_ajustes = str(tmp_path / "aj_tg.json")
+    servidor.sesion.almacen.anotar(
+        NOTA_VISTOS, json.dumps([{"chat": 4242, "quien": "Dani G"}]))
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/ajustes")
+    assert cuerpo["telegram_vistos"] == [{"chat": 4242, "quien": "Dani G"}]
+
+
+def test_la_pagina_explica_como_conseguir_el_id_de_chat(servidor):
+    html = _pagina()
+    assert "telegram_vistos" in html
+    assert "escríbele a tu bot" in html
+    assert "Te contestará con tu identificador" in html

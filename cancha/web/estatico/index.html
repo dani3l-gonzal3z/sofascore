@@ -2138,8 +2138,27 @@ function tarjetaAjustes() {
           { type: "password", value: t.token, placeholder: "123456:AAE…" },
           t.token_puesto ? "Hay uno guardado. Déjalo como está para no tocarlo."
             : "Te lo da @BotFather en Telegram con /newbot."),
-        campo("chats", "chats permitidos", { value: (t.chats || []).join(", ") },
-          "Números separados por comas. Sin esto el bot no contesta a nadie."),
+        campo("chats", "chats permitidos", { value: (t.chats || []).join(", ") }),
+        /* El identificador de chat es un número que nadie se sabe. En vez de
+           pedirlo a secas, se explican los tres pasos y se ofrece de un botón
+           a quien ya le haya escrito al bot. */
+        (d.telegram_vistos || []).length
+          ? el("div", { class: "bloque" },
+              el("span", { class: "peq gris" }, "Te han escrito desde:"),
+              el("div", { class: "fila" }, ...d.telegram_vistos.map((v) =>
+                el("button", { class: "sug", type: "button", onclick: () => {
+                  const ya = campos.chats.value.split(",").map((x) => x.trim())
+                    .filter(Boolean);
+                  if (ya.indexOf(String(v.chat)) < 0) ya.push(String(v.chat));
+                  campos.chats.value = ya.join(", ");
+                } }, `${v.quien || "alguien"} · ${v.chat}`))))
+          : el("div", { class: "bloque" },
+              msg("Es un número, y no se sabe de antemano. Para conseguirlo: "
+                + "guarda el token aquí, reinicia cancha, y escríbele a tu bot "
+                + "por Telegram. Te contestará con tu identificador, y aparecerá "
+                + "aquí como un botón.", "ojo")),
+        nota("Sin ningún chat permitido el bot no contesta a nadie, y es a "
+          + "propósito: cualquiera que dé con su nombre puede escribirle."),
         nota("El puerto, la clave y el bot se cogen al arrancar: cámbialos y "
           + "reinicia.")),
 

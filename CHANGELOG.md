@@ -4,6 +4,34 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.11.3
+
+Más cosas que salieron usándolo.
+
+### Arreglos
+
+- **«Buscar los ids que faltan» reventaba** con `AttributeError: 'Almacen'
+  object has no attribute 'search'`. Los dos primeros argumentos de `asegurar`
+  son el cliente y la memoria, y se pasaban al revés. Ahora van por nombre,
+  que es lo que impide que vuelva a pasar, y hay una prueba que recorre el
+  camino entero —con un grupo que de verdad tenga ids sin identificar, porque
+  con las cinco grandes no se llega ni a buscar—.
+
+- **El bot compartía la conexión de SQLite con el servidor web**, desde otro
+  hilo y sin el cerrojo que protege a la web. Ahora tiene su propia sesión,
+  igual que la guardia. Y la memoria se abre en **modo WAL** con un tiempo de
+  espera: es justo la forma que tiene esto —la guardia escribiendo de noche
+  mientras alguien abre la página— y sin él coincidir daba un «database is
+  locked» en la cara.
+
+### Novedades
+
+- **El identificador de chat de Telegram, de un botón.** Es un número que
+  nadie se sabe, y pedirlo a secas no ayudaba. Ahora el bot apunta a quien le
+  escriba sin estar en la lista, y la pestaña Ajustes lo ofrece con su nombre
+  al lado para meterlo de un toque. Si todavía no te ha escrito nadie, explica
+  los tres pasos en vez de dejarte con un campo vacío.
+
 ## 0.11.2
 
 Dos fallos que salieron al usarlo en Windows.

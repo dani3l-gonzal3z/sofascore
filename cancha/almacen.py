@@ -185,11 +185,21 @@ class Almacen:
         if str(self.ruta) != ":memory:":
             self.ruta.parent.mkdir(parents=True, exist_ok=True)
         # Sin atar la conexión al hilo que la abrió: la interfaz web atiende
-        # cada petición en un hilo y serializa el acceso con un cerrojo. Quien
-        # use el almacén desde varios hilos sin cerrojo se lleva lo que se
-        # merece, y aquí nadie lo hace.
+        # cada petición en un hilo y serializa el acceso con un cerrojo. Aun
+        # así, **una conexión por cosa**: la web, la guardia y el bot abren la
+        # suya. Compartir una sola entre hilos es pedir problemas, y el cerrojo
+        # de la web no protege a quien no pasa por ella.
         self._conexion = sqlite3.connect(str(self.ruta), check_same_thread=False)
         self._conexion.row_factory = sqlite3.Row
+        if str(self.ruta) != ":memory:":
+            # WAL es justo la forma que tiene esto: uno escribiendo —la
+            # guardia— y varios leyendo a la vez. Sin él, la guardia de las
+            # tres de la mañana bloquea a quien abra la página en ese momento.
+            # Y un tiempo de espera, para que coincidir sea esperar un poco y
+            # no un «database is locked» en la cara.
+            with suppress(sqlite3.DatabaseError):
+                self._conexion.execute("PRAGMA journal_mode = WAL")
+        self._conexion.execute("PRAGMA busy_timeout = 10000")
         self._conexion.executescript(ESQUEMA)
         self._conexion.execute("PRAGMA foreign_keys = ON")
         self._migrar()

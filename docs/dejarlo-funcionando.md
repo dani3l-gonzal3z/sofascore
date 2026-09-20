@@ -138,11 +138,15 @@ Montarlo son dos minutos:
 
 3. Escríbele desde tu Telegram. Te contestará con **tu identificador de chat** y
    nada más.
-4. Arráncalo otra vez con ese número:
+4. Ponlo donde te venga mejor y reinicia:
 
    ```bash
    cancha telegram --token 123456:AAE... --chat 987654321
    ```
+
+   O en la interfaz: **Memoria → Ajustes → chats permitidos**. Ahí no hace
+   falta que lo copies: al escribirle, el bot lo apunta y aparece como un
+   botón —con tu nombre al lado— para meterlo de un toque.
 
 Para no escribirlo cada vez, guárdalo en el entorno y `cancha arrancar` lo coge
 solo:

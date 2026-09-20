@@ -219,3 +219,94 @@ def test_pronostico_sin_partido_pide_el_partido(bot):
 def test_la_ayuda_menciona_el_pronostico(bot):
     solo, _ = bot
     assert "/pronostico" in solo.responder("/ayuda")
+
+
+# ------------------------------------------------- averiguar el id de chat
+
+def test_quien_escribe_sin_permiso_queda_apuntado(bot):
+    """El identificador de chat es un número que nadie se sabe.
+
+    El bot ya te lo contesta por Telegram, pero entonces hay que copiarlo a
+    mano de una aplicación a otra. Apuntándolo, la pestaña Ajustes lo ofrece
+    en un botón.
+    """
+    from cancha.telegrama import vistos
+
+    solo, _ = bot
+    solo.atender(4242, "hola", quien="Dani G")
+    apuntados = vistos(solo.sesion.almacen)
+    assert apuntados and apuntados[0]["chat"] == 4242
+    assert apuntados[0]["quien"] == "Dani G"
+
+
+def test_sin_lista_tambien_se_apunta(cliente, tmp_path):
+    """Es justo el caso en el que hace falta: todavía no sabes tu número."""
+    from cancha.telegrama import vistos
+
+    falso = Falso()
+    sesion = Sesion(cliente=cliente, ruta_almacen=str(tmp_path / "v.db"))
+    solo = Bot(token="x", permitidos=(), sesion=sesion, pedir=falso)
+    try:
+        respuesta = solo.atender(777, "hola")
+        assert "777" in respuesta
+        assert "Ajustes" in respuesta, "tiene que decirte dónde ponerlo"
+        assert [v["chat"] for v in vistos(sesion.almacen)] == [777]
+    finally:
+        sesion.close()
+
+
+def test_el_mismo_chat_no_se_apunta_dos_veces(bot):
+    from cancha.telegrama import vistos
+
+    solo, _ = bot
+    solo.atender(4242, "una", quien="Dani")
+    solo.atender(4242, "otra", quien="Dani")
+    assert len(vistos(solo.sesion.almacen)) == 1
+
+
+def test_solo_se_recuerdan_unos_pocos(bot):
+    from cancha.telegrama import RECORDAR_VISTOS, vistos
+
+    solo, _ = bot
+    for n in range(RECORDAR_VISTOS + 4):
+        solo.atender(1000 + n, "hola")
+    apuntados = vistos(solo.sesion.almacen)
+    assert len(apuntados) == RECORDAR_VISTOS
+    assert apuntados[0]["chat"] == 1000 + RECORDAR_VISTOS + 3, "el último, primero"
+
+
+def test_a_un_permitido_no_se_le_apunta(bot):
+    from cancha.telegrama import vistos
+
+    solo, _ = bot
+    solo.atender(42, "/memoria")
+    assert vistos(solo.sesion.almacen) == []
+
+
+def test_el_nombre_sale_del_mensaje(bot):
+    solo, falso = bot
+    falso.actualizaciones = [{
+        "update_id": 1,
+        "message": {"chat": {"id": 555}, "text": "hola",
+                    "from": {"first_name": "Dani", "last_name": "G"}}}]
+    atendidos = solo.una_tanda()
+    assert atendidos[0]["quien"] == "Dani G"
+
+
+def test_apuntar_no_puede_tumbar_una_respuesta(bot, monkeypatch):
+    """Es una comodidad: si la memoria falla, el mensaje se contesta igual."""
+    solo, _ = bot
+
+    def roto(*_a, **_k):
+        raise RuntimeError("la memoria no está")
+
+    monkeypatch.setattr(type(solo.sesion.almacen), "anotar", roto)
+    assert solo.atender(999, "hola") == "No tengo nada para ti."
+
+
+def test_una_nota_corrupta_no_rompe_los_ajustes(bot):
+    from cancha.telegrama import NOTA_VISTOS, vistos
+
+    solo, _ = bot
+    solo.sesion.almacen.anotar(NOTA_VISTOS, "{ esto no es json")
+    assert vistos(solo.sesion.almacen) == []

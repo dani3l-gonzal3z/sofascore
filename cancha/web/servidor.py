@@ -147,9 +147,13 @@ class Servidor:
         """Los ajustes, con el catálogo de ligas para poder elegirlas de una lista."""
         from ..ajustes import cargar, revisar, sin_secretos
         from ..ligas import CATALOGO, GRUPOS
+        from ..telegrama import vistos
 
         guardados = cargar(self.ruta_ajustes)
+        with self.cerrojo:
+            quien_ha_escrito = vistos(self.sesion.almacen)
         return {
+            "telegram_vistos": quien_ha_escrito,
             "ajustes": sin_secretos({k: v for k, v in guardados.items()
                                      if not k.startswith("_")}),
             "error": guardados.get("_error"),
@@ -224,7 +228,11 @@ class Servidor:
         from ..ligas import asegurar, resumen_catalogo
 
         with self.cerrojo:
-            encontradas = asegurar(self.sesion.almacen, self.sesion.cliente, grupos=grupos)
+            # Por nombre y no por posición: los dos primeros argumentos son el
+            # cliente y la memoria, y cambiarlos de orden no da un error claro
+            # sino un AttributeError a media página. Ya pasó una vez.
+            encontradas = asegurar(cliente=self.sesion.cliente,
+                                   almacen=self.sesion.almacen, grupos=grupos)
             return {"encontradas": encontradas, "catalogo": resumen_catalogo(self.sesion.almacen)}
 
     def red(self, puerto: int | None = None) -> dict:

@@ -40,6 +40,11 @@ LIMITE = 3900
 #: Cuánto espera cada consulta antes de volver vacía. Cuanto más alto, menos
 #: peticiones; veinticinco segundos es el equilibrio que recomienda Telegram.
 ESPERA = 25
+#: Cuántos remitentes sin permiso se recuerdan. Normalmente es uno —tú— pero
+#: caben unos pocos por si te equivocas de cuenta.
+RECORDAR_VISTOS = 5
+#: Dónde quedan apuntados, en la memoria, para que los ajustes los ofrezcan.
+NOTA_VISTOS = "telegram_vistos"
 
 
 class TelegramNoDisponible(SofascoreError):
@@ -140,12 +145,17 @@ class Bot:
             mensaje = actualizacion.get("message") or actualizacion.get("edited_message")
             if not mensaje:
                 continue
-            chat = (mensaje.get("chat") or {}).get("id")
+            datos_chat = mensaje.get("chat") or {}
+            chat = datos_chat.get("id")
             texto = (mensaje.get("text") or "").strip()
             if chat is None or not texto:
                 continue
-            atendidos.append({"chat": chat, "texto": texto})
-            self.atender(chat, texto)
+            quien = " ".join(x for x in (
+                (mensaje.get("from") or {}).get("first_name"),
+                (mensaje.get("from") or {}).get("last_name"),
+            ) if x) or datos_chat.get("title") or ""
+            atendidos.append({"chat": chat, "texto": texto, "quien": quien})
+            self.atender(chat, texto, quien)
         return atendidos
 
     def escuchar(self, tandas: int = 0, avisar: Callable[[str], None] | None = None) -> int:
@@ -171,18 +181,22 @@ class Bot:
 
     # --- entender ---
 
-    def atender(self, chat: int, texto: str) -> str:
+    def atender(self, chat: int, texto: str, quien: str = "") -> str:
         """Contesta a un mensaje. Devuelve lo enviado, para poder probarlo."""
         if not self.permitidos:
+            self.apuntar_visto(chat, quien)
             respuesta = (
                 "Este bot no tiene lista de permitidos, así que no contesta a nadie.\n\n"
                 f"Tu identificador de chat es: {chat}\n\n"
-                "Arráncalo otra vez con:\n"
+                "Ponlo en la interfaz, en Memoria → Ajustes → «chats permitidos», "
+                "y reinicia cancha. O arráncalo así:\n"
                 f"    cancha telegram --token ... --chat {chat}")
             self.enviar(chat, respuesta)
             return respuesta
         if chat not in self.permitidos:
             # A un desconocido no se le cuenta nada, ni siquiera qué es esto.
+            # Pero se apunta, porque casi siempre eres tú desde otra cuenta.
+            self.apuntar_visto(chat, quien)
             self.enviar(chat, "No tengo nada para ti.")
             return "No tengo nada para ti."
 
@@ -206,9 +220,39 @@ class Bot:
         # Sin orden reconocida, es una pregunta para el analista.
         return _analista(self, texto)
 
+    def apuntar_visto(self, chat: int, quien: str = "") -> None:
+        """Deja constancia de quién ha escrito sin estar en la lista.
+
+        Es lo que convierte «pon tu identificador de chat» —un número que nadie
+        se sabe— en un botón en los ajustes. El bot ya te lo contesta por
+        Telegram, pero entonces tienes que copiarlo a mano de una aplicación a
+        otra; así aparece solo en la pestaña Ajustes.
+
+        Si la memoria no está o falla, no pasa nada: esto es una comodidad, no
+        puede tumbar la respuesta a un mensaje.
+        """
+        try:
+            almacen = self.sesion.almacen
+            vistos = [v for v in json.loads(almacen.nota(NOTA_VISTOS) or "[]")
+                      if isinstance(v, dict) and v.get("chat") != chat]
+            vistos.insert(0, {"chat": chat, "quien": quien})
+            almacen.anotar(NOTA_VISTOS,
+                           json.dumps(vistos[:RECORDAR_VISTOS], ensure_ascii=False))
+        except Exception:  # noqa: BLE001 - una comodidad no tumba una respuesta
+            pass
+
     def close(self) -> None:
         if self._propia and self.sesion:
             self.sesion.close()
+
+
+def vistos(almacen) -> list[dict]:
+    """Quién ha escrito al bot sin estar en la lista de permitidos."""
+    try:
+        guardados = json.loads(almacen.nota(NOTA_VISTOS) or "[]")
+    except (ValueError, TypeError):
+        return []
+    return [v for v in guardados if isinstance(v, dict) and v.get("chat")]
 
 
 # ------------------------------------------------------------------ órdenes
@@ -379,4 +423,5 @@ def _herramienta(bot: Bot, nombre: str, argumentos: dict) -> dict:
     return ejecutar(nombre, argumentos, sesion=bot.sesion, max_chars=200_000)
 
 
-__all__ = ["API", "Bot", "TelegramNoDisponible", "ORDENES"]
+__all__ = ["API", "NOTA_VISTOS", "ORDENES", "Bot", "TelegramNoDisponible",
+           "vistos"]

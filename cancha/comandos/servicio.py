@@ -318,7 +318,13 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
     if token and not args.sin_bot:
         from ..telegrama import Bot, TelegramNoDisponible
 
-        bot = Bot(token=token, permitidos=_chats(args, guardados), sesion=sesion,
+        # Sesión propia, igual que la guardia: el bot vive en su hilo y
+        # compartir la conexión de SQLite con las peticiones de la web es una
+        # carrera esperando a pasar. Cada uno la suya, y que SQLite haga su
+        # trabajo, que para eso está en modo WAL.
+        bot = Bot(token=token, permitidos=_chats(args, guardados),
+                  sesion=Sesion(cliente=comun.construir_cliente(args),
+                                ruta_almacen=opciones["memoria"]),
                   modelo=opciones["modelo"])
         try:
             quien = bot.comprobar()
