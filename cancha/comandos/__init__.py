@@ -8,16 +8,17 @@ Ahora cada familia vive en su módulo y aporta lo suyo con ``registrar``:
 * :mod:`.entidades` — equipos, jugadores, competiciones y listados;
 * :mod:`.credenciales` — sacar tu cookie y comprobarla;
 * :mod:`.datos` — grabar respuestas, la caché, el diagnóstico;
+* :mod:`.servicio` — dejarlo funcionando: el arranque, la guardia y el bot;
 * :mod:`.ia` — el servidor MCP y las herramientas.
 """
 
-from . import credenciales, datos, entidades, ia, memoria, partido
+from . import credenciales, datos, entidades, ia, memoria, partido, servicio
 from .comun import construir_cliente, depuracion, envolver, imprimir, parsers_padre
 
 #: En el orden en que se quieren ver en la ayuda.
-FAMILIAS = (partido, memoria, entidades, ia, credenciales, datos)
+FAMILIAS = (partido, memoria, servicio, entidades, ia, credenciales, datos)
 
 __all__ = [
     "FAMILIAS", "parsers_padre", "construir_cliente", "imprimir", "envolver", "depuracion",
-    "partido", "memoria", "entidades", "credenciales", "datos", "ia",
+    "partido", "memoria", "entidades", "credenciales", "datos", "ia", "servicio",
 ]

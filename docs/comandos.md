@@ -47,6 +47,9 @@ La interfaz y las otras fuentes:
 
 ```bash
 cancha web [--lan] [--abrir] [--clave X]   # la página, instalable como app
+cancha arrancar                        # todo junto: web + guardia + bot
+cancha guardia [--ahora] [--una-vez]   # prepara el día siguiente cada noche
+cancha telegram --token X --chat N     # el bot, para preguntar desde fuera
 cancha noticias laliga [--equipo X]        # titulares de ESPN
 cancha fuentes                             # qué fuentes y qué librerías hay
 cancha ligas [--descubrir] [--faltan]      # el catálogo de competiciones

@@ -4,6 +4,55 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.9.0
+
+Que se pueda dejar encendido y trabaje solo, y que se le pueda preguntar
+desde la calle.
+
+### Novedades
+
+- **`cancha arrancar`: un solo comando.** Comprueba que esté todo en su sitio,
+  levanta la interfaz en la wifi con su QR, pone la guardia nocturna y, si le
+  das token, el bot de Telegram. Un proceso, y Ctrl+C se lo lleva todo. En
+  Windows hay **`cancha.bat`**: doble clic, y la primera vez se prepara el
+  entorno solo. Si algo falla, la ventana no se cierra y el error se queda
+  ahí para poder leerlo.
+
+- **La guardia nocturna.** Cada noche a su hora: barre el día que viene,
+  abastece sus partidos, escribe el briefing y calibra «casi seguro». Por la
+  mañana está hecho. Todo queda en `datos/guardia.log` con los errores
+  marcados, y cortarla no rompe nada.
+
+  **Y lo de la suspensión, que era el nudo.** Si el equipo se duerme de
+  verdad, Python deja de ejecutarse: no hay demonio que lo impida. En Windows
+  la guardia le pide al sistema que no se suspenda mientras trabaja —la
+  máquina sigue, la pantalla se apaga—, y te lo dice al arrancar. Fuera de
+  Windows se avisa en vez de fingirlo. Para quien prefiera que el equipo sí
+  duerma y despierte solo, `--una-vez` encaja en el Programador de tareas con
+  la casilla «Reactivar el equipo»; está explicado en
+  `docs/dejarlo-funcionando.md`.
+
+- **Bot de Telegram.** Para preguntar desde fuera de casa con solo el
+  ordenador encendido: no hace falta abrir puertos ni tener IP fija, porque es
+  tu ordenador quien llama a Telegram. Sin dependencias, por *long polling*.
+  Entiende `/hoy`, `/manana`, `/directo`, `/seguro`, `/previa`, `/equipo`,
+  `/jugador` y `/memoria`, y lo demás se lo pasa al analista local.
+
+  **Sin `--chat` no contesta a nadie**, y con razón: un bot es público y
+  cualquiera que dé con su nombre puede escribirle. Sin lista de permitidos
+  solo responde diciéndote tu identificador de chat para que lo pongas; a un
+  desconocido, con la lista puesta, no se le cuenta ni qué es esto.
+
+### Arreglos
+
+- **La guardia compartía cliente con el servidor web**, y el problema sutil era
+  el peor: el tope de la guardia se mide con el contador de peticiones del
+  cliente, así que cada previa que abrieras desde el móvil le descontaba
+  presupuesto y se cortaba sola sin motivo. Ahora tiene el suyo.
+- **Un `modelo` vacío dejaba al analista sin modelo.** Pasar `None` machacaba
+  el de por defecto del dataclass; había un `except TypeError` tapándolo en vez
+  de arreglarlo.
+
 ## 0.8.0
 
 Buscar un partido ya no exige haber barrido antes: lo trae.

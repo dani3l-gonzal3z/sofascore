@@ -10,7 +10,8 @@ librería, **como herramientas para una IA local** o en una interfaz que se
 instala en Windows y en el iPhone.
 
 ```bash
-cancha web --lan               # la interfaz: QR en el terminal, y al móvil
+cancha arrancar                # todo: interfaz, guardia nocturna y bot de Telegram
+cancha web --lan               # solo la interfaz: QR en el terminal, y al móvil
 cancha briefing --barrer       # el documento de la mañana: todos los partidos del día
 cancha seguro                  # lo que casi siempre pasa, con el número que lo sostiene
 cancha analista "¿cómo llega el Girona?"   # pregunta y un modelo local lo busca
@@ -45,6 +46,12 @@ partido.available()            # secciones con datos
   `--abastecer` trae los últimos diez de cada equipo, lo que han jugado entre
   ellos y lo del árbitro: unos cuarenta partidos, minuto y medio la primera
   vez y casi nada las siguientes, porque la memoria se solapa consigo misma.
+- **Se lo deja trabajando de noche.** `cancha arrancar` levanta la interfaz, la
+  **guardia nocturna** —que a las tres de la mañana trae los partidos de
+  mañana y todo su contexto, para que por la mañana esté hecho— y un **bot de
+  Telegram** para preguntarle desde la calle sin abrir ningún puerto. En
+  Windows le pide al sistema que no se suspenda mientras trabaja, porque si el
+  equipo se duerme el proceso se duerme con él.
 - **Una interfaz sin dependencias.** `cancha web` sirve una página desde tu
   ordenador que se instala como app en Windows y en iOS. Los partidos del día
   vienen plegados en una línea y se abren donde están, y **todo lo que sabe
@@ -129,6 +136,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | --- | --- |
 | [La memoria](docs/memoria.md) | Barrido diario, estilo de equipo, rachas de jugador, árbitros, previas |
 | [La interfaz](docs/interfaz.md) | `cancha web`: una página que se instala en Windows y en iOS |
+| [Dejarlo funcionando](docs/dejarlo-funcionando.md) | `cancha arrancar`: la guardia nocturna y el bot de Telegram |
 | [Casi seguro](docs/seguro.md) | Lo que se repite, medido: frecuencia, suelo de Wilson y elevación |
 | [El analista local](docs/analista.md) | Ollama con Hermes, y el adaptador a LangChain |
 | [Jugador contra sistema](docs/sistemas.md) | Cómo rinde alguien según a qué se enfrenta, con su prueba de significación |
