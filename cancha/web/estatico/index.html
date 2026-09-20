@@ -1204,6 +1204,7 @@ async function pintarPartido(raiz, consulta) {
       el("span", { class: "gris peq" }, j.posicion))))));
 
   raiz.append(abastecer(p.id));
+  raiz.append(tarjetaPronostico(consulta));
 
   raiz.append(tarjeta("Los once y los que salieron",
     plegable("Alineaciones, minutos y notas", async () => {
@@ -1344,6 +1345,53 @@ async function pintarPartido(raiz, consulta) {
               t.tiros || [], (f, c) => c.k === "xg" ? n2(f.xg) : f[c.k])];
         }) : null);
     } }, "Cruzar con Understat, ClubElo y football-data")));
+}
+
+/* El pronóstico: marcador, córners y tarjetas. Los números salen calculados
+   del servidor; aquí solo se pintan. Se pide al abrir, no antes: es lo caro. */
+function tarjetaPronostico(consulta) {
+  const cuerpo = el("div", { class: "bloque" });
+  return tarjeta("Pronóstico", plegable("Marcador, córners y tarjetas", async () => {
+    const d = await api.h("pronostico_partido", { partido: String(consulta) });
+    const err = fallo(d);
+    if (err) return err;
+    const g = d.goles, c = d.corners || {}, t = d.tarjetas || {}, m = d.mercado || {};
+    const linea = (obj) => el("div", { class: "fila peq" }, ...Object.entries(obj)
+      .map(([k, v]) => etiqueta(`+${k}: ${pc(v)}`)));
+    return [
+      el("div", { class: "tres" },
+        ...["local", "empate", "visitante"].map((k) => el("div", { class: "caja" },
+          el("span", { class: "cifra" }, pc(g["1x2"][k])), el("span", { class: "et" }, k)))),
+      cifras([[n2(g.esperados.local), "goles esperados (L)"],
+        [n2(g.esperados.visitante), "goles esperados (V)"],
+        [g.medido_en, "medido en"]]),
+      el("div", { class: "bloque" }, el("b", {}, "Marcadores más probables"),
+        el("div", { class: "fila" }, ...g.marcadores.slice(0, 6).map((x) =>
+          etiqueta(`${x.marcador} · ${pc(x.probabilidad, 1)}`,
+            x === g.marcadores[0] ? "verde" : "")))),
+      el("div", { class: "bloque" }, el("b", {}, "Goles"), linea(g.mas_de),
+        el("p", { class: "peq gris" }, `Marcan los dos: ${pc(g.ambos_marcan)}`)),
+      c.disponible
+        ? el("div", { class: "bloque" }, el("b", {}, `Córners: ${c.esperado_total}`),
+            linea(c.mas_de))
+        : nota(c.nota),
+      t.disponible
+        ? el("div", { class: "bloque" },
+            el("b", {}, `Amarillas: ${t.esperado_total_con_arbitro}`),
+            linea(t.mas_de),
+            nota((t.arbitro || {}).lectura || (t.arbitro || {}).nota))
+        : nota(t.nota),
+      m.disponible
+        ? el("div", { class: "bloque" }, el("b", {}, "Contra el mercado"),
+            el("div", { class: "tres" }, ...["local", "empate", "visitante"].map((k) =>
+              el("div", { class: "caja" }, el("span", { class: "cifra" }, pc(m.mercado[k])),
+                el("span", { class: "et" }, k)))),
+            nota(m.lectura))
+        : nota(m.nota),
+      nota(d.como_se_calcula),
+      msg(d.lo_que_no_dice, "ojo"),
+    ];
+  }), cuerpo);
 }
 
 async function pintarEquipo(raiz, nombre) {

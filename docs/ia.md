@@ -1,7 +1,7 @@
 # Para una IA local
 
 El framework trae una capa de herramientas pensada para que un modelo analice
-partidos por su cuenta: 42 funciones con su esquema JSON, descripciones
+partidos por su cuenta: 43 funciones con su esquema JSON, descripciones
 escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
 aplanadas y **recortadas** para que no le revienten el contexto.
 

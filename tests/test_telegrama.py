@@ -200,3 +200,22 @@ def test_el_bot_parte_lo_que_envia(bot):
     solo.enviar(42, "y" * 9000)
     assert len(falso.enviados) == 3
     assert "".join(e["text"] for e in falso.enviados) == "y" * 9000
+
+
+def test_el_bot_sabe_pronosticar(bot):
+    """Es la orden que más se va a usar y la que más fácil se rompe en silencio."""
+    solo, _ = bot
+    respuesta = solo.responder("/pronostico Real Madrid vs Barcelona")
+    assert respuesta.startswith("🔮")
+    # Sin memoria de esa liga dice qué hacer, en vez de inventarse un marcador.
+    assert "Abastece" in respuesta or "Goles esperados" in respuesta
+
+
+def test_pronostico_sin_partido_pide_el_partido(bot):
+    solo, _ = bot
+    assert "Dime qué partido" in solo.responder("/pronostico")
+
+
+def test_la_ayuda_menciona_el_pronostico(bot):
+    solo, _ = bot
+    assert "/pronostico" in solo.responder("/ayuda")

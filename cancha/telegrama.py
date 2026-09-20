@@ -220,6 +220,7 @@ def _ayuda(bot: Bot, _resto: str) -> str:
         "/manana — los de mañana\n"
         "/seguro — lo que casi siempre pasa, de hoy\n"
         "/previa <equipos> — la previa de un partido\n"
+        "/pronostico <equipos> — marcador, córners y tarjetas, calculados\n"
         "/equipo <nombre> — cómo juega, comparado con su liga\n"
         "/jugador <nombre> — forma y rachas\n"
         "/memoria — qué hay guardado y cuándo fue la última guardia\n"
@@ -289,6 +290,16 @@ def _previa(bot: Bot, resto: str) -> str:
     return "\n".join(texto(datos))
 
 
+def _pronostico(bot: Bot, resto: str) -> str:
+    if not resto:
+        return "Dime qué partido: /pronostico Girona vs Osasuna"
+    from .pronostico import pronostico
+    from .pronostico import texto as texto_pronostico
+
+    datos = pronostico(bot.sesion.almacen, resto, cliente=bot.sesion.cliente)
+    return "🔮 " + "\n".join(texto_pronostico(datos, ancho=48))
+
+
 def _equipo(bot: Bot, resto: str) -> str:
     if not resto:
         return "Dime qué equipo: /equipo Girona"
@@ -356,7 +367,8 @@ ORDENES: dict[str, Callable[[Bot, str], str]] = {
     "ayuda": _ayuda, "start": _ayuda, "help": _ayuda,
     "hoy": _hoy, "manana": _manana, "mañana": _manana,
     "directo": _directo, "live": _directo,
-    "seguro": _seguro, "previa": _previa,
+    "seguro": _seguro, "previa": _previa, "pronostico": _pronostico,
+    "pronóstico": _pronostico,
     "equipo": _equipo, "jugador": _jugador, "memoria": _memoria,
 }
 

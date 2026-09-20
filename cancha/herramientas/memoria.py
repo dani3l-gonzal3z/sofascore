@@ -208,6 +208,30 @@ def _estado_de_la_memoria(sesion):
 
 
 @herramienta(
+    "pronostico_partido",
+    "EL PRONÓSTICO, YA CALCULADO. Marcador exacto con su probabilidad, 1X2, "
+    "más/menos goles, marcan los dos, córners y tarjetas, todo salido de la "
+    "memoria con fuerzas de ataque y defensa sobre xG y una Poisson. **Usa "
+    "estos números tal cual y no calcules ni estimes ninguno por tu cuenta**: "
+    "si te piden un marcador, el que va primero en 'marcadores' es el más "
+    "probable, y su probabilidad es la que pone. Trae también lo que dice el "
+    "mercado, y cuando coinciden hay que decirlo: no hay nada que ganar ahí. "
+    "Si contesta que falta muestra, eso es la respuesta; usa abastecer_partido "
+    "y vuelve.",
+    {
+        "partido": {"type": "string", "description": "Id, URL o 'Equipo A vs Equipo B'."},
+        "ultimos": {"type": "integer",
+                    "description": "Partidos de cada equipo a mirar (por defecto 10)."},
+    },
+    ["partido"],
+)
+def _pronostico_partido(sesion, partido: str, ultimos: int = 10):
+    from ..pronostico import pronostico
+
+    return pronostico(sesion.almacen, partido, cliente=sesion.cliente, ultimos=ultimos)
+
+
+@herramienta(
     "abastecer_partido",
     "TRAE Y GUARDA todo lo que hace falta para analizar un partido: los últimos "
     "de cada equipo por separado, lo que han jugado entre ellos y lo que ha "

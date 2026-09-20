@@ -4,6 +4,53 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.10.0
+
+El pronóstico completo de un partido —marcador exacto, córners, tarjetas— y un
+agente que lo cuenta sin inventárselo.
+
+### Novedades
+
+- **`cancha pronostico`, `/pronostico` en Telegram y en la interfaz.** Marcador
+  exacto con su probabilidad, 1X2, más/menos goles, marcan los dos, córners y
+  tarjetas.
+
+  Los números **los calcula la aritmética, no el modelo**. Si le das treinta y
+  ocho partidos a un 8B y le pides el marcador, te lo da: con seguridad, con
+  detalle y sin ninguna base. Así que se calcula en Python y el modelo solo lo
+  lee en voz alta; sus instrucciones le prohíben dar una cifra que no le hayan
+  dado.
+
+  Goles por fuerzas multiplicativas medidas en **xG** cuando hay muestra —marcar
+  dos con 0,4 de xG es suerte, y la suerte no se repite—, con la ventaja de
+  jugar en casa sacada de esa misma liga. La matriz de marcadores es el producto
+  de dos Poisson. Córners y tarjetas, por la media entre lo que hace uno y lo
+  que concede el otro, y las tarjetas además por el árbitro si tiene ocho
+  partidos o más.
+
+- **Las fuerzas van encogidas hacia la media de la liga.** Sin esto el modelo
+  multiplicativo se dispara: un equipo que en diez partidos ha marcado el doble,
+  contra otro que ha encajado el doble, daba **lambdas de cinco goles**. No es
+  un fallo de la fórmula: con diez partidos no se sabe que alguien sea el doble
+  de bueno, lo parece. La respuesta trae `ataque` y `ataque_sin_encoger` para
+  que se vea lo que se ha movido.
+
+- **Todo pronóstico se compara con la cuota.** El mercado es un modelo y es
+  bueno: sabe de alineaciones, bajas y dinero. Donde coincide no hay nada que
+  ganar, y eso sale escrito en la respuesta, no en una nota al pie.
+
+- **Y lo que no dice, dicho:** no sabe de lesiones ni rotaciones, no corrige la
+  correlación entre marcadores (Dixon-Coles), y el marcador más probable de un
+  partido de fútbol ronda el 10-12 %. Que uno encabece la lista no es que vaya a
+  pasar; es que es el menos raro de muchos.
+
+### Arreglos
+
+- **Las tarjetas salían a la mitad.** `perfil_de_arbitro` da amarillas **por
+  equipo** y se estaban dividiendo entre el total **por partido**: un factor de
+  0,5 clavado en cada pronóstico. Lo encontró el test que esperaba un factor de
+  1 para un árbitro que pita como la media de su liga.
+
 ## 0.9.0
 
 Que se pueda dejar encendido y trabaje solo, y que se le pueda preguntar

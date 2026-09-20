@@ -85,7 +85,7 @@ sistema, que es lo que hace el iPhone por la noche.
 ## La API
 
 Todo cuelga de `POST /api/herramienta/<nombre>` con los argumentos en JSON:
-las 42 herramientas de la IA, con la misma sesión para toda la vida del
+las 43 herramientas de la IA, con la misma sesión para toda la vida del
 servidor (lo ya traído no se vuelve a pedir). Además:
 
 | Ruta | Qué |

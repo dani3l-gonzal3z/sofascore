@@ -345,6 +345,32 @@ def cmd_previa(args: argparse.Namespace) -> int:
         cliente.close()
 
 
+def cmd_pronostico(args: argparse.Namespace) -> int:
+    """El pronóstico de un partido: marcador, córners y tarjetas, calculados."""
+    from ..pronostico import pronostico
+    from ..pronostico import texto as texto_pronostico
+
+    almacen = _almacen(args)
+    cliente = comun.construir_cliente(args)
+    try:
+        if args.abastecer:
+            from ..abastecer import abastecer
+
+            abastecer(cliente, almacen, args.consulta, avisar=imprimir)
+            imprimir("")
+        datos = pronostico(almacen, args.consulta, cliente=cliente, ultimos=args.contexto)
+        if args.stdout_json:
+            imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+            return 0
+        for linea in texto_pronostico(datos):
+            imprimir(linea)
+        depuracion(args, cliente)
+        return 0 if datos.get("disponible") else 1
+    finally:
+        almacen.close()
+        cliente.close()
+
+
 # --------------------------------------------------------- jugador contra sistema
 
 EJES = {"presion": "la presión del rival", "linea": "la línea defensiva del rival",
@@ -761,6 +787,21 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_previa.add_argument("--max", type=int, default=0,
                           help="Tope de peticiones al abastecer (0 = sin tope).")
     p_previa.set_defaults(func=cmd_previa)
+
+    p_pronostico = sub.add_parser(
+        "pronostico", parents=[comun_p, base],
+        help="Marcador, córners y tarjetas de un partido, calculados.",
+        description="Fuerzas de ataque y defensa medidas en xG sobre lo guardado, "
+                    "una Poisson para el marcador y las líneas, y el árbitro para las "
+                    "tarjetas. Los números salen de la aritmética, no de una "
+                    "corazonada, y se comparan con la cuota: donde coinciden no hay "
+                    "nada que ganar.")
+    p_pronostico.add_argument("consulta", help="Id, URL o 'Equipo A vs Equipo B'.")
+    p_pronostico.add_argument("--contexto", type=int, default=10,
+                              help="Partidos de cada equipo a mirar (por defecto 10).")
+    p_pronostico.add_argument("--abastecer", action="store_true",
+                              help="Traer antes lo que falte de ese partido.")
+    p_pronostico.set_defaults(func=cmd_pronostico)
 
     p_sistema = sub.add_parser(
         "sistema", parents=[comun_p, base],

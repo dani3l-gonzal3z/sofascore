@@ -19,12 +19,30 @@ contesta de memoria, con aplomo y sin haber mirado un solo dato, que es la peor
 forma de fallar.
 
 ```bash
-ollama pull hermes3        # el recomendado: afinado para esto
+ollama pull hermes3        # el recomendado: afinado para llamar funciones
 ```
 
-Valen también `qwen3`, `qwen2.5`, `llama3.1`, `mistral-nemo` y `command-r`.
+**Sobre el tamaño.** `hermes3` a secas es la variante de **8B**: no existe una
+de 7B, así que si buscabas «hermes3 7b», es esta. Es la que hay que probar
+primero — ocupa unos 5 GB y va bien en un portátil normal. Si quieres bajar
+más, `qwen2.5:7b` y `mistral:7b` también llaman funciones. Y si el equipo da
+para más, `hermes3:70b` razona mejor encadenando herramientas, pero **no va a
+dar números más ciertos**: los números no los pone el modelo.
+
+```bash
+cancha analista --modelo qwen2.5:7b "¿cómo llega el Girona?"
+cancha telegram --token ... --chat ... --modelo qwen2.5:7b
+```
+
+Valen también `qwen3`, `llama3.1`, `mistral-nemo` y `command-r`.
 `cancha analista --comprobar` dice cuáles tienes y avisa si el que pides no
 está.
+
+**Lo que el tamaño no arregla.** Un modelo pequeño se equivoca eligiendo qué
+herramienta llamar, o se lía encadenando tres. Lo que **ningún** tamaño arregla
+es inventarse una cifra, y por eso los números —el pronóstico, las frecuencias,
+las medias— se calculan en Python y el modelo solo los lee. Ver
+[El pronóstico](pronostico.md).
 
 ## Cómo trabaja
 
@@ -72,7 +90,7 @@ pip install "cancha[langchain]"
 ```python
 from cancha.agentes.langchain import agente, herramientas
 
-herramientas()          # 42 StructuredTool, para tu propio agente
+herramientas()          # 43 StructuredTool, para tu propio agente
 agente(modelo="hermes3").invoke({"messages": [("user", "¿qué hay hoy?")]})
 ```
 

@@ -47,6 +47,7 @@ La interfaz y las otras fuentes:
 
 ```bash
 cancha web [--lan] [--abrir] [--clave X]   # la página, instalable como app
+cancha pronostico "A vs B" [--abastecer]  # marcador, córners y tarjetas
 cancha arrancar                        # todo junto: web + guardia + bot
 cancha guardia [--ahora] [--una-vez]   # prepara el día siguiente cada noche
 cancha telegram --token X --chat N     # el bot, para preguntar desde fuera
