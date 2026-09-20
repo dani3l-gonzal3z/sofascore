@@ -4,6 +4,35 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.11.2
+
+Dos fallos que salieron al usarlo en Windows.
+
+### Arreglos
+
+- **Abrir el historial de un clásico tumbaba la petición en Windows.**
+  `Event.kickoff` usaba `datetime.fromtimestamp`, que le pregunta al sistema
+  operativo, y en Windows esa llamada revienta con `OSError` para cualquier
+  fecha anterior a 1970. En Linux funciona, por eso no se vio aquí. Y no es un
+  caso raro: `historial_entre_equipos` trae los partidos de los años veinte.
+
+  Ahora la hora se suma desde la época con `timedelta`: aritmética pura, igual
+  en todas partes. Un valor absurdo —o en milisegundos, que alguna fuente los
+  manda así— devuelve `None` en vez de reventar, porque un partido sin fecha
+  legible es eso y no una excepción a media página. Hay una prueba que impide
+  que la llamada vuelva a colarse en ningún sitio.
+
+- **Una herramienta que falla ya no se lleva por delante la petición.** El
+  servidor dejaba subir la excepción: veinte líneas de traza en la consola y,
+  en el navegador, una conexión muerta sin mensaje. Ahora cualquier fallo se
+  convierte en un JSON con el tipo, el mensaje y dónde pasó, y la página lo
+  enseña. La traza se sigue imprimiendo en la consola —es local y sirve para
+  arreglarlo—, pero el servidor sigue atendiendo lo siguiente.
+
+  Con cuidado de no escribir un error encima de una respuesta a medio enviar:
+  el analista contesta en NDJSON sin longitud, y hacer eso dejaría al
+  navegador leyendo basura.
+
 ## 0.11.1
 
 Un arreglo, y la prueba que faltaba.

@@ -532,3 +532,42 @@ def test_la_pagina_tiene_el_panel_de_ajustes(servidor):
     for pieza in ("a qué hora", "Ligas que sigues", "modelo de ollama",
                   "token del bot de telegram"):
         assert pieza in html, pieza
+
+
+# ------------------------------------- que un fallo no tumbe la petición
+
+def test_una_herramienta_que_revienta_devuelve_un_error_y_no_una_traza(servidor,
+                                                                       monkeypatch):
+    """Antes se llevaba por delante el hilo: traza en la consola y el navegador
+    esperando a una conexión muerta, sin saber qué había pasado."""
+    def revienta(*_a, **_k):
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(type(servidor), "ejecutar", revienta)
+    estado, tipo, cuerpo = _pedir(servidor, "POST", "/api/herramienta/resumen_partido",
+                                  {"partido": "1"})
+    assert estado == 500
+    assert "json" in tipo
+    assert "OSError" in cuerpo["error"]
+    assert "Invalid argument" in cuerpo["error"]
+    assert "resumen_partido" in cuerpo["donde"]
+
+
+def test_y_el_servidor_sigue_vivo_despues(servidor, monkeypatch):
+    """Lo importante no es el mensaje: es que la siguiente petición funcione."""
+    def revienta(*_a, **_k):
+        raise RuntimeError("se rompió")
+
+    monkeypatch.setattr(type(servidor), "ejecutar", revienta)
+    _pedir(servidor, "POST", "/api/herramienta/resumen_partido", {"partido": "1"})
+    estado, _, cuerpo = _pedir(servidor, "GET", "/api/estado")
+    assert estado == 200 and "memoria" in cuerpo
+
+
+def test_un_fallo_al_leer_tambien_se_contesta(servidor, monkeypatch):
+    def revienta(_self):
+        raise ValueError("algo raro")
+
+    monkeypatch.setattr(type(servidor), "estado", revienta)
+    estado, _, cuerpo = _pedir(servidor, "GET", "/api/estado")
+    assert estado == 500 and "ValueError" in cuerpo["error"]

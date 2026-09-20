@@ -152,3 +152,61 @@ def test_la_segunda_tanda_no_se_lanza_si_no_hace_falta(cliente):
     informe = build_player_report(cliente, "Vinicius", sections=["profile"])
     assert "season_statistics" not in informe.sections
     assert not any("statistics/overall" in url for url in cliente.transport.calls)
+
+
+# ------------------------------------------------- fechas que rompen en Windows
+
+def _con_momento(momento):
+    from cancha.models import Event
+
+    return Event.from_api({"id": 1, "startTimestamp": momento, "homeTeam": {},
+                           "awayTeam": {}, "homeScore": {}, "awayScore": {},
+                           "status": {}})
+
+
+def test_un_partido_anterior_a_1970_tiene_fecha():
+    """`datetime.fromtimestamp` revienta en Windows con fechas negativas.
+
+    Y no es un caso raro: el historial entre dos equipos trae partidos de los
+    años veinte, así que abrir un clásico tumbaba la petición entera en
+    Windows mientras en Linux funcionaba. Por eso se suma desde la época a
+    mano: aritmética pura, igual en todas partes.
+    """
+    assert _con_momento(-1_293_840_000).date == "1929-01-01"
+    assert _con_momento(-1).date == "1969-12-31"
+
+
+def test_una_fecha_absurda_no_revienta_devuelve_nada():
+    """Un partido sin fecha legible es eso, no una excepción a media página."""
+    assert _con_momento(99_999_999_999_999).date == ""
+    assert _con_momento(99_999_999_999_999).kickoff is None
+    # En milisegundos, que alguna fuente los manda así.
+    assert _con_momento(1_729_972_800_000).kickoff is None
+
+
+def test_sin_momento_no_hay_fecha():
+    assert _con_momento(None).kickoff is None
+    assert _con_momento(0).date == ""
+
+
+def test_una_fecha_normal_sigue_saliendo_bien():
+    momento = _con_momento(1_729_972_800).kickoff
+    assert momento is not None
+    assert momento.year == 2024 and momento.month == 10 and momento.day == 26
+    assert momento.tzinfo is not None, "tiene que llevar zona horaria"
+
+
+def test_no_se_llama_a_fromtimestamp_en_ninguna_parte():
+    """Es la llamada que depende del sistema operativo; que no vuelva a colarse.
+
+    Busca la llamada, no la palabra: en `models.py` se menciona a propósito,
+    en el comentario que explica por qué no se usa.
+    """
+    import re
+    from pathlib import Path
+
+    llamada = re.compile(r"\.fromtimestamp\s*\(")
+    raiz = Path(__file__).resolve().parents[1] / "cancha"
+    culpables = [f.name for f in raiz.rglob("*.py")
+                 if llamada.search(f.read_text(encoding="utf-8"))]
+    assert culpables == [], f"vuelve a llamarse a fromtimestamp en: {culpables}"

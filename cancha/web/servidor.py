@@ -344,8 +344,14 @@ class Manejador(BaseHTTPRequestHandler):
 
     # --- respuestas ---
 
+    #: Si ya se han mandado cabeceras. Sin esto, el guardia de abajo podría
+    #: escribir un error encima de una respuesta a medio enviar y dejar al
+    #: navegador leyendo basura.
+    _respondido = False
+
     def _json(self, datos: Any, estado: int = 200) -> None:
         cuerpo = json.dumps(datos, ensure_ascii=False, default=str).encode("utf-8")
+        self._respondido = True
         self.send_response(estado)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(cuerpo)))
@@ -359,6 +365,7 @@ class Manejador(BaseHTTPRequestHandler):
             self._json({"error": f"No existe {nombre}."}, 404)
             return
         cuerpo = ruta.read_bytes()
+        self._respondido = True
         self.send_response(200)
         self.send_header("Content-Type", TIPOS.get(ruta.suffix, "application/octet-stream"))
         self.send_header("Content-Length", str(len(cuerpo)))
@@ -368,6 +375,7 @@ class Manejador(BaseHTTPRequestHandler):
 
     def _png(self, lado: int) -> None:
         cuerpo = icono_png(lado)
+        self._respondido = True
         self.send_response(200)
         self.send_header("Content-Type", "image/png")
         self.send_header("Content-Length", str(len(cuerpo)))
@@ -403,6 +411,7 @@ class Manejador(BaseHTTPRequestHandler):
         pregunta = str(cuerpo.get("pregunta") or "").strip()
         if not pregunta:
             return self._json({"error": "Falta la pregunta."}, 400)
+        self._respondido = True
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -434,7 +443,39 @@ class Manejador(BaseHTTPRequestHandler):
 
     # --- rutas ---
 
+    def _atender(self, que: Any, nombre: str) -> None:
+        """Ejecuta un manejador y convierte cualquier fallo en una respuesta.
+
+        Sin esto, una herramienta que revienta se lleva por delante el hilo de
+        la petición: en la consola sale una traza de veinte líneas y en el
+        navegador se queda una conexión muerta, sin mensaje y sin saber qué ha
+        pasado. La traza se sigue imprimiendo —es tu consola y sirve para
+        arreglarlo— pero la página recibe un error que puede enseñar.
+        """
+        import traceback
+
+        try:
+            que()
+        except (BrokenPipeError, ConnectionResetError):
+            pass                       # se ha ido; no hay a quién contestar
+        except Exception as exc:  # noqa: BLE001 - el servidor no se cae por una petición
+            traceback.print_exc()
+            if not self._respondido:
+                with suppress(OSError):
+                    self._json({
+                        "error": f"{type(exc).__name__}: {exc}",
+                        "donde": f"{nombre} {self.path}",
+                        "que_hacer": "La traza entera está en la consola del "
+                                     "ordenador. Lo demás sigue funcionando.",
+                    }, 500)
+
     def do_GET(self) -> None:  # noqa: N802 - nombre que exige http.server
+        self._atender(self._get, "GET")
+
+    def do_POST(self) -> None:  # noqa: N802
+        self._atender(self._post, "POST")
+
+    def _get(self) -> None:
         url = urlparse(self.path)
         ruta, consulta = unquote(url.path), parse_qs(url.query)
 
@@ -475,7 +516,7 @@ class Manejador(BaseHTTPRequestHandler):
             return self._json(datos)
         return self._json({"error": f"No existe {ruta}."}, 404)
 
-    def do_POST(self) -> None:  # noqa: N802
+    def _post(self) -> None:
         url = urlparse(self.path)
         ruta, consulta = unquote(url.path), parse_qs(url.query)
         if not self._autorizado(consulta):

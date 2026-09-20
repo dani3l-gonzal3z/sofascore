@@ -9,7 +9,7 @@ sigue estando a mano.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .catalog import status_label
@@ -25,6 +25,11 @@ def _get(dato: Any, *claves: str, default: Any = None) -> Any:
         if actual is None:
             return default
     return actual
+
+
+#: El instante cero del que cuelgan todos los timestamps. Se usa para
+#: sumarlos a mano, sin pasar por el sistema operativo. Ver `Event.kickoff`.
+EPOCA = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass
@@ -184,10 +189,26 @@ class Event:
 
     @property
     def kickoff(self) -> datetime | None:
-        """Hora de inicio en UTC."""
+        """Hora de inicio en UTC, o ``None`` si ese dato no se puede leer.
+
+        Se suma a mano desde la época en vez de usar
+        ``datetime.fromtimestamp``, que le pregunta al sistema operativo: en
+        **Windows** esa llamada revienta con ``OSError`` para cualquier fecha
+        anterior a 1970, mientras que en Linux funciona. Y Sofascore tiene
+        partidos de los años veinte en el historial entre dos equipos, así que
+        abrir un clásico en Windows tumbaba la petición. La suma con
+        ``timedelta`` es aritmética pura y hace lo mismo en todas partes.
+
+        Un valor absurdo —o en milisegundos, que alguna fuente los manda así—
+        se sale del calendario: entonces se devuelve ``None``, porque un
+        partido sin fecha legible es eso, y no una excepción a media página.
+        """
         if not self.start_timestamp:
             return None
-        return datetime.fromtimestamp(int(self.start_timestamp), tz=timezone.utc)
+        try:
+            return EPOCA + timedelta(seconds=int(self.start_timestamp))
+        except (OverflowError, ValueError, TypeError):
+            return None
 
     @property
     def date(self) -> str:
