@@ -62,6 +62,8 @@ cancha dictamen "Girona vs Osasuna"        # el expediente entero a un modelo, q
 cancha dictamen "…" --solo-expediente      # solo el documento: qué se le manda
 cancha dictamen "…" --api-key ...          # con un modelo grande de la nube de Ollama
 cancha doctor --tls                        # ¿hay un antivirus o un proxy abriendo tu HTTPS?
+cancha resultados                          # el registro: calibración, Brier y CLV
+cancha resultados --mercado 1x2 --desde 2026-08-01
 ```
 
 Opciones más usadas de `match`:

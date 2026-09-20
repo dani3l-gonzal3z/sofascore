@@ -4,6 +4,68 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.14.0
+
+El registro: apuntar lo que se predice y comprobarlo al día siguiente. Y la
+clave de la nube, que no se guardaba nunca.
+
+### Arreglos
+
+- **La clave de la nube no se guardaba, y no lo decía.** El campo venía relleno
+  con la clave tapada —`••••••••ABCD`—, así que quien pinchaba dentro y pegaba
+  la suya al final mandaba `••••••••ABCDsk-…`. Eso empieza por «•», que es la
+  señal de «nadie lo ha tocado», y el servidor lo descartaba: la clave nueva no
+  llegaba nunca y la pantalla seguía diciendo que había una guardada. Es el
+  fallo perfecto: silencioso y con la culpa puesta en el usuario.
+
+  Ahora el campo de un secreto se enseña **vacío** aunque haya uno guardado
+  —vacío significa «no lo toques»—, la clave se limpia de espacios y saltos de
+  línea (copiarla de una web se los trae, y dan un 401), y lo que llega con
+  puntos dentro se rechaza diciéndolo. Lo mismo para el token del bot.
+
+- **Y si pegas la clave pública SSH en vez de la API key, se dice.** Están en la
+  misma pantalla de ollama.com y se confunden.
+
+- **Se puede probar la clave sin abrir un partido.** Botón «Probar la clave» en
+  Ajustes: pregunta por los modelos de la nube, que es la llamada más barata que
+  entiende esa clave. Antes el 401 aparecía en mitad de un dictamen, después de
+  montar el expediente entero, y ahí no se sabe si falla la clave, el modelo o
+  la red.
+
+### Novedades
+
+- **El registro de predicciones.** Cada noche, la guardia apunta lo que predice
+  de los partidos del día siguiente —el 1X2, más de 2,5, ambos marcan, córners,
+  tarjetas y el marcador exacto, cada uno con su probabilidad y con la del
+  mercado en ese momento— y resuelve contra el resultado las de los días
+  anteriores. Una predicción escrita **no se puede reescribir**: la primera es la
+  que cuenta.
+
+  `cancha resultados`, la pestaña **Seguro → Cómo acierto** y `/resultados` en el
+  bot enseñan lo mismo, y en este orden:
+
+  1. **Calibración**: de las veces que dijo 70 %, ¿pasó el 70 %? Es la medida que
+     usa quien se juega algo, y viene de la meteorología.
+  2. **Brier**, siempre al lado del 0,25 que saca quien dice 50 % a todo.
+  3. **Contra el mercado**: el mismo Brier sobre las probabilidades de las
+     cuotas. El mercado es el rival, y perder contra él es lo normal.
+  4. **CLV**: cuántas veces el mercado se movió hacia donde decíamos. Es el único
+     indicio de ventaja que no depende de haber acertado.
+  5. **El acierto**, el último y con su intervalo de Wilson: es la cifra que
+     mejor se vende y la que menos informa.
+
+  Con menos de 50 casos resueltos se publica como indicio, no como juicio, y lo
+  dice. No hay unidades, ni bankroll, ni ROI, ni consejos: esto mide si el
+  cálculo describe bien el fútbol. En **[El registro](docs/registro.md)** está
+  también en qué se parece esto a las herramientas de pago del sector y en qué
+  no: lo que hacen bien (calibración, CLV, fuera de muestra, historial
+  inmutable) y lo que hacen mal (publicar algo cada día porque cobran por ello,
+  el acierto como titular, sin número de casos, y el ROI de un plan de apuestas
+  elegido a posteriori).
+
+- Herramienta nueva para la IA, `como_acierta`, para que no presente un
+  pronóstico como fiable sin mirar antes si lo es. Son 45.
+
 ## 0.13.0
 
 Lo que salió de usarlo de verdad: el bot contestaba como un bruto, y dos cosas

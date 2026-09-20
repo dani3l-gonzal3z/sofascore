@@ -100,14 +100,18 @@ comandos gana a lo guardado.
 
 ## La guardia nocturna
 
-Cada noche a su hora hace cuatro cosas, en este orden:
+Cada noche a su hora hace cinco cosas, en este orden:
 
 1. **Barrido** del día que viene: la agenda y el historial de quien juega.
 2. **Abastecimiento** de sus partidos: los últimos diez de cada equipo, lo que
    han jugado entre ellos y lo del árbitro. Es lo caro y lo que llena la
    memoria de verdad.
 3. **Briefing** del día, escrito en disco.
-4. **Casi seguro**, calibrado, para que abrir la pestaña por la mañana sea
+4. **Registro**: apunta lo que predice de cada partido de mañana —antes de que
+   se jueguen— y resuelve las predicciones de los días anteriores contra su
+   resultado. Es lo que permite decir después si acertaba
+   ([El registro](registro.md)).
+5. **Casi seguro**, calibrado, para que abrir la pestaña por la mañana sea
    instantáneo en vez de contar miles de partidos en ese momento.
 
 ```bash
@@ -254,6 +258,7 @@ pasar por tu bot. No lo subas a ningún sitio.
 | `/equipo Girona` | Cómo juega, comparado con su liga |
 | `/jugador Vinicius` | Forma y rachas |
 | `/memoria` | Qué hay guardado y cuándo fue la última guardia |
+| `/resultados` | Cómo va acertando ([El registro](registro.md)) |
 
 **Las horas son las de tu reloj.** Antes salían en UTC sin decirlo, así que un
 partido a las 14:15 UTC se leía como las dos y cuarto cuando en España empezaba

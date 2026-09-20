@@ -19,6 +19,7 @@ cancha seguro                  # lo que casi siempre pasa, con el número que lo
 cancha pronostico "Girona vs Osasuna"  # marcador, córners y tarjetas, calculados
 cancha analista "¿cómo llega el Girona?"   # pregunta y un modelo local lo busca
 cancha dictamen "Girona vs Osasuna"    # todo el expediente a un modelo, que ate cabos
+cancha resultados              # qué tal acierta: calibración, Brier y contra el mercado
 cancha estilo "Girona"         # cómo juega, comparado con su liga
 cancha forma "Vinicius Junior" # rachas: 4 partidos sin tirar entre palos
 cancha duelo "Vinicius" "Getafe"    # cómo le va contra ese sistema, con su significación
@@ -67,7 +68,7 @@ partido.available()            # secciones con datos
   ids que no estaban contrastados **se descubren solos**, comprobando país y
   género: aquí no se inventa un número que barrería otra liga en silencio.
 - **Un analista en tu máquina.** `cancha analista` habla con Ollama y le da las
-  44 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
+  45 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
   cifra que no le hayan dado.
 - **Y el expediente entero a un modelo grande.** `cancha dictamen "Girona vs
   Osasuna"` reúne todo lo que se sabe de un partido —el pronóstico ya
@@ -76,10 +77,17 @@ partido.available()            # secciones con datos
   ate cabos en vez de buscar. Unos 900 tokens por partido. Va con el Ollama de
   tu casa o, con una clave, con un modelo grande en su nube; en ese segundo
   caso **los datos del partido salen de tu ordenador** y lo dice cada vez.
+- **Y se mide a sí mismo.** Cada noche apunta lo que predice de los partidos del
+  día siguiente, y al día siguiente lo resuelve contra el resultado. `cancha
+  resultados` enseña la **calibración** —de las veces que dijo 70 %, ¿pasó el
+  70 %?—, el Brier contra el 0,25 de quien no sabe nada, la comparación contra el
+  mercado y el CLV. El acierto va el último, con su intervalo: es la cifra que
+  mejor se vende y la que menos informa. Una predicción escrita no se puede
+  reescribir ([El registro](docs/registro.md)).
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
   respuesta es *no se sabe*.
-- **Probado sin red.** 1.026 tests en menos de quince segundos, y un modo de grabar
+- **Probado sin red.** 1.050 tests en menos de quince segundos, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
@@ -185,6 +193,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [Ajustes](docs/ajustes.md) | La hora, las ligas, el modelo: decidirlo una vez |
 | [Certificados](docs/certificados.md) | Si un antivirus o un proxy abre tu HTTPS y nada se conecta |
 | [Casi seguro](docs/seguro.md) | Lo que se repite, medido: frecuencia, suelo de Wilson y elevación |
+| [El registro](docs/registro.md) | Qué predijo y cómo acabó: calibración, Brier y CLV |
 | [El pronóstico](docs/pronostico.md) | Marcador exacto, córners y tarjetas, calculados y contra el mercado |
 | [El analista local](docs/analista.md) | Ollama con Hermes, y el adaptador a LangChain |
 | [Dictamen](docs/dictamen.md) | El expediente entero a un modelo grande, con la nube de Ollama |
@@ -193,7 +202,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
 | [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
 | [Fuentes de datos](docs/fuentes.md) | Understat, ClubElo, el cruce y de dónde salen las rutas |
-| [Para una IA local](docs/ia.md) | Las 44 herramientas, MCP y cómo indaga |
+| [Para una IA local](docs/ia.md) | Las 45 herramientas, MCP y cómo indaga |
 | [La línea de comandos](docs/comandos.md) | Todos los comandos y sus opciones |
 | [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
 | [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |

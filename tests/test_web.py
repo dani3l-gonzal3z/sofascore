@@ -669,16 +669,44 @@ def test_guardar_los_ajustes_no_borra_la_clave_de_la_nube(servidor, tmp_path):
     ruta = tmp_path / "aj_nube2.json"
     servidor.ruta_ajustes = str(ruta)
     _pedir(servidor, "POST", "/api/ajustes", {"ollama_api_key": "la-buena"})
-    _, _, leidos = _pedir(servidor, "GET", "/api/ajustes")
-    # La página devuelve lo que se le enseñó, con la clave tapada.
+    # El campo se enseña vacío aunque haya una guardada: vacío = no la toques.
     _pedir(servidor, "POST", "/api/ajustes",
-           {"ollama_api_key": leidos["ajustes"]["ollama_api_key"],
-            "guardia": {"hora": "04:00"}})
+           {"ollama_api_key": "", "guardia": {"hora": "04:00"}})
 
     from cancha.ajustes import cargar
 
     assert cargar(ruta)["ollama_api_key"] == "la-buena"
-    assert cargar(ruta)["guardia"]["hora"] == "04:00"
+
+
+def test_una_clave_pegada_encima_de_la_mascara_se_dice_en_la_pantalla(servidor, tmp_path):
+    """Y no se traga en silencio, que es lo que hacía."""
+    ruta = tmp_path / "aj_nube3.json"
+    servidor.ruta_ajustes = str(ruta)
+    _pedir(servidor, "POST", "/api/ajustes", {"ollama_api_key": "la-buena"})
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes",
+                          {"ollama_api_key": "••••••••ueneask-nueva"})
+    assert cuerpo["guardado"] is False
+    assert any("puntos" in x for x in cuerpo["problemas"])
+
+    from cancha.ajustes import cargar
+
+    assert cargar(ruta)["ollama_api_key"] == "la-buena", "no se ha tocado"
+
+
+def test_la_pagina_no_devuelve_la_clave_ni_tapada_en_el_campo(servidor):
+    """Rellenar el campo con la máscara era la causa del fallo."""
+    html = _pagina()
+    assert 'value: a.ollama_api_key' not in html
+    assert "escribe otra para cambiarla" in html
+    assert "Probar la clave" in html
+
+
+def test_se_puede_probar_la_clave_sin_abrir_un_partido(servidor, tmp_path):
+    """El 401 se descubría en mitad de un dictamen, y ahí no se sabe qué falla."""
+    servidor.ruta_ajustes = str(tmp_path / "aj_probar.json")
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/nube", {})
+    assert cuerpo["vale"] is False
+    assert "ninguna clave" in cuerpo["nota"]
 
 
 def test_el_dictamen_monta_el_expediente_y_lo_manda(servidor, monkeypatch):

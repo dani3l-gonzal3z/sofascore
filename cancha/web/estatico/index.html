@@ -921,10 +921,77 @@ V.seguro = async (raiz, [modo, fechaRuta]) => {
           onchange: (e) => { guardar("fecha", e.target.value); ir(`#/seguro/hoy/${e.target.value}`, true); } }) : null,
         el("div", { class: "seg" },
           el("button", { class: modo === "hoy" ? "on" : "", onclick: () => ir(`#/seguro/hoy/${fecha}`) }, "Hoy"),
-          el("button", { class: modo === "calibrar" ? "on" : "", onclick: () => ir("#/seguro/calibrar") }, "Los patrones")))),
+          el("button", { class: modo === "calibrar" ? "on" : "", onclick: () => ir("#/seguro/calibrar") }, "Los patrones"),
+          el("button", { class: modo === "acierto" ? "on" : "", onclick: () => ir("#/seguro/acierto") }, "Cómo acierto")))),
     msg("Aquí no hay apuestas seguras: hay frecuencias contadas sobre lo que tienes guardado, con "
       + "su número de casos y su suelo de confianza. Si un patrón coincide con la tasa base, se dice.", "ojo"),
     espera(modo === "hoy" ? "Midiendo lo de hoy…" : "Contando el historial…"));
+
+  /* El registro: lo que se predijo antes de cada partido y cómo acabó. Va aquí
+     porque es la misma idea que lo de al lado —medirse en vez de creerse— y
+     porque un pronóstico sin su historial de aciertos no se puede juzgar. */
+  if (modo === "acierto") {
+    raiz.lastChild.remove();
+    const b = await api.h("como_acierta", {});
+    if (fallo(b)) { raiz.append(fallo(b)); return; }
+    if (!b.casos) {
+      raiz.append(tarjeta(null, msg(b.nota, "ojo"),
+        nota("Se apuntan solas cuando la guardia prepara el día siguiente, y se "
+          + "resuelven cuando el partido ya se ha jugado.")));
+      return;
+    }
+    const desvio = (t) => `${t.desvio > 0 ? "+" : ""}${pc(t.desvio)}`;
+    raiz.append(tarjeta("Calibración",
+      el("p", { class: "peq gris" },
+        `De las veces que dijo X, cuántas pasó. ${b.casos} predicciones resueltas `
+        + `(${b.desde} → ${b.hasta}).`),
+      el("ul", { class: "lista" }, ...b.calibracion.map((t) => el("li", {},
+        el("span", { style: "flex:0 0 76px" }, t.tramo),
+        el("span", { style: "flex:1 1 160px;min-width:0" },
+          `dijo ${pc(t.dijiste)} · pasó `, el("b", {}, pc(t.paso))),
+        el("span", { class: Math.abs(t.desvio) < 0.05 ? "gris peq" : "peq" }, desvio(t)),
+        el("span", { class: "gris peq" }, `${t.casos} casos`)))),
+      nota("Un pronóstico calibrado dice 70 % y acierta el 70 %. Uno que dice 70 % "
+        + "y acierta el 95 % no es mejor: está mal escrito.")));
+
+    const marca = (v, ref) => el("b", { style: `color:var(--${v < ref ? "cesped" : "bandera"})` }, v);
+    raiz.append(tarjeta("Las cuentas",
+      el("ul", { class: "lista" },
+        el("li", {}, el("span", { style: "flex:1 1 200px" }, "Brier (menos es mejor)"),
+          marca(b.brier, b.brier_de_no_saber_nada),
+          el("span", { class: "gris peq" }, `quien no sabe nada: ${b.brier_de_no_saber_nada}`)),
+        el("li", {}, el("span", { style: "flex:1 1 200px" }, "Log loss"),
+          el("b", {}, b.log_loss)),
+        el("li", {}, el("span", { style: "flex:1 1 200px" }, "Acierto"),
+          el("b", {}, pc(b.acierto)),
+          el("span", { class: "gris peq" },
+            `${b.aciertos}/${b.casos} · entre ${pc(b.acierto_suelo)} y ${pc(b.acierto_techo)}`))),
+      b.contra_el_mercado && b.contra_el_mercado.casos
+        ? msg(`Contra el mercado: ${b.contra_el_mercado.brier_nuestro} nuestro contra `
+            + `${b.contra_el_mercado.brier_del_mercado} suyo, en `
+            + `${b.contra_el_mercado.casos} casos. ${b.contra_el_mercado.lectura}`,
+            b.contra_el_mercado.diferencia > 0 ? "bien" : "ojo")
+        : nota((b.contra_el_mercado || {}).nota || ""),
+      b.clv && b.clv.casos ? nota(b.clv.lectura) : null,
+      !b.suficiente
+        ? msg(`Con ${b.casos} casos esto es un indicio, no un juicio.`, "ojo") : null,
+      nota(b.como_leerlo), nota(b.lo_que_no_dice)));
+
+    const filas = Object.entries(b.por_mercado || {});
+    if (filas.length) {
+      raiz.append(tarjeta("Por mercado", el("ul", { class: "lista" },
+        ...filas.map(([nombre, m]) => el("li", {},
+          el("span", { style: "flex:1 1 140px" }, nombre),
+          el("span", { class: "gris peq" }, `${m.casos} casos`),
+          el("span", {}, `Brier ${m.brier}`),
+          el("span", { class: "gris peq" }, `${m.aciertos} aciertos`))))));
+    }
+    if ((b.pendientes || {}).sin_resolver) {
+      raiz.append(nota(`${b.pendientes.sin_resolver} predicciones esperando a que se `
+        + "juegue el partido."));
+    }
+    return;
+  }
 
   const d = await api.post("/api/seguro", modo === "calibrar" ? { calibrar: true } : { fecha, umbral: 0.65 });
   raiz.lastChild.remove();
@@ -2151,6 +2218,22 @@ function tarjetaAjustes() {
       class: "sug", "data-liga": clave, type: "button",
       onclick: () => alterna(clave) }, texto);
 
+    /* Probar la clave de la nube sin tener que abrir un partido: pregunta por
+       los modelos, que es la llamada más barata que entiende esa clave. */
+    const avisoNube = el("span", { class: "peq gris" });
+    let botonProbarNube = null;
+    const probarNube = async () => {
+      const escrita = campos.nube.value.trim();
+      botonProbarNube.disabled = true;
+      poner(avisoNube, espera("Preguntando a ollama.com…"));
+      const r = await api.post("/api/nube", escrita ? { clave: escrita } : {});
+      botonProbarNube.disabled = false;
+      if (fallo(r)) { poner(avisoNube, fallo(r)); return; }
+      poner(avisoNube, r.vale
+        ? msg(`La clave vale. ${r.modelos} modelos en la nube.`, "bien")
+        : msg(r.nota || "No vale.", "mal"));
+    };
+
     /* Lo que pasa con el bot ahora mismo, y a quién puedes añadir. Se puede
        volver a mirar sin recargar la página ni perder lo escrito: el camino
        normal es guardar el token, escribirle al bot desde Telegram y mirar
@@ -2262,11 +2345,26 @@ function tarjetaAjustes() {
                 + "arranques."),
         campo("ollama", "dónde escucha ollama", { value: a.ollama },
           "Solo se usa sin clave de nube."),
+        /* El campo va VACÍO aunque haya una clave guardada, y esto no es un
+           descuido: antes venía relleno con la máscara («••••••••ABCD») y quien
+           pinchaba y pegaba al final acababa mandando «••••••••ABCDsk-…», que
+           empieza por «•» y el servidor descarta por seguridad. Resultado: la
+           clave nueva no se guardaba nunca y la pantalla seguía diciendo que
+           había una. */
         campo("nube", "clave de la nube de ollama",
-          { type: "password", value: a.ollama_api_key,
-            placeholder: "vacío = el modelo de tu máquina" },
-          a.ollama_api_key_puesto ? "Hay una guardada. Déjala como está para no tocarla."
-            : "ollama.com → Settings → API keys."),
+          { type: "password", value: "", autocomplete: "off",
+            placeholder: a.ollama_api_key_puesto
+              ? "hay una guardada · escribe otra para cambiarla"
+              : "vacío = el modelo de tu máquina" },
+          a.ollama_api_key_puesto
+            ? "Déjalo vacío para no tocar la que hay. Pégala entera, sin espacios."
+            : "ollama.com → Settings → API keys. Es la API key, no la clave pública."),
+        el("div", { class: "fila" },
+          botonProbarNube = el("button", { class: "btn plano s", type: "button",
+            onclick: () => probarNube() },
+            a.ollama_api_key_puesto ? "Probar la clave guardada" : "Probar la clave"),
+          avisoNube)),
+      el("div", { class: "bloque" },
         a.ollama_api_key_puesto
           ? msg("Con clave, el expediente de cada partido SALE de tu ordenador y "
               + "viaja a Ollama. Es la única parte de esto que no es local. Los "
@@ -2289,8 +2387,10 @@ function tarjetaAjustes() {
         campo("clave", "clave de la interfaz", { type: "password", value: w.clave },
           "Recomendable si la abres a la wifi. Va dentro del QR."),
         campo("token", "token del bot de telegram",
-          { type: "password", value: t.token, placeholder: "123456:AAE…" },
-          t.token_puesto ? "Hay uno guardado. Déjalo como está para no tocarlo."
+          { type: "password", value: "", autocomplete: "off",
+            placeholder: t.token_puesto
+              ? "hay uno guardado · escribe otro para cambiarlo" : "123456:AAE…" },
+          t.token_puesto ? "Déjalo vacío para no tocar el que hay."
             : "Te lo da @BotFather en Telegram con /newbot."),
         campo("chats", "chats permitidos", { value: (t.chats || []).join(", ") }),
         /* El identificador de chat es un número que nadie se sabe. En vez de

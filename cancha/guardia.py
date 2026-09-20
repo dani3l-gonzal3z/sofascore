@@ -218,7 +218,25 @@ def preparar_dia(cliente: SofascoreClient, almacen: Almacen, fecha: str | None =
             decir.error(f"El briefing ha fallado: {exc}")
             resumen["briefing"] = {"error": str(exc)}
 
-    # 4. Casi seguro, calibrado, para que abrirlo mañana sea instantáneo.
+    # 4. El registro: apuntar lo que se predice hoy y resolver lo de ayer.
+    #    Este es el paso que convierte esto en algo que se puede juzgar: sin
+    #    apuntar antes, nadie puede decir después si acertaba.
+    decir.titulo("Registro de predicciones")
+    try:
+        from .registro import anotar, resolver
+
+        apuntadas = 0
+        for evento in agenda(cliente, dia, grupos, almacen):
+            apuntadas += anotar(almacen, evento, cliente=cliente).get("guardadas", 0)
+        resueltas = resolver(almacen)
+        resumen["registro"] = {"apuntadas": apuntadas, **resueltas}
+        decir(f"{apuntadas} predicciones apuntadas para el {dia}; "
+              f"{resueltas['resueltas']} resueltas de días anteriores.")
+    except (SofascoreError, OSError, KeyError, ValueError) as exc:
+        decir.error(f"El registro ha fallado: {exc}")
+        resumen["registro"] = {"error": str(exc)}
+
+    # 5. Casi seguro, calibrado, para que abrirlo mañana sea instantáneo.
     decir.titulo("Casi seguro")
     try:
         from .seguro import calibrar

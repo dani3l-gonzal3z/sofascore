@@ -37,6 +37,15 @@ TIPOS = {".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=u
 MAX_CHARS_WEB = 2_000_000
 
 
+def _huella(clave: str) -> str:
+    """Cómo es la clave sin decir cuál es: para comparar de un vistazo.
+
+    Es lo que hace falta cuando alguien jura que ha pegado la buena: ver que la
+    que hay guardada mide lo que debe y acaba como debe.
+    """
+    return f"{len(clave)} caracteres, acaba en …{clave[-4:]}" if clave else "vacía"
+
+
 class Servidor:
     """Lo que comparten las peticiones: la sesión, el barrido y la clave."""
 
@@ -211,10 +220,22 @@ class Servidor:
         se coge al vuelo, pero el puerto o el token no, y decirlo ahorra el
         «no me funciona» de dentro de un rato.
         """
-        from ..ajustes import aplicar_desde_fuera, cargar, guardar, revisar, sin_secretos
+        from ..ajustes import (
+            SecretoRaro,
+            aplicar_desde_fuera,
+            cargar,
+            guardar,
+            revisar,
+            sin_secretos,
+        )
 
         antes = cargar(self.ruta_ajustes)
-        nuevos = aplicar_desde_fuera(antes, cambios)
+        try:
+            nuevos = aplicar_desde_fuera(antes, cambios)
+        except SecretoRaro as exc:
+            # Una clave mal pegada es un problema del formulario, no un fallo
+            # del servidor: se enseña arriba, donde se está escribiendo.
+            return {"guardado": False, "problemas": [str(exc)]}
         problemas = revisar(nuevos)
         if problemas:
             return {"guardado": False, "problemas": problemas}
@@ -248,6 +269,35 @@ class Servidor:
         if datos.get("interceptado"):
             datos["que_hacer"] = explicar(host)
         return datos
+
+    def probar_nube(self, clave: str = "") -> dict:
+        """¿Vale esta clave para la nube de Ollama? La llamada más barata que hay.
+
+        Existe porque el 401 se descubría en mitad de un dictamen, después de
+        montar el expediente entero, y ahí no se sabe si falla la clave, el
+        modelo o la red.
+        """
+        from ..ajustes import cargar
+        from ..analista import URL_NUBE, OllamaNoDisponible, _pedir_http
+
+        usada = (clave or "").strip() or (cargar(self.ruta_ajustes).get("ollama_api_key")
+                                          or self.api_key or "")
+        if not usada:
+            return {"vale": False, "nota": "No hay ninguna clave que probar."}
+        try:
+            datos = _pedir_http(f"{URL_NUBE}/api/tags", None, timeout=30.0,
+                                api_key=usada, contexto=self._tls())
+        except (OllamaNoDisponible, OSError) as exc:
+            return {"vale": False, "nota": str(exc), "huella": _huella(usada)}
+        modelos = (datos or {}).get("models") or []
+        return {"vale": True, "modelos": len(modelos),
+                "huella": _huella(usada),
+                "nota": f"La clave vale: {len(modelos)} modelos en la nube."}
+
+    def _tls(self):
+        from ..tls import contexto
+
+        return contexto(self.ca_bundle, self.sin_verificar)
 
     def diagnostico(self, con_red: bool = False) -> dict:
         """Lo que dice ``cancha doctor``, para poder verlo desde el móvil."""
@@ -591,6 +641,8 @@ class Manejador(BaseHTTPRequestHandler):
             return self._analista(cuerpo)
         if ruta == "/api/ajustes":
             return self._json(self.app.poner_ajustes(cuerpo))
+        if ruta == "/api/nube":
+            return self._json(self.app.probar_nube(cuerpo.get("clave") or ""))
         if ruta == "/api/dictamen":
             return self._json(self.app.dictamen(str(cuerpo.get("partido") or ""),
                                                 str(cuerpo.get("pregunta") or "")))

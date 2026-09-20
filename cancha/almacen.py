@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 5
+VERSION_ESQUEMA = 6
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS partidos (
@@ -156,6 +156,37 @@ CREATE TABLE IF NOT EXISTS ligas (
     visto_en    TEXT DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_ligas_id ON ligas(id);
+
+-- El registro: lo que se predijo, cuándo, y cómo acabó. Es la tabla que
+-- convierte esto en algo que se puede juzgar. Una predicción se escribe **antes**
+-- del partido y no se toca nunca más: lo único que se rellena después es el
+-- resultado. Un historial que se puede reescribir no vale nada.
+CREATE TABLE IF NOT EXISTS predicciones (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    partido_id      INTEGER NOT NULL,
+    fecha           TEXT,            -- la del partido
+    hecha_el        TEXT DEFAULT CURRENT_TIMESTAMP,
+    horas_antes     REAL,            -- cuánto faltaba para el saque
+    version         TEXT,            -- con qué cálculo se hizo
+    mercado         TEXT NOT NULL,   -- 1x2, mas_2_5, ambos_marcan, corners, tarjetas…
+    seleccion       TEXT NOT NULL,   -- local, empate, visitante, si, no, "2-1"
+    probabilidad    REAL NOT NULL,   -- la nuestra
+    prob_mercado    REAL,            -- la del mercado cuando se predijo, si la había
+    -- Lo que se rellena al resolver:
+    resuelto        INTEGER DEFAULT 0,
+    acerto          INTEGER,
+    valor_real      TEXT,            -- el marcador, los córners, lo que toque
+    prob_cierre     REAL,            -- el mercado en la última cuota vista
+    resuelto_el     TEXT,
+    UNIQUE (partido_id, mercado, seleccion),
+    -- OJO: por este CASCADE, un `INSERT OR REPLACE` sobre `partidos` borraría
+    -- las predicciones de ese partido —REPLACE borra la fila y la vuelve a
+    -- escribir—. El barrido guarda los partidos cada noche, así que ahí se usa
+    -- `ON CONFLICT(id) DO UPDATE`, que actualiza sin borrar. No lo cambies.
+    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_predicciones_fecha ON predicciones(fecha);
+CREATE INDEX IF NOT EXISTS idx_predicciones_resuelto ON predicciones(resuelto);
 
 CREATE TABLE IF NOT EXISTS anotaciones (
     clave  TEXT PRIMARY KEY,

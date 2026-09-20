@@ -717,6 +717,50 @@ def cmd_seguro(args: argparse.Namespace) -> int:
             cliente.close()
 
 
+def cmd_resultados(args: argparse.Namespace) -> int:
+    """El registro: qué se predijo y cómo acabó."""
+    from ..registro import anotar, balance, resolver, texto
+
+    almacen = _almacen(args)
+    cliente = None
+    try:
+        if args.anotar:
+            cliente = comun.construir_cliente(args)
+            salida = anotar(almacen, args.anotar, cliente=cliente)
+            imprimir(f"{salida.get('guardadas', 0)} predicciones apuntadas"
+                     + (f", {salida['ya_estaban']} ya estaban"
+                        if salida.get("ya_estaban") else "")
+                     + (f" · {salida['nota']}" if salida.get("nota") else ""))
+        if args.resolver or args.anotar:
+            hechas = resolver(almacen)
+            imprimir(f"{hechas['resueltas']} resueltas, "
+                     f"{hechas['sin_jugar_todavia']} sin jugar todavía.")
+            imprimir("")
+        datos = balance(almacen, desde=args.desde, hasta=args.hasta,
+                        mercado=args.mercado)
+        if args.json:
+            imprimir(json.dumps(datos, ensure_ascii=False, indent=2))
+            return 0
+        for linea in texto(datos):
+            imprimir(linea)
+        if datos.get("casos"):
+            imprimir("")
+            for linea in envolver(datos["como_leerlo"], 74):
+                imprimir(linea)
+            imprimir("")
+            for linea in envolver(datos["lo_que_no_dice"], 74):
+                imprimir(linea)
+        pendientes = (datos.get("pendientes") or {}).get("sin_resolver") or 0
+        if pendientes:
+            imprimir("")
+            imprimir(f"{pendientes} predicciones esperando a que se juegue el partido.")
+        return 0
+    finally:
+        almacen.close()
+        if cliente is not None:
+            cliente.close()
+
+
 def registrar(sub, comun_p, informe, listado) -> None:
     """Añade los comandos de la memoria."""
     base = argparse.ArgumentParser(add_help=False)
@@ -865,6 +909,26 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_briefing.add_argument("--no-guardar", action="store_true", help="Solo por pantalla.")
     p_briefing.add_argument("--quiet", action="store_true", help="Sin volcarlo por pantalla.")
     p_briefing.set_defaults(func=cmd_briefing)
+
+    p_resultados = sub.add_parser(
+        "resultados", parents=[comun_p, base],
+        help="Qué tal acierta: calibración, Brier y contra el mercado.",
+        description="El registro de predicciones: lo que se apuntó antes de cada "
+                    "partido y cómo acabó. Primero la calibración —de las veces que "
+                    "dijo 70 %, ¿pasó el 70 %?—, después el Brier contra el 0,25 de "
+                    "quien no sabe nada, y el acierto el último, con su intervalo. "
+                    "Sin unidades, sin ROI y sin consejos: esto mide el cálculo.",
+    )
+    p_resultados.add_argument("--desde", help="Solo partidos desde esta fecha.")
+    p_resultados.add_argument("--hasta", help="Solo partidos hasta esta fecha.")
+    p_resultados.add_argument("--mercado", help="Solo un mercado: 1x2, mas_2_5, "
+                                                "ambos_marcan, corners, tarjetas, marcador.")
+    p_resultados.add_argument("--resolver", action="store_true",
+                              help="Puntuar antes las que ya tengan resultado.")
+    p_resultados.add_argument("--anotar", metavar="PARTIDO",
+                              help="Apuntar a mano la predicción de un partido.")
+    p_resultados.add_argument("--json", action="store_true", help="Volcar el JSON.")
+    p_resultados.set_defaults(func=cmd_resultados)
 
     p_seguro = sub.add_parser(
         "seguro", parents=[comun_p, base],

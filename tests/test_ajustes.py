@@ -137,16 +137,54 @@ def test_el_token_no_se_devuelve_nunca_entero():
 
 
 def test_guardar_desde_la_interfaz_no_borra_el_token_que_no_has_tocado():
-    """Abrir los ajustes y darle a guardar no puede dejarte sin bot."""
+    """Abrir los ajustes y darle a guardar no puede dejarte sin bot.
+
+    El campo de un secreto se enseña **vacío** aunque haya uno guardado, así que
+    vacío significa «no lo toques».
+    """
     con_token = ajustes.poner(ajustes.cargar("/no/existe"), "telegram.token", "123:ABC")
-    tapado = ajustes.sin_secretos(con_token)
-    # La página devuelve lo que se le enseñó, con el token tapado.
     vuelta = ajustes.aplicar_desde_fuera(con_token, {
         "guardia": {"hora": "04:00"},
-        "telegram": {"token": tapado["telegram"]["token"], "chats": [42]}})
+        "telegram": {"token": "", "chats": [42]}})
     assert vuelta["telegram"]["token"] == "123:ABC", "se ha borrado el token"
     assert vuelta["telegram"]["chats"] == [42]
     assert vuelta["guardia"]["hora"] == "04:00"
+
+
+def test_una_clave_pegada_encima_de_la_mascara_se_rechaza():
+    """El fallo que llegó al usuario, y que no daba ni un error.
+
+    El campo venía relleno con «••••••••ABCD»; quien pinchaba y pegaba al final
+    mandaba «••••••••ABCDsk-…», el servidor lo tomaba por «no lo has tocado» y lo
+    tiraba. La clave nueva no se guardaba **nunca** y la pantalla seguía diciendo
+    que había una guardada.
+    """
+    con_clave = ajustes.poner(ajustes.cargar("/no/existe"), "ollama_api_key", "vieja")
+    with pytest.raises(ajustes.SecretoRaro) as fallo:
+        ajustes.aplicar_desde_fuera(con_clave, {"ollama_api_key": "••••••••ABCDsk-nueva"})
+    assert "puntos" in str(fallo.value)
+    assert "pega la clave sola" in str(fallo.value)
+
+
+def test_una_clave_con_saltos_de_linea_se_limpia():
+    """Copiar de una web se trae el salto de línea, y eso da un 401."""
+    vuelta = ajustes.aplicar_desde_fuera(ajustes.cargar("/no/existe"),
+                                         {"ollama_api_key": "  sk-de-verdad\n"})
+    assert vuelta["ollama_api_key"] == "sk-de-verdad"
+
+
+def test_la_clave_publica_de_ssh_no_es_una_api_key():
+    """Están en la misma pantalla de ollama.com y se confunden."""
+    with pytest.raises(ajustes.SecretoRaro) as fallo:
+        ajustes.aplicar_desde_fuera(ajustes.cargar("/no/existe"),
+                                    {"ollama_api_key": "ssh-ed25519 AAAAC3NzaC1..."})
+    assert "clave pública SSH" in str(fallo.value)
+    assert "API keys" in str(fallo.value)
+
+
+def test_por_la_linea_de_comandos_tambien_se_comprueba():
+    with pytest.raises(ajustes.SecretoRaro):
+        ajustes.poner(ajustes.cargar("/no/existe"), "ollama_api_key", "ssh-rsa AAAA")
 
 
 def test_un_token_nuevo_desde_la_interfaz_si_se_guarda():

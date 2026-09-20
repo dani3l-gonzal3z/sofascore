@@ -166,7 +166,10 @@ def poner(ajustes: dict, clave: str, valor: Any) -> dict:
     for parte in partes[:-1]:
         destino = destino[parte]
     actual = destino[partes[-1]]
-    destino[partes[-1]] = _convertir(actual, valor) if isinstance(valor, str) else valor
+    nuevo = _convertir(actual, valor) if isinstance(valor, str) else valor
+    if clave.strip() in SECRETOS and isinstance(nuevo, str) and nuevo:
+        nuevo = _revisar_secreto(clave, nuevo)
+    destino[partes[-1]] = nuevo
     return salida
 
 
@@ -188,11 +191,43 @@ def sin_secretos(ajustes: dict) -> dict:
     return salida
 
 
+class SecretoRaro(ValueError):
+    """Eso que has pegado no puede ser una clave."""
+
+
+def _revisar_secreto(camino: str, valor: str) -> str:
+    """Limpia una clave y se queja si es evidente que no lo es.
+
+    Los dos accidentes que pasan de verdad: pegarla con un salto de línea al
+    final —copiar de una web se lo trae— y pegar la **clave pública** SSH de
+    Ollama en vez de la API key, que están en la misma pantalla de su web.
+    """
+    limpio = valor.strip()
+    if not limpio:
+        return limpio
+    if limpio.startswith("ssh-"):
+        raise SecretoRaro(
+            f"Eso es una clave pública SSH, no una API key ({limpio[:11]}…). "
+            "En ollama.com las dos cosas están juntas: la que hace falta es la "
+            "de «API keys».")
+    if "•" in limpio:
+        raise SecretoRaro(
+            "Ahí dentro han quedado los puntos de la clave tapada, así que esto "
+            "no es una clave. Borra el campo entero y pega la clave sola.")
+    if any(c.isspace() for c in limpio):
+        raise SecretoRaro("La clave lleva un espacio o un salto de línea en medio. "
+                          "Pégala entera y sin nada más.")
+    del camino
+    return limpio
+
+
 def aplicar_desde_fuera(ajustes: dict, cambios: dict) -> dict:
     """Mezcla lo que llega de la interfaz, respetando lo que no se enseña.
 
-    Si vuelve el token tapado —porque nadie lo ha tocado— se deja el que había.
-    Sin esto, abrir los ajustes y darle a guardar te borraría el bot.
+    Un secreto que vuelve vacío es «no lo toques», no «bórralo»: el campo de la
+    interfaz se enseña vacío aunque haya uno guardado, que es la única forma de
+    que pegar uno nuevo funcione siempre. Para quitarlo del todo está el fichero
+    de ajustes, o ``cancha ajustes ollama_api_key=``.
     """
     limpio = deepcopy(cambios or {})
     for camino in SECRETOS:
@@ -200,11 +235,20 @@ def aplicar_desde_fuera(ajustes: dict, cambios: dict) -> dict:
         nodo = limpio
         for trozo in trozos[:-1]:
             nodo = nodo.get(trozo) if isinstance(nodo.get(trozo), dict) else {}
-        valor = nodo.get(trozos[-1]) if isinstance(nodo, dict) else None
-        if isinstance(nodo, dict):
-            nodo.pop(trozos[-1] + "_puesto", None)
-            if isinstance(valor, str) and valor.startswith("•"):
-                nodo.pop(trozos[-1], None)
+        if not isinstance(nodo, dict):
+            continue
+        nodo.pop(trozos[-1] + "_puesto", None)
+        valor = nodo.get(trozos[-1])
+        if not isinstance(valor, str):
+            continue
+        # Vacío es «no lo toques»: el campo se enseña vacío a propósito. Y si
+        # vienen puntos es que se ha pegado encima de la máscara, que es
+        # justo el accidente que hacía que la clave nueva no se guardara
+        # nunca. Eso se dice, no se traga en silencio.
+        if not valor.strip():
+            nodo.pop(trozos[-1], None)
+        else:
+            nodo[trozos[-1]] = _revisar_secreto(camino, valor)
     return _fusionar(ajustes, limpio)
 
 
@@ -267,5 +311,6 @@ def grupos_de(ajustes: dict) -> list[str] | None:
 
 
 __all__ = ["POR_DEFECTO", "RUTA_POR_DEFECTO", "SECRETOS", "AjusteDesconocido",
+           "SecretoRaro",
            "aplicar_desde_fuera", "cargar", "grupos_de", "guardar", "poner",
            "revisar", "ruta", "sin_secretos", "valor"]

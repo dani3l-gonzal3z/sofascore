@@ -528,7 +528,8 @@ def _ayuda(bot: Bot, _resto: str) -> str:
         "<b>Quién es quién</b>\n"
         "/equipo Girona — cómo juega, comparado con su liga\n"
         "/jugador Vinicius — forma y rachas\n"
-        "/memoria — qué hay guardado y cuándo fue la última guardia\n\n"
+        "/memoria — qué hay guardado y cuándo fue la última guardia\n"
+        "/resultados — cómo voy acertando: calibración, Brier y contra el mercado\n\n"
         f"<i>Sigo estas competiciones: {_escapar(ligas)}. Se cambian en la "
         "interfaz, en Ajustes.</i>\n"
         "<i>Cualquier otra cosa se la paso al analista, si lo tienes arrancado.</i>")
@@ -807,6 +808,22 @@ def _jugador(bot: Bot, resto: str) -> str:
     return "\n".join(lineas)
 
 
+def _resultados(bot: Bot, resto: str) -> str:
+    """Cómo va acertando. Lo que hace que un pronóstico se pueda creer o no."""
+    from .registro import balance, resolver, texto
+
+    if resto.strip().lower() in ("resolver", "actualizar"):
+        hechas = resolver(bot.sesion.almacen)
+        return (f"{hechas['resueltas']} predicciones resueltas, "
+                f"{hechas['sin_jugar_todavia']} esperando a que se juegue el partido.")
+    datos = balance(bot.sesion.almacen)
+    lineas = texto(datos)
+    if not datos.get("casos"):
+        return "\n".join(lineas)
+    return ("📊 <b>Cómo voy acertando</b>\n\n" + _escapar("\n".join(lineas))
+            + "\n\n<i>" + _escapar(datos["lo_que_no_dice"]) + "</i>")
+
+
 def _memoria(bot: Bot, _resto: str) -> str:
     datos = bot.sesion.almacen.resumen()
     lineas = [
@@ -864,6 +881,7 @@ ORDENES: dict[str, Callable[[Bot, str], str]] = {
     "dictamen": _dictamen,
     "pronóstico": _pronostico,
     "equipo": _equipo, "jugador": _jugador, "memoria": _memoria,
+    "resultados": _resultados, "acierto": _resultados,
 }
 
 

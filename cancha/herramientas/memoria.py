@@ -219,6 +219,29 @@ def _briefing_del_dia(sesion, fecha: str | None = None, grupos: str | None = Non
 
 
 @herramienta(
+    "como_acierta",
+    "EL REGISTRO DE ACIERTOS: qué se predijo antes de cada partido y cómo acabó. "
+    "Devuelve la calibración por tramos (de las veces que dijo 70 %, cuántas pasó), "
+    "el Brier contra el 0,25 de quien no sabe nada, el acierto con su intervalo y "
+    "la comparación contra el mercado. Úsalo cuando te pregunten si esto acierta, "
+    "o antes de presentar un pronóstico como fiable. No trae dinero ni apuestas: "
+    "mide si el cálculo describe bien el fútbol.",
+    {
+        "desde": {"type": "string", "description": "AAAA-MM-DD, solo desde esa fecha."},
+        "hasta": {"type": "string", "description": "AAAA-MM-DD, solo hasta esa fecha."},
+        "mercado": {"type": "string",
+                    "description": "1x2, mas_2_5, ambos_marcan, corners, tarjetas, "
+                                   "marcador."},
+    },
+)
+def _como_acierta(sesion, desde: str | None = None, hasta: str | None = None,
+                  mercado: str | None = None):
+    from ..registro import balance
+
+    return balance(sesion.almacen, desde=desde, hasta=hasta, mercado=mercado)
+
+
+@herramienta(
     "estado_de_la_memoria",
     "Qué hay guardado en la memoria local: cuántos partidos, de qué "
     "competiciones y de cuándo es el último barrido. Míralo si alguna de las "

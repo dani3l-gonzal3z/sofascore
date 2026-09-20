@@ -35,7 +35,7 @@ Piezas sueltas, todas intercambiables:
 | `frames.py` | Tablas y `DataFrame` |
 | `export.py` | JSON, Markdown y CSV |
 | `grabacion.py` | Grabar respuestas reales y reproducirlas sin red |
-| `herramientas/` | Las 44 herramientas para una IA, por familias |
+| `herramientas/` | Las 45 herramientas para una IA, por familias |
 | `mcp.py` | Servidor MCP (JSON-RPC por stdin/stdout) |
 | `sources/` | Otras fuentes: Understat, ClubElo, y el cruce entre ellas |
 | `comandos/` | Los comandos del CLI, por familias |
