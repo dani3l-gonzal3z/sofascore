@@ -11,6 +11,7 @@ instala en Windows y en el iPhone.
 
 ```bash
 cancha arrancar                # todo: interfaz, guardia nocturna y bot de Telegram
+                               # (en Windows: doble clic en cancha.bat)
 cancha web --lan               # solo la interfaz: QR en el terminal, y al móvil
 cancha briefing --barrer       # el documento de la mañana: todos los partidos del día
 cancha seguro                  # lo que casi siempre pasa, con el número que lo sostiene

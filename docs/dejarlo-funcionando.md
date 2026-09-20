@@ -4,6 +4,33 @@
 cancha arrancar                 # la interfaz, la guardia nocturna y el bot
 ```
 
+## La primera vez, de principio a fin
+
+En Windows, con el proyecto descargado, abre esa carpeta y:
+
+```bat
+cancha.bat doctor                     :: ¿con qué pide, y contesta Sofascore?
+cancha.bat ajustes ligas=grandes      :: empieza por poco; luego amplías
+cancha.bat guardia --una-vez          :: la primera carga, mirándola
+cancha.bat                            :: y ya: déjalo con esto abierto
+```
+
+El `.bat` se encarga del entorno la primera vez (tarda un minuto) y luego
+arranca directo. Sin argumentos hace `arrancar`; con un comando delante, lo
+ejecuta —así no tienes que saber dónde vive el entorno—.
+
+**`doctor` primero, siempre.** Si dice `UrllibTransport` en vez de
+`CurlTransport`, instala `curl_cffi` antes de nada o Sofascore te va a
+responder 403 casi siempre.
+
+**`ligas=grandes` es el consejo que más tiempo ahorra.** El catálogo entero son
+71 competiciones y la primera noche sería larguísima. Con las cinco grandes ya
+tienes de qué, y ampliar después no cuesta: lo ya guardado no se vuelve a
+pedir.
+
+**`guardia --una-vez` la primera vez, mirándola.** Hace una vuelta entera y
+sale, así ves qué tarda y si algo falla antes de dejarlo solo toda la noche.
+
 En Windows, doble clic en **`cancha.bat`**. La primera vez se prepara el
 entorno solo (un minuto); las siguientes arranca directo. Si algo falla, la
 ventana **no se cierra**: el error se queda para poder leerlo.
