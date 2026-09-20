@@ -64,6 +64,10 @@ class Progreso:
     partidos_vistos: int = 0
     partidos_guardados: int = 0
     ya_estaban: int = 0
+    #: Se pidieron y la fuente no tenía estadísticas. No son fallos: son
+    #: partidos que no existen con ese detalle, y volver a pedirlos no cambia
+    #: nada. Se cuentan aparte para que se vea y no parezca que algo falla.
+    sin_estadisticas: int = 0
     fallos: int = 0
     #: Peticiones gastadas. Durante un barrido entero es **todo** lo que se ha
     #: pedido —descubrir competiciones, la agenda, el calendario de cada
@@ -78,6 +82,7 @@ class Progreso:
             "partidos_vistos": self.partidos_vistos,
             "guardados": self.partidos_guardados,
             "ya_estaban": self.ya_estaban,
+            "sin_estadisticas": self.sin_estadisticas,
             "fallos": self.fallos,
             "peticiones": self.peticiones,
         }
@@ -167,7 +172,10 @@ def guardar_partido(
         # Uno por jugar no tiene estadísticas; se guarda la cabecera y ya.
         almacen.guardar_evento(evento)
         return False
-    if not forzar and almacen.tiene(evento.id):
+    # `dado_por_hecho` y no `tiene`: hay partidos que sencillamente no tienen
+    # estadísticas —categorías menores, partidos viejos, copas pequeñas— y
+    # preguntando solo por ellas se volvían a pedir eternamente.
+    if not forzar and almacen.dado_por_hecho(evento.id):
         progreso.ya_estaban += 1
         return False
     try:
@@ -175,6 +183,14 @@ def guardar_partido(
         informe = build_report(cliente, evento, sections=SECCIONES)
         almacen.guardar_informe(informe)
         progreso.peticiones += cliente.stats.requests - antes
+        if not almacen.tiene(evento.id):
+            # Se ha pedido y no había estadísticas. Queda apuntado para no
+            # volver a gastar peticiones en esto cada vez que alguien abra la
+            # pantalla del partido.
+            almacen.marcar_sin_estadisticas(evento.id)
+            progreso.sin_estadisticas += 1
+            progreso.detalle.append(f"{evento.id}: sin estadísticas en la fuente")
+            return True
         progreso.partidos_guardados += 1
         return True
     except SofascoreError as exc:

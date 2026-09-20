@@ -4,6 +4,54 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.15.0
+
+Los datos en crudo para el modelo, el dictamen que se queda guardado, y el
+bucle de «faltan 2 partidos».
+
+### Arreglos
+
+- **«Traigo 2 partidos, me voy, vuelvo y me los vuelve a pedir».** No era la
+  pantalla: un partido contaba como guardado solo si tenía **estadísticas**, y
+  hay partidos que sencillamente no las tienen en la fuente —categorías menores,
+  partidos viejos, copas pequeñas—. Esos dos se quedaban para siempre en «faltan
+  2», y cada visita a la pantalla del partido gastaba doce peticiones en algo que
+  no existe.
+
+  Ahora, cuando se pide el detalle y no hay estadísticas, queda apuntado en la
+  memoria y no se vuelve a pedir. La pantalla los cuenta aparte: «28 ya están ·
+  2 sin estadísticas», con una línea explicando que es normal.
+
+### Novedades
+
+- **El expediente lleva los datos en crudo, partido a partido.** Todo lo demás
+  son medias —«genera un 45 % menos de peligro que su liga, n=6»—, y una media
+  esconde justo lo que a veces importa: que los dos partidos malos son los dos
+  de hace un mes, o que la media sale de un partido rarísimo. El apartado 6
+  lleva ahora las estadísticas de **cada** partido recuperado, con lo suyo y lo
+  del rival.
+
+  Tres modos: `todo` (todas las claves guardadas, que es lo que se le manda a un
+  modelo grande y lo que va por defecto en el dictamen), `tabla` (las ocho que
+  dicen algo en una línea) y `no`. Se elige en la interfaz al lado del botón, o
+  con `--crudo`. El apartado no desaparece cuando se pide sin crudo: se queda
+  vacío y lo dice, porque quitarlo dejaba un hueco en la numeración —del 5 al
+  7— y un índice que mentía.
+
+- **Y lo que dice el modelo se guarda para siempre, atado al partido.** Un
+  dictamen cuesta dinero y tiempo, y es lo que dijo **entonces**, con la memoria
+  que había entonces. Se guarda con su fecha, su modelo, sus tokens y el
+  expediente exacto que se le dio; al volver a abrir el partido, está ahí. Pedir
+  otro no borra el anterior: se apilan.
+
+  En el bot, `/dictamen Girona vs Osasuna` enseña el guardado si lo hay, y
+  `/dictamen Girona vs Osasuna otro` gasta en uno nuevo. `cancha dictamen "…"
+  --guardados` los lista sin pedir nada.
+
+- Los números del expediente se redondean: salía «xG 0.6000000000000001», que
+  además de feo es media línea de tokens por número y le dice a un modelo que
+  hay una precisión que no existe.
+
 ## 0.14.0
 
 El registro: apuntar lo que se predice y comprobarlo al día siguiente. Y la

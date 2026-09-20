@@ -747,20 +747,47 @@ def _dictamen(bot: Bot, resto: str) -> str:
     from .analista import Analista, OllamaNoDisponible
     from .expediente import a_texto, expediente
 
-    datos = expediente(bot.sesion.almacen, resto, cliente=bot.sesion.cliente)
+    otro = resto.lower().endswith(" otro")
+    if otro:
+        resto = resto[: -len(" otro")].strip()
+
+    datos = expediente(bot.sesion.almacen, resto, cliente=bot.sesion.cliente,
+                       crudo="todo" if bot.api_key else "tabla")
     if not datos.get("disponible"):
         return datos.get("nota", "No hay expediente de ese partido.")
+    partido_id = datos["partido"]["id"]
+
+    # Si ya hay uno guardado de hoy, se enseña ese: cuesta dinero y tiempo, y
+    # pedir otro es una decisión, no algo que pase por volver a escribir.
+    guardados = bot.sesion.almacen.dictamenes_de(partido_id, limite=1)
+    if guardados and not otro:
+        guardado = guardados[0]
+        return (f"🧠 <b>{_escapar(datos['partido']['local'])} - "
+                f"{_escapar(datos['partido']['visitante'])}</b>\n"
+                f"<i>{_escapar(guardado['hecho_el'])} · "
+                f"{_escapar(guardado['modelo'] or '?')}</i>\n\n"
+                + _escapar(guardado["respuesta"] or "")
+                + "\n\n<i>Guardado. Para pedir otro: /dictamen "
+                + _escapar(resto) + " otro</i>")
+
+    documento = a_texto(datos)
     extra = {"modelo": bot.modelo} if bot.modelo else {}
     if bot.api_key:
         extra["api_key"] = bot.api_key
     try:
-        salida = Analista(sesion=bot.sesion, **extra).dictaminar(a_texto(datos))
+        salida = Analista(sesion=bot.sesion, **extra).dictaminar(documento)
     except (OllamaNoDisponible, OSError) as exc:
         return f"No he podido pedir el dictamen: {exc}"
-    cabeza = (f"🧠 {datos['partido']['local']} - {datos['partido']['visitante']}\n"
-              f"({salida['modelo']}, {datos['tamano']['tokens_aprox']} tokens de "
-              "expediente)\n\n")
-    return cabeza + (salida["respuesta"] or "El modelo no ha dicho nada.")
+    bot.sesion.almacen.guardar_dictamen(
+        partido_id, salida.get("respuesta") or "", modelo=salida.get("modelo") or "",
+        expediente=documento, en_la_nube=bool(bot.api_key),
+        tokens=salida.get("tokens"))
+    cabeza = (f"🧠 <b>{_escapar(datos['partido']['local'])} - "
+              f"{_escapar(datos['partido']['visitante'])}</b>\n"
+              f"<i>{_escapar(salida['modelo'])} · "
+              f"{datos['tamano']['tokens_aprox']} tokens de expediente · "
+              "guardado con el partido</i>\n\n")
+    return cabeza + _escapar(salida["respuesta"] or "El modelo no ha dicho nada.")
 
 
 def _equipo(bot: Bot, resto: str) -> str:

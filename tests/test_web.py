@@ -779,3 +779,56 @@ def test_un_fichero_de_certificados_que_no_esta_no_se_guarda(servidor, tmp_path)
                           {"red": {"ca_bundle": "/no/existe.pem"}})
     assert cuerpo["guardado"] is False
     assert any("no está" in x for x in cuerpo["problemas"])
+
+
+# ----------------------------------------------- el dictamen no se pierde
+
+def test_el_dictamen_se_guarda_y_se_puede_volver_a_leer(servidor, monkeypatch):
+    """Cuesta dinero y tiempo: mañana tiene que seguir ahí."""
+    from cancha.analista import Analista
+
+    monkeypatch.setattr(Analista, "dictaminar",
+                        lambda self, doc, pregunta="", instrucciones=None: {
+                            "respuesta": "Lo veo claro.", "modelo": "grande",
+                            "en_la_nube": True, "tokens": {"prompt_eval_count": 900,
+                                                           "eval_count": 80}})
+    estado, _, cuerpo = _pedir(servidor, "POST", "/api/dictamen",
+                               {"partido": str(EVENT_ID)})
+    assert estado == 200, cuerpo
+    assert cuerpo["guardado"] is True
+    assert cuerpo["partido_id"] == EVENT_ID
+
+    # Y al volver, sin pedirle nada a ningún modelo.
+    _, _, guardados = _pedir(servidor, "POST", "/api/dictamenes",
+                             {"partido": str(EVENT_ID)})
+    assert guardados["cuantos"] == 1
+    primero = guardados["dictamenes"][0]
+    assert primero["respuesta"] == "Lo veo claro."
+    assert primero["modelo"] == "grande"
+    assert primero["hecho_el"]
+    assert "expediente" not in primero, "no se arrastra el documento entero sin pedirlo"
+
+    _, _, con_todo = _pedir(servidor, "POST", "/api/dictamenes",
+                            {"partido": str(EVENT_ID), "con_expediente": True})
+    assert "EXPEDIENTE DE PARTIDO" in con_todo["dictamenes"][0]["expediente"]
+
+
+def test_pedir_otro_dictamen_no_borra_el_anterior(servidor, monkeypatch):
+    from cancha.analista import Analista
+
+    respuestas = iter(["Primero", "Segundo"])
+    monkeypatch.setattr(Analista, "dictaminar",
+                        lambda self, doc, pregunta="", instrucciones=None: {
+                            "respuesta": next(respuestas), "modelo": "grande"})
+    _pedir(servidor, "POST", "/api/dictamen", {"partido": str(EVENT_ID)})
+    _pedir(servidor, "POST", "/api/dictamen", {"partido": str(EVENT_ID)})
+    _, _, guardados = _pedir(servidor, "POST", "/api/dictamenes",
+                             {"partido": str(EVENT_ID)})
+    assert [d["respuesta"] for d in guardados["dictamenes"]] == ["Segundo", "Primero"]
+
+
+def test_la_pagina_lee_los_dictamenes_guardados(servidor):
+    html = _pagina()
+    assert "/api/dictamenes" in html
+    assert "mañana seguirá aquí" in html
+    assert "con todas las estadísticas" in html, "y se puede elegir cuánto crudo"

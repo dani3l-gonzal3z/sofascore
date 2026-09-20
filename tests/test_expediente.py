@@ -271,3 +271,124 @@ def test_el_expediente_dice_cuando_se_preparo_y_con_que(base, cliente):
     texto = a_texto(datos)
     assert "Preparado por cancha el" in texto
     assert "partidos en memoria" in texto
+
+
+# ------------------------------------------- los datos en crudo, partido a partido
+
+def _con_historial(base, cliente):
+    """Seis partidos del local, con estadísticas, anteriores al que se analiza."""
+    from cancha.models import Event
+
+    for n in range(1, 7):
+        identificador = 7000 + n
+        base._conexion.execute(
+            """INSERT INTO partidos (id,fecha,momento,liga_id,liga,local_id,local,
+               visitante_id,visitante,goles_local,goles_visitante,estado)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (identificador, f"2024-09-{n:02d}", 1_700_000_000 + n, 8, "LaLiga",
+             2829, "Real Madrid", 3000 + n, f"Rival {n}", 2, 1, "finished"))
+        for clave, valor in (("expectedGoals", 1.5 + n / 10),
+                             ("totalShotsOnGoal", 12 + n),
+                             ("cornerKicks", 5 + n), ("ballPossession", 55)):
+            base._conexion.execute(
+                """INSERT INTO estadisticas (partido_id,periodo,clave,local,visitante)
+                   VALUES (?,?,?,?,?)""", (identificador, "ALL", clave, valor, 1))
+    base._conexion.commit()
+    del Event, cliente
+
+
+def test_el_expediente_lleva_las_estadisticas_partido_a_partido(base, cliente):
+    """Una media de seis esconde justo lo que a veces importa."""
+    _con_historial(base, cliente)
+    texto = a_texto(expediente(base, EVENT_ID, cliente=cliente, crudo="tabla"))
+    assert "## 6. Datos en crudo, partido a partido" in texto
+    assert "xG 1.6/1" in texto, "los números de cada partido, no la media"
+    assert texto.count("2024-09-") >= 6, "una línea por partido"
+
+
+def test_el_modo_todo_trae_todas_las_claves(base, cliente):
+    _con_historial(base, cliente)
+    tabla = a_texto(expediente(base, EVENT_ID, cliente=cliente, crudo="tabla"))
+    todo = a_texto(expediente(base, EVENT_ID, cliente=cliente, crudo="todo"))
+    assert len(todo) > len(tabla), "todo tiene que traer más que la tabla"
+    assert "posesión %:" in todo, "en `todo` cada clave va con su nombre"
+
+
+def test_se_puede_quitar_el_crudo(base, cliente):
+    """Para un modelo pequeño, esto no cabe.
+
+    El apartado se queda igualmente, vacío y diciéndolo: quitarlo dejaba un
+    hueco en la numeración —del 5 al 7— y un índice que mentía.
+    """
+    _con_historial(base, cliente)
+    sin = a_texto(expediente(base, EVENT_ID, cliente=cliente, crudo="no"))
+    assert "## 6. Datos en crudo, partido a partido" in sin
+    apartado = sin[sin.index("## 6."):sin.index("## 7.")]
+    assert "No se han incluido" in apartado
+    assert "xG" not in apartado, "y sin las estadísticas, que es de lo que se trata"
+
+
+def test_los_numeros_no_traen_basura_de_coma_flotante():
+    """«0.6000000000000001» no es una cifra, es ruido y tokens."""
+    from cancha.expediente import _num
+
+    assert _num(0.1 + 0.5) == "0.6"
+    assert _num(2.0) == "2"
+    assert _num(None) == "—"
+    assert _num(56.75) == "56.75"
+
+
+def test_el_indice_nunca_salta_un_numero(base, cliente):
+    """Un índice con un hueco es un índice que miente."""
+    from cancha.expediente import APARTADOS
+
+    for modo in ("no", "tabla", "todo"):
+        texto = a_texto(expediente(base, EVENT_ID, cliente=cliente, crudo=modo))
+        indice = texto[texto.index("ÍNDICE"):texto.index("## 1.")]
+        for numero, nombre in enumerate(APARTADOS, 1):
+            assert f"{numero}. {nombre}" in indice, (modo, nombre)
+            assert f"## {numero}. {nombre}" in texto, (modo, nombre)
+
+
+# --------------------------------------------- el dictamen se queda guardado
+
+def test_un_dictamen_se_guarda_con_su_partido(base):
+    """Cuesta dinero y tiempo: volver mañana y encontrarlo es la mitad del valor."""
+    base._conexion.execute(
+        "INSERT OR IGNORE INTO partidos (id,fecha) VALUES (?,?)", (EVENT_ID, "2024-10-26"))
+    base._conexion.commit()
+    identificador = base.guardar_dictamen(
+        EVENT_ID, "El local llega mejor.", modelo="grande",
+        expediente="EXPEDIENTE…", en_la_nube=True,
+        tokens={"prompt_eval_count": 2500, "eval_count": 140})
+    assert identificador > 0
+
+    guardados = base.dictamenes_de(EVENT_ID)
+    assert len(guardados) == 1
+    assert guardados[0]["respuesta"] == "El local llega mejor."
+    assert guardados[0]["modelo"] == "grande"
+    assert guardados[0]["en_la_nube"] == 1
+    assert guardados[0]["tokens_prompt"] == 2500
+    assert guardados[0]["hecho_el"], "con su fecha, o no se sabe de cuándo es"
+    assert "expediente" not in guardados[0], "no se arrastra si no se pide"
+    assert base.dictamenes_de(EVENT_ID, con_expediente=True)[0]["expediente"]
+
+
+def test_pedir_otro_no_borra_el_anterior(base):
+    """Querer otra opinión no es querer olvidar la primera."""
+    base._conexion.execute(
+        "INSERT OR IGNORE INTO partidos (id,fecha) VALUES (?,?)", (EVENT_ID, "2024-10-26"))
+    base._conexion.commit()
+    base.guardar_dictamen(EVENT_ID, "Primero", modelo="a")
+    base.guardar_dictamen(EVENT_ID, "Segundo", modelo="b")
+    guardados = base.dictamenes_de(EVENT_ID)
+    assert [d["respuesta"] for d in guardados] == ["Segundo", "Primero"]
+
+
+def test_se_puede_borrar_uno(base):
+    base._conexion.execute(
+        "INSERT OR IGNORE INTO partidos (id,fecha) VALUES (?,?)", (EVENT_ID, "2024-10-26"))
+    base._conexion.commit()
+    identificador = base.guardar_dictamen(EVENT_ID, "Fuera", modelo="a")
+    assert base.borrar_dictamen(identificador) is True
+    assert base.dictamenes_de(EVENT_ID) == []

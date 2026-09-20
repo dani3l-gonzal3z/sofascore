@@ -254,7 +254,8 @@ pasar por tu bot. No lo subas a ningún sitio.
 | `/seguro` | Los patrones que se cumplen hoy, con su número y si aguantan fuera de muestra |
 | `/pronostico Girona vs Osasuna` | Marcador, córners y tarjetas, calculados |
 | `/previa Girona vs Osasuna` | La previa entera |
-| `/dictamen Girona vs Osasuna` | El expediente entero a un modelo ([Dictamen](dictamen.md)) |
+| `/dictamen Girona vs Osasuna` | El expediente entero a un modelo, o el ya guardado ([Dictamen](dictamen.md)) |
+| `/dictamen Girona vs Osasuna otro` | Gastar en otro aunque haya uno guardado |
 | `/equipo Girona` | Cómo juega, comparado con su liga |
 | `/jugador Vinicius` | Forma y rachas |
 | `/memoria` | Qué hay guardado y cuándo fue la última guardia |

@@ -149,20 +149,54 @@ class Servidor:
 
     # --- dictamen ---
 
-    def dictamen(self, partido: str, pregunta: str = "") -> dict:
-        """El expediente entero a un modelo. Lo más caro que hace el servidor."""
+    def dictamen(self, partido: str, pregunta: str = "", crudo: str = "todo") -> dict:
+        """El expediente entero a un modelo. Lo más caro que hace el servidor.
+
+        Lo que conteste se guarda en la memoria, atado al id del partido: cuesta
+        dinero y tiempo, y sobre todo es lo que dijo **entonces**. Volver mañana
+        y encontrarlo igual es la mitad de su valor.
+        """
         from ..expediente import a_texto, expediente
 
         if not partido:
             return {"error": "Falta el partido."}
         with self.cerrojo:
-            datos = expediente(self.sesion.almacen, partido, cliente=self.sesion.cliente)
+            datos = expediente(self.sesion.almacen, partido, cliente=self.sesion.cliente,
+                               crudo=crudo if crudo in ("todo", "tabla", "no") else "todo")
             if not datos.get("disponible"):
                 return {"error": datos.get("nota", "No hay expediente de ese partido.")}
             documento = a_texto(datos)
             salida = self.analista().dictaminar(documento, pregunta)
+            partido_id = datos["partido"]["id"]
+            salida["id"] = self.sesion.almacen.guardar_dictamen(
+                partido_id, salida.get("respuesta") or "",
+                modelo=salida.get("modelo") or "", pregunta=pregunta,
+                expediente=documento, en_la_nube=bool(salida.get("en_la_nube")),
+                tokens=salida.get("tokens"))
+        salida["partido_id"] = partido_id
+        salida["guardado"] = True
         salida["expediente"] = {**datos["tamano"], "texto": documento}
         return salida
+
+    def dictamenes(self, partido: str, con_expediente: bool = False) -> dict:
+        """Los dictámenes ya guardados de un partido. Sin pedirle nada a nadie."""
+        from ..previa import _resolver
+
+        if not partido:
+            return {"error": "Falta el partido."}
+        with self.cerrojo:
+            evento = _resolver(self.sesion.almacen, partido, self.sesion.cliente)
+            if evento is None:
+                return {"error": "No encuentro ese partido."}
+            guardados = self.sesion.almacen.dictamenes_de(
+                evento.id, con_expediente=con_expediente)
+        return {"partido_id": evento.id,
+                "partido": f"{evento.home} - {evento.away}",
+                "dictamenes": guardados, "cuantos": len(guardados)}
+
+    def borrar_dictamen(self, dictamen_id: int) -> dict:
+        with self.cerrojo:
+            return {"borrado": self.sesion.almacen.borrar_dictamen(int(dictamen_id))}
 
     # --- casi seguro ---
 
@@ -641,11 +675,18 @@ class Manejador(BaseHTTPRequestHandler):
             return self._analista(cuerpo)
         if ruta == "/api/ajustes":
             return self._json(self.app.poner_ajustes(cuerpo))
+        if ruta == "/api/dictamenes":
+            return self._json(self.app.dictamenes(
+                str(cuerpo.get("partido") or ""),
+                con_expediente=bool(cuerpo.get("con_expediente"))))
+        if ruta == "/api/dictamen/borrar":
+            return self._json(self.app.borrar_dictamen(cuerpo.get("id") or 0))
         if ruta == "/api/nube":
             return self._json(self.app.probar_nube(cuerpo.get("clave") or ""))
         if ruta == "/api/dictamen":
             return self._json(self.app.dictamen(str(cuerpo.get("partido") or ""),
-                                                str(cuerpo.get("pregunta") or "")))
+                                                str(cuerpo.get("pregunta") or ""),
+                                                str(cuerpo.get("crudo") or "todo")))
         if ruta == "/api/cache":
             return self._json(self.app.limpiar_cache())
         if ruta == "/api/ligas":

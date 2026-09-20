@@ -142,6 +142,18 @@ Lo importante es el «sobre la media de su liga». Y esa media se calcula **sin
 contar al propio equipo**: comparar a alguien contra un promedio en el que él
 pesa suaviza justo lo que se quiere ver.
 
+### Los partidos que la fuente no tiene con detalle
+
+Hay partidos que sencillamente **no tienen estadísticas** en Sofascore:
+categorías menores, partidos viejos, copas pequeñas. Antes se pedían una y otra
+vez —un partido contaba como guardado solo si tenía estadísticas—, así que se
+quedaban para siempre en «faltan 2» y cada visita a la pantalla del partido
+gastaba doce peticiones en algo que no existe.
+
+Ahora, cuando se pide el detalle y no hay estadísticas, queda apuntado en la
+memoria (`partidos.sin_estadisticas`) y no se vuelve a pedir. La pantalla los
+cuenta aparte: «28 ya están · 2 sin estadísticas».
+
 ### Con un partido no se dice cómo juega nadie
 
 Hacen falta **4 partidos del equipo** y **8 de su liga** para que salga un solo

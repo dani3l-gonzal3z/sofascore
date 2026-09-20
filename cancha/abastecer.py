@@ -63,7 +63,16 @@ class Plan:
 
     def cuentas(self, almacen: Almacen) -> dict:
         todos = self.todos
-        faltan = [e for e in todos if not almacen.tiene(e.id)]
+        # Un partido está hecho si tiene estadísticas **o** si ya se pidió y
+        # resultó no tenerlas. Contando solo lo primero, los que no las tienen
+        # se quedaban para siempre en «faltan 2»: traías, volvías a entrar y
+        # te los volvía a pedir, cada vez, gastando peticiones en algo que no
+        # existe en la fuente.
+        con_datos = [e for e in todos if almacen.tiene(e.id)]
+        vacios = [e for e in todos
+                  if e not in con_datos and almacen.sin_estadisticas(e.id)]
+        faltan = [e for e in todos
+                  if e not in con_datos and e not in vacios]
         return {
             "partido": self.partido,
             "arbitro": self.arbitro or None,
@@ -71,7 +80,8 @@ class Plan:
             "entre_ellos": len(self.entre_ellos),
             "del_arbitro": len(self.del_arbitro),
             "en_total": len(todos),
-            "ya_estaban": len(todos) - len(faltan),
+            "ya_estaban": len(con_datos),
+            "sin_estadisticas": len(vacios),
             "hay_que_pedir": len(faltan),
             # Seis peticiones por partido: la cabecera y las cinco secciones.
             "peticiones_estimadas": len(faltan) * 6,
@@ -132,7 +142,7 @@ def abastecer(cliente: SofascoreClient, almacen: Almacen, partido: str | int | E
           f"(~{cuentas['peticiones_estimadas']} peticiones).")
 
     progreso = Progreso()
-    pendientes = [e for e in plan.todos if not almacen.tiene(e.id)]
+    pendientes = [e for e in plan.todos if not almacen.dado_por_hecho(e.id)]
     for numero, anterior in enumerate(pendientes, 1):
         if not queda_cupo():
             decir(f"Tope de {maximo_peticiones} peticiones alcanzado ({gastadas()} "
@@ -155,7 +165,10 @@ def abastecer(cliente: SofascoreClient, almacen: Almacen, partido: str | int | E
         "pedidos": progreso.partidos_vistos,
         "fallos": progreso.fallos,
         "peticiones": progreso.peticiones,
-        "completo": progreso.partidos_guardados + cuentas["ya_estaban"] >= cuentas["en_total"],
+        "sin_estadisticas": cuentas["sin_estadisticas"] + progreso.sin_estadisticas,
+        "completo": (progreso.partidos_guardados + progreso.sin_estadisticas
+                     + cuentas["ya_estaban"] + cuentas["sin_estadisticas"]
+                     >= cuentas["en_total"]),
         "fallos_detalle": progreso.detalle[:10],
         "como_leerlo": (
             "La segunda vez que pidas un partido de esta liga costará mucho menos: "

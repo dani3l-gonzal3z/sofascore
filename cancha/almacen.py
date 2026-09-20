@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 6
+VERSION_ESQUEMA = 7
 
 ESQUEMA = """
 CREATE TABLE IF NOT EXISTS partidos (
@@ -54,6 +54,11 @@ CREATE TABLE IF NOT EXISTS partidos (
     estado          TEXT,
     arbitro         TEXT,
     sede            TEXT,
+    -- Se pidió el detalle y no había estadísticas. Pasa de verdad: categorías
+    -- menores, partidos viejos, copas pequeñas. Sin esto, ese partido se queda
+    -- para siempre en «falta por traer» y se vuelve a pedir cada vez que
+    -- alguien abre la pantalla, gastando peticiones en algo que no existe.
+    sin_estadisticas    INTEGER DEFAULT 0,
     formacion_local     TEXT,
     formacion_visitante TEXT,
     visto_en        TEXT DEFAULT CURRENT_TIMESTAMP
@@ -188,6 +193,29 @@ CREATE TABLE IF NOT EXISTS predicciones (
 CREATE INDEX IF NOT EXISTS idx_predicciones_fecha ON predicciones(fecha);
 CREATE INDEX IF NOT EXISTS idx_predicciones_resuelto ON predicciones(resuelto);
 
+-- Lo que ha dicho un modelo sobre un partido. Se guarda entero y para siempre:
+-- cuesta dinero (si va por la nube) y tiempo, y sobre todo es lo que dijo
+-- **entonces**, con la memoria que había entonces. Volver mañana y encontrarlo
+-- igual es la mitad de su valor; la otra mitad es poder comparar lo que dijo
+-- con lo que pasó.
+CREATE TABLE IF NOT EXISTS dictamenes (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    partido_id      INTEGER NOT NULL,
+    hecho_el        TEXT DEFAULT CURRENT_TIMESTAMP,
+    modelo          TEXT,
+    en_la_nube      INTEGER DEFAULT 0,
+    pregunta        TEXT,
+    respuesta       TEXT NOT NULL,
+    -- El expediente que se le dio, entero. Sin esto no se puede saber con qué
+    -- datos habló: el mismo partido con más memoria detrás da otro dictamen.
+    expediente      TEXT,
+    caracteres      INTEGER,
+    tokens_prompt   INTEGER,
+    tokens_respuesta INTEGER,
+    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_dictamenes_partido ON dictamenes(partido_id);
+
 CREATE TABLE IF NOT EXISTS anotaciones (
     clave  TEXT PRIMARY KEY,
     valor  TEXT
@@ -247,6 +275,9 @@ class Almacen:
         for columna in ("formacion_local", "formacion_visitante"):
             if columna not in columnas:
                 self._conexion.execute(f"ALTER TABLE partidos ADD COLUMN {columna} TEXT")
+        if "sin_estadisticas" not in columnas:
+            self._conexion.execute(
+                "ALTER TABLE partidos ADD COLUMN sin_estadisticas INTEGER DEFAULT 0")
         de_cuotas = {f["name"] for f in self.consulta("PRAGMA table_info(cuotas)")}
         if "visto_en" not in de_cuotas:
             self._conexion.execute("ALTER TABLE cuotas ADD COLUMN visto_en TEXT")
@@ -485,6 +516,69 @@ class Almacen:
             return bool(self.consulta("SELECT 1 FROM partidos WHERE id = ?", (partido_id,)))
         return bool(self.consulta(
             "SELECT 1 FROM estadisticas WHERE partido_id = ? LIMIT 1", (partido_id,)))
+
+    # --- dictámenes ---
+
+    def guardar_dictamen(self, partido_id: int, respuesta: str, modelo: str = "",
+                         pregunta: str = "", expediente: str = "",
+                         en_la_nube: bool = False, tokens: dict | None = None) -> int:
+        """Guarda lo que ha dicho un modelo de un partido. Devuelve su id.
+
+        No sustituye al anterior: se apilan. Pedir otro dictamen es querer otra
+        opinión, no borrar la primera.
+        """
+        cuentas = tokens or {}
+        cursor = self._conexion.execute(
+            """INSERT INTO dictamenes
+               (partido_id, modelo, en_la_nube, pregunta, respuesta, expediente,
+                caracteres, tokens_prompt, tokens_respuesta)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (partido_id, modelo, 1 if en_la_nube else 0, pregunta, respuesta,
+             expediente, len(expediente or ""), cuentas.get("prompt_eval_count"),
+             cuentas.get("eval_count")))
+        self._conexion.commit()
+        return int(cursor.lastrowid or 0)
+
+    def dictamenes_de(self, partido_id: int, limite: int = 10,
+                      con_expediente: bool = False) -> list[dict]:
+        """Los dictámenes guardados de un partido, del más reciente atrás."""
+        columnas = ("id, partido_id, hecho_el, modelo, en_la_nube, pregunta, "
+                    "respuesta, caracteres, tokens_prompt, tokens_respuesta"
+                    + (", expediente" if con_expediente else ""))
+        return self.consulta(
+            f"""SELECT {columnas} FROM dictamenes WHERE partido_id = ?
+                ORDER BY hecho_el DESC, id DESC LIMIT ?""", (partido_id, limite))
+
+    def borrar_dictamen(self, dictamen_id: int) -> bool:
+        cursor = self._conexion.execute(
+            "DELETE FROM dictamenes WHERE id = ?", (dictamen_id,))
+        self._conexion.commit()
+        return bool(cursor.rowcount)
+
+    def sin_estadisticas(self, partido_id: int) -> bool:
+        """¿Ya se pidió su detalle y resultó que no las tiene?
+
+        Distinguir esto de «no lo he pedido todavía» es lo que impide volver a
+        pedir eternamente algo que no existe.
+        """
+        filas = self.consulta(
+            "SELECT sin_estadisticas FROM partidos WHERE id = ?", (partido_id,))
+        return bool(filas and filas[0]["sin_estadisticas"])
+
+    def marcar_sin_estadisticas(self, partido_id: int, si: bool = True) -> None:
+        """Deja constancia de que se pidió y no había nada que guardar."""
+        self._conexion.execute(
+            "UPDATE partidos SET sin_estadisticas = ? WHERE id = ?",
+            (1 if si else 0, partido_id))
+        self._conexion.commit()
+
+    def dado_por_hecho(self, partido_id: int) -> bool:
+        """¿Está hecho? Con estadísticas, o pedido y sin ellas.
+
+        Es la pregunta que hay que hacerse antes de volver a pedir algo: la otra
+        —«¿tengo sus estadísticas?»— deja en bucle a los partidos que no tienen.
+        """
+        return self.tiene(partido_id) or self.sin_estadisticas(partido_id)
 
     def partidos_de_equipo(self, equipo_id: int, ultimos: int = 6,
                            antes_de: str | None = None) -> list[dict]:

@@ -219,3 +219,71 @@ def test_la_herramienta_puede_solo_planear(mundo):
     assert "peticiones_estimadas" in salida
     # No ha traído el detalle de ningún partido: solo los calendarios.
     assert not any("/statistics" in url for url in transporte.calls)
+
+
+# ------------------------------------- los que la fuente no tiene con detalle
+# Esto salió de usarlo: «le doy a traer 2 partidos, me los trae, me voy a otra
+# pantalla, vuelvo y me los vuelve a pedir». No era un fallo de la pantalla: un
+# partido se daba por guardado solo si tenía **estadísticas**, y hay partidos
+# que sencillamente no las tienen en la fuente. Esos dos se quedaban para
+# siempre en «faltan 2», y cada visita gastaba doce peticiones en nada.
+
+def _mundo_con_uno_sin_estadisticas() -> dict:
+    rutas = _mundo(anteriores_local=2, anteriores_visitante=2, posteriores=0)
+    # El 101 existe y se puede pedir, pero no trae estadísticas: la respuesta
+    # está vacía, que es lo que devuelve la API para esos partidos.
+    rutas["/event/101/statistics"] = {"statistics": []}
+    return rutas
+
+
+@pytest.fixture
+def mundo_cojo():
+    transporte = FakeTransport(_mundo_con_uno_sin_estadisticas())
+    cliente = SofascoreClient(
+        Settings(rate_limit=0, retries=0, cache_ttl=0, fallback_base_urls=()),
+        transport=transporte, cache=MemoryCache(), sleep=lambda _s: None)
+    with Almacen(":memory:") as base:
+        yield cliente, base, transporte
+    cliente.close()
+
+
+def test_un_partido_sin_estadisticas_no_se_pide_dos_veces(mundo_cojo):
+    """El bucle exacto que llegó al usuario."""
+    cliente, base, _ = mundo_cojo
+    primera = abastecer(cliente, base, OBJETIVO)
+    assert primera["guardados"] >= 1
+    assert primera["sin_estadisticas"] == 1, primera
+
+    # Y ahora lo que hacía la pantalla al volver a entrar: pedir el plan.
+    plan = planear(cliente, base, OBJETIVO).cuentas(base)
+    assert plan["hay_que_pedir"] == 0, "seguía pidiendo lo que no existe"
+    assert plan["sin_estadisticas"] == 1
+    assert plan["ya_estaban"] + plan["sin_estadisticas"] == plan["en_total"]
+
+
+def test_volver_a_abastecer_no_gasta_ni_una_peticion(mundo_cojo):
+    cliente, base, _ = mundo_cojo
+    abastecer(cliente, base, OBJETIVO)
+    antes = cliente.stats.requests
+    segunda = abastecer(cliente, base, OBJETIVO)
+    assert segunda["hay_que_pedir"] == 0
+    assert segunda["completo"] is True, segunda
+    # Lo único que se gasta es mirar el plan, no traer partidos.
+    assert segunda["peticiones"] == 0
+    del antes
+
+
+def test_se_queda_apuntado_en_la_memoria(mundo_cojo):
+    """Para que sobreviva a cerrar el programa, que es de lo que se trata."""
+    cliente, base, _ = mundo_cojo
+    abastecer(cliente, base, OBJETIVO)
+    assert base.sin_estadisticas(101) is True
+    assert base.dado_por_hecho(101) is True
+    assert base.tiene(101) is False, "no las tiene, y eso no se finge"
+
+
+def test_un_partido_normal_no_se_marca(mundo_cojo):
+    cliente, base, _ = mundo_cojo
+    abastecer(cliente, base, OBJETIVO)
+    assert base.sin_estadisticas(100) is False
+    assert base.tiene(100) is True

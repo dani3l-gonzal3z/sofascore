@@ -54,9 +54,54 @@ puedan citar:
 | 3. Mercado | Lo que implican las cuotas, y el recordatorio de que sabe cosas que el documento no ([Sistemas y cuotas](sistemas.md)) |
 | 4. Perfil de los dos equipos | En qué se sale cada uno de la media de su liga —con `n=` de las dos partes—, los cruces entre lo que uno hace y el otro concede, y cuatro jugadores a seguir |
 | 5. Últimos partidos | Los seis de cada equipo y los seis entre ellos, uno a uno |
-| 6. Árbitro | Su perfil de tarjetas comparado con su liga |
-| 7. Patrones medidos | Con su muestra, su suelo y su veredicto fuera de muestra ([Casi seguro](seguro.md)) |
-| 8. Límites de este expediente | Lo que no contiene, y por tanto no se puede afirmar |
+| 6. Datos en crudo | Las estadísticas **partido a partido** de todo lo recuperado (ver abajo) |
+| 7. Árbitro | Su perfil de tarjetas comparado con su liga |
+| 8. Patrones medidos | Con su muestra, su suelo y su veredicto fuera de muestra ([Casi seguro](seguro.md)) |
+| 9. Límites de este expediente | Lo que no contiene, y por tanto no se puede afirmar |
+
+### Los datos en crudo (apartado 6)
+
+Todo lo demás son **medias**: «genera un 45 % menos de peligro que su liga,
+n=6». Eso dice cómo es un equipo, pero no deja ver lo que pasó en cada uno de
+esos seis, que es donde está la tendencia, la varianza y el partido raro que se
+come la media. Un modelo con el crudo delante puede ver que los dos partidos
+malos son los dos de hace un mes; con la media, no.
+
+```
+### Real Betis (visitante)
+  2026-09-17  G  Real Betis 1-0 Getafe · xG 1.8/0.6 · tiros 17/8 · ocasiones 3/1 · …
+  2026-09-14  G  Villarreal 1-2 Real Betis · xG 1.4/1.9 · tiros 12/15 · ocasiones 2/4 · …
+```
+
+Tres modos:
+
+| Modo | Qué lleva | Para quién |
+| --- | --- | --- |
+| `todo` | **Todas** las estadísticas guardadas de cada partido | Un modelo grande, que tiene sitio |
+| `tabla` | Las ocho que dicen algo en una línea | Un modelo de casa |
+| `no` | El apartado se queda vacío, diciéndolo | Cuando no cabe |
+
+Por defecto, el dictamen va con `todo`. En la interfaz se elige al lado del
+botón; en la línea de comandos, `--crudo tabla`.
+
+El apartado **no desaparece** cuando se pide sin crudo: se queda vacío y lo
+dice. Quitarlo dejaba un hueco en la numeración —del 5 al 7— y un índice que
+mentía, y además así el modelo sabe que esos datos existen y que no los ha
+visto.
+
+## Lo que dice se queda guardado
+
+Un dictamen cuesta dinero y tiempo, y sobre todo es **lo que dijo entonces**,
+con la memoria que había entonces. Así que se guarda en la base, atado al id del
+partido, con su fecha, su modelo, sus tokens y el expediente exacto que se le
+dio. Al volver a abrir el partido —mañana, o dentro de un mes— está ahí.
+
+Pedir otro **no borra el anterior**: querer otra opinión no es querer olvidar la
+primera. Se apilan, y el más reciente va arriba.
+
+En el bot, `/dictamen Girona vs Osasuna` enseña el guardado si lo hay; para
+gastar en otro, `/dictamen Girona vs Osasuna otro`. Y `cancha dictamen "…"
+--guardados` los lista sin pedir nada.
 
 El **mercado va en su propio apartado** y no dentro del pronóstico: es lo primero
 que hay que contrastar, y antes desaparecía del documento cuando no había
@@ -109,11 +154,15 @@ De las siete reglas, las que hacen el trabajo:
 
 ## La nube de Ollama
 
-Un expediente son del orden de **3.500 caracteres, unos 900 tokens** por
-partido. Medido: 2.263 caracteres con un partido sin historia detrás, y unos 1.100
-más cuando la memoria ya tiene los seis anteriores de cada equipo y los seis
-cruces —que es como se usa—. En un 8B de casa entra, pero un 8B no saca de ahí lo
-que saca un modelo grande. Para eso está la clave de la nube.
+Un expediente sin datos en crudo son del orden de **3.500 caracteres, unos 900
+tokens** por partido. Con la tabla por partido sube alrededor de un tercio, y con
+`todo` —cada estadística de cada partido recuperado— depende de cuántas claves
+guarde la fuente de esa liga: en una con 35 estadísticas y doce partidos detrás,
+cuenta unos 4.000 tokens más. `--solo-expediente` lo enseña entero y dice cuánto
+ocupa antes de gastar nada.
+
+En un 8B de casa entra lo básico, pero un 8B no saca de ahí lo que saca un modelo
+grande, y el crudo directamente no le cabe. Para eso está la clave de la nube.
 
 ```bash
 cancha ajustes ollama_api_key=...          # o en Ajustes, desde el móvil

@@ -17,6 +17,14 @@ El modelo pone el razonamiento; la aritmética la pone Python. Es la misma
 línea de siempre, y con un modelo grande importa más, no menos: se equivoca
 con más aplomo.
 
+**Y además, el crudo.** Lo anterior son medias, y una media esconde justo lo
+que a veces importa: que los dos partidos malos son los dos de hace un mes, o
+que la media sale de un partido rarísimo. Así que el apartado 6 lleva las
+estadísticas **partido a partido** de todo lo recuperado. ``crudo="tabla"`` da
+las ocho que dicen algo en una línea; ``crudo="todo"``, cada clave guardada, que
+es lo que se le manda a un modelo grande con sitio de sobra; ``crudo="no"`` lo
+quita. Las medias siguen ahí: el crudo no las sustituye, las sostiene.
+
 **Y ojo con el tamaño.** Medido: 2.263 caracteres —565 tokens aproximados— en
 un partido sin historia detrás, y unos 1.100 más cuando la memoria ya tiene los
 seis anteriores de cada equipo y los seis cruces, que es como se usa. O sea del
@@ -41,7 +49,7 @@ JUGADORES = 4
 
 
 def expediente(almacen: Almacen, partido, cliente=None, ultimos: int = ULTIMOS,
-               con_seguro: bool = True) -> dict:
+               con_seguro: bool = True, crudo: str = "tabla") -> dict:
     """Reúne todo lo que hay de un partido. Cada parte, si falla, se dice."""
     from .previa import _resolver, previa
     from .pronostico import pronostico
@@ -78,6 +86,8 @@ def expediente(almacen: Almacen, partido, cliente=None, ultimos: int = ULTIMOS,
                                               jugadores_por_equipo=JUGADORES))
     salida["ultimos_partidos"] = _ultimos_de_los_dos(almacen, evento, ultimos)
     salida["entre_ellos"] = _entre_ellos(almacen, evento)
+    salida["crudo"] = _crudo(almacen, salida["ultimos_partidos"],
+                             salida["entre_ellos"], crudo)
     if con_seguro:
         salida["casi_seguro"] = _o_nota(lambda: _seguro_de(almacen, cliente, evento))
 
@@ -127,6 +137,70 @@ def _ultimos_de_los_dos(almacen: Almacen, evento, ultimos: int) -> dict:
     return salida
 
 
+def _crudo(almacen: Almacen, ultimos: dict, entre: dict, modo: str = "tabla") -> dict:
+    """Las estadísticas **partido a partido** de todo lo que se ha recuperado.
+
+    El resto del expediente son medias: «genera un 45 % menos de peligro que su
+    liga, n=6». Eso dice cómo es un equipo, pero no deja ver lo que pasó en cada
+    uno de esos seis, que es donde está la tendencia, la varianza y el partido
+    raro que se come la media. Un modelo grande con esto delante puede ver que
+    los dos malos son los dos de hace un mes; con la media, no.
+
+    ``modo`` es ``tabla`` —las ocho que dicen algo en una línea—, ``todo`` —cada
+    clave que haya guardada, que es lo que pide un modelo con sitio de sobra— o
+    ``no``.
+    """
+    if modo == "no":
+        return {"modo": modo, "equipos": {}, "entre_ellos": []}
+
+    bloques: dict[str, list] = {}
+    for lado in ("local", "visitante"):
+        suyo = ultimos.get(lado) or {}
+        partidos = suyo.get("partidos") or []
+        if partidos:
+            bloques[lado] = {"equipo": suyo.get("equipo", ""),
+                             "partidos": _filas_crudas(almacen, partidos, modo)}
+    return {
+        "modo": modo,
+        "equipos": bloques,
+        "entre_ellos": _filas_crudas(almacen, entre.get("partidos") or [], modo),
+    }
+
+
+def _filas_crudas(almacen: Almacen, partidos: list[dict], modo: str) -> list[dict]:
+    """Una fila por partido, con sus estadísticas desde el lado del equipo."""
+    ids = [p["id"] for p in partidos if p.get("id")]
+    if not ids:
+        return []
+    crudas = almacen.estadisticas_de_partidos(ids)
+    por_partido: dict[int, dict] = {}
+    for fila in crudas:
+        por_partido.setdefault(fila["partido_id"], {})[fila["clave"]] = fila
+    salida = []
+    for partido in partidos:
+        fila = por_partido.get(partido.get("id")) or {}
+        if not fila:
+            salida.append({**partido, "estadisticas": {}, "sin_datos": True})
+            continue
+        # `donde` viene de `_resumir`: dice si el equipo jugaba en casa, y es lo
+        # que decide qué columna de la tabla es «suya».
+        es_local = (partido.get("donde") or "") == "casa"
+        claves = ([c for c, _ in CRUDO_TABLA] if modo == "tabla"
+                  else sorted(fila))
+        medidas = {}
+        for clave in claves:
+            dato = fila.get(clave)
+            if dato is None:
+                continue
+            suyo = dato["local"] if es_local else dato["visitante"]
+            rival = dato["visitante"] if es_local else dato["local"]
+            if suyo is None and rival is None:
+                continue
+            medidas[clave] = {"suyo": suyo, "rival": rival}
+        salida.append({**partido, "estadisticas": medidas})
+    return salida
+
+
 def _entre_ellos(almacen: Almacen, evento) -> dict:
     if not (evento.home.id and evento.away.id):
         return {"partidos": []}
@@ -146,6 +220,8 @@ def _resumir(fila: dict, desde: int | None) -> dict:
     favor = fila.get("goles_local") if es_local else fila.get("goles_visitante")
     contra = fila.get("goles_visitante") if es_local else fila.get("goles_local")
     return {
+        # El id hace falta para poder ir a buscar sus estadísticas en crudo.
+        "id": fila.get("id"),
         "fecha": fila.get("fecha"),
         "partido": f"{fila.get('local')} {fila.get('goles_local')}-"
                    f"{fila.get('goles_visitante')} {fila.get('visitante')}",
@@ -193,8 +269,32 @@ CÓMO LEER ESTE DOCUMENTO
 #: pueda citar «el apartado 3 dice» y que el modelo no confunda el perfil de un
 #: equipo con el del rival cuando el documento es largo.
 APARTADOS = ("Ficha del partido", "Pronóstico calculado", "Mercado",
-             "Perfil de los dos equipos", "Últimos partidos", "Árbitro",
+             "Perfil de los dos equipos", "Últimos partidos",
+             "Datos en crudo, partido a partido", "Árbitro",
              "Patrones medidos sobre el historial", "Límites de este expediente")
+
+
+def titulo(nombre: str) -> str:
+    """``## 6. Datos en crudo…``. El número sale del índice, no se escribe a mano.
+
+    Escribirlo a mano es cómo se acaba con dos apartados 6 y un índice que
+    miente en cuanto se añade uno en medio.
+    """
+    return f"## {APARTADOS.index(nombre) + 1}. {nombre}"
+
+
+#: Las estadísticas de la tabla compacta, en orden, con su etiqueta. Son las
+#: que dicen algo de un partido en una línea; el resto van en el modo «todo».
+CRUDO_TABLA = (
+    ("expectedGoals", "xG"),
+    ("totalShotsOnGoal", "tiros"),
+    ("bigChanceCreated", "ocasiones"),
+    ("ballPossession", "posesión"),
+    ("cornerKicks", "córners"),
+    ("yellowCards", "amarillas"),
+    ("fouls", "faltas"),
+    ("touchesInOppBox", "toques área"),
+)
 
 
 def a_texto(datos: dict) -> str:
@@ -225,8 +325,8 @@ def a_texto(datos: dict) -> str:
         "",
         "ÍNDICE",
     ]
-    lineas += [f"  {n}. {titulo}" for n, titulo in enumerate(APARTADOS, 1)]
-    lineas += ["", f"## 1. {APARTADOS[0]}",
+    lineas += [f"  {n}. {nombre}" for n, nombre in enumerate(APARTADOS, 1)]
+    lineas += ["", titulo(APARTADOS[0]),
                f"{p['local']} (local) contra {p['visitante']} (visitante), "
                f"{p['competicion']}, {p['fecha']}.", ""]
     lineas += _texto_pronostico(datos.get("pronostico") or {})
@@ -236,11 +336,12 @@ def a_texto(datos: dict) -> str:
     lineas += _texto_equipos(datos.get("previa") or {})
     lineas += _texto_ultimos(datos.get("ultimos_partidos") or {},
                              datos.get("entre_ellos") or {})
+    lineas += _texto_crudo(datos.get("crudo") or {})
     lineas += _texto_arbitro(datos.get("previa") or {})
     lineas += _texto_seguro(datos.get("casi_seguro") or {})
     lineas += [
         "",
-        f"## {len(APARTADOS)}. {APARTADOS[-1]}",
+        titulo(APARTADOS[-1]),
         "Lo que este expediente NO contiene, y por tanto no se puede afirmar:",
         "- Alineaciones de hoy, lesiones, sanciones ni rotaciones.",
         "- Si el partido se juega a algo: puesto en la tabla, eliminatoria, descenso.",
@@ -255,11 +356,11 @@ def a_texto(datos: dict) -> str:
 
 def _texto_pronostico(pron: dict) -> list[str]:
     if not pron.get("disponible"):
-        return [f"## 2. {APARTADOS[1]}", pron.get("nota", "No disponible."), ""]
+        return [titulo(APARTADOS[1]), pron.get("nota", "No disponible."), ""]
     g = pron["goles"]
     uno = g["1x2"]
     lineas = [
-        f"## 2. {APARTADOS[1]}",
+        titulo(APARTADOS[1]),
         "Método: dos Poisson independientes, una por equipo, con las fuerzas de "
         "ataque y defensa encogidas hacia la media de la liga. El marcador exacto "
         "es el producto de las dos.",
@@ -309,7 +410,7 @@ def _texto_mercado(pron: dict) -> list[str]:
     un apartado se cita, una línea perdida en otro no.
     """
     mercado = pron.get("mercado") or {}
-    lineas = [f"## 3. {APARTADOS[2]}"]
+    lineas = [titulo(APARTADOS[2])]
     if not mercado.get("disponible"):
         lineas += [mercado.get("nota", "No hay cuotas guardadas de este partido."),
                    "Sin cuotas no hay con qué contrastar el cálculo: dilo si es "
@@ -333,7 +434,7 @@ def _texto_equipos(prev: dict) -> list[str]:
     equipos = prev.get("equipos") or {}
     if not equipos:
         return []
-    lineas = [f"## 4. {APARTADOS[3]}",
+    lineas = [titulo(APARTADOS[3]),
               "Cada rasgo es una diferencia contra la media de su propia "
               "competición, con la muestra de las dos partes al lado."]
     for lado in ("local", "visitante"):
@@ -397,7 +498,7 @@ def _texto_equipos(prev: dict) -> list[str]:
 
 
 def _texto_ultimos(ultimos: dict, entre: dict) -> list[str]:
-    lineas = [f"## 5. {APARTADOS[4]}",
+    lineas = [titulo(APARTADOS[4]),
               "Del más reciente al más antiguo. Todo anterior a la fecha del partido."]
     for lado in ("local", "visitante"):
         bloque = ultimos.get(lado) or {}
@@ -418,14 +519,104 @@ def _texto_ultimos(ultimos: dict, entre: dict) -> list[str]:
     return lineas
 
 
+#: Cómo se lee cada clave de la API, para que el modelo no tenga que adivinar.
+NOMBRES_CRUDOS = {
+    "expectedGoals": "xG", "totalShotsOnGoal": "tiros",
+    "bigChanceCreated": "ocasiones claras", "ballPossession": "posesión %",
+    "cornerKicks": "córners", "yellowCards": "amarillas", "fouls": "faltas",
+    "touchesInOppBox": "toques en el área", "passes": "pases",
+    "accurateCross": "centros buenos", "accurateLongBalls": "pases largos buenos",
+    "totalTackle": "entradas", "interceptionWon": "intercepciones",
+    "totalClearance": "despejes", "ballRecovery": "recuperaciones",
+    "goalkeeperSaves": "paradas", "finalThirdEntries": "entradas al último tercio",
+    "kilometersCovered": "kilómetros", "numberOfSprints": "sprints",
+}
+
+
+def _texto_crudo(crudo: dict) -> list[str]:
+    """El apartado de datos en crudo. Una línea por partido."""
+    modo = crudo.get("modo", "tabla")
+    lineas = [titulo(APARTADOS[5])]
+    if modo == "no":
+        # El apartado se queda, vacío y diciéndolo. Quitarlo dejaba un hueco en
+        # la numeración —del 5 al 7— y un índice que mentía. Y además así el
+        # modelo sabe que estos datos existen y que no los ha visto.
+        return lineas + [
+            "No se han incluido en este expediente: se pidió sin datos en crudo.",
+            "Las medias del apartado 4 salen igualmente de esos partidos.", ""]
+    if modo == "tabla":
+        lineas.append("Cada línea es un partido, con lo suyo y lo del rival: "
+                      "«xG 1.4/0.8» es 1.4 suyo contra 0.8 del rival. Las medias "
+                      "del apartado 4 salen de esto.")
+        lineas.append("Columnas: " + " · ".join(e for _, e in CRUDO_TABLA))
+    else:
+        lineas.append("Todas las estadísticas guardadas de cada partido, sin "
+                      "resumir: «suyo/rival». Las medias del apartado 4 salen de "
+                      "aquí, y aquí se ve lo que cada media esconde.")
+
+    equipos = crudo.get("equipos") or {}
+    for lado in ("local", "visitante"):
+        bloque = equipos.get(lado)
+        if not bloque:
+            continue
+        lineas.append(f"### {bloque['equipo']} ({lado})")
+        lineas += _lineas_de_partidos(bloque["partidos"], modo)
+    if crudo.get("entre_ellos"):
+        lineas.append("### Entre ellos")
+        lineas += _lineas_de_partidos(crudo["entre_ellos"], modo)
+    lineas.append("")
+    return lineas
+
+
+def _lineas_de_partidos(partidos: list[dict], modo: str) -> list[str]:
+    lineas = []
+    for partido in partidos:
+        cabeza = (f"  {partido.get('fecha', '?')}  {partido.get('resultado', '')}  "
+                  f"{partido.get('partido', '')}")
+        medidas = partido.get("estadisticas") or {}
+        if not medidas:
+            lineas.append(f"{cabeza} — sin estadísticas guardadas de este partido")
+            continue
+        if modo == "tabla":
+            trozos = []
+            for clave, etiqueta in CRUDO_TABLA:
+                dato = medidas.get(clave)
+                if dato:
+                    trozos.append(f"{etiqueta} {_num(dato['suyo'])}/{_num(dato['rival'])}")
+            lineas.append(f"{cabeza} · " + " · ".join(trozos))
+        else:
+            lineas.append(cabeza)
+            for clave in sorted(medidas):
+                dato = medidas[clave]
+                nombre = NOMBRES_CRUDOS.get(clave, clave)
+                lineas.append(f"      {nombre}: {_num(dato['suyo'])}/"
+                              f"{_num(dato['rival'])}")
+    return lineas
+
+
+def _num(valor) -> str:
+    """Un número corto: sin decimales cuando no hacen falta, y sin la basura.
+
+    Un float sin redondear escribe «0.6000000000000001», que además de feo es
+    media línea de tokens por número y le dice a un modelo que hay una precisión
+    que no existe.
+    """
+    if valor is None:
+        return "—"
+    if isinstance(valor, (int, float)):
+        redondeado = round(float(valor), 2)
+        return str(int(redondeado)) if float(redondeado).is_integer() else str(redondeado)
+    return str(valor)
+
+
 def _texto_arbitro(prev: dict) -> list[str]:
     a = prev.get("arbitro") or {}
     if not a.get("disponible"):
-        return [f"## 6. {APARTADOS[5]}", a.get("nota", "sin datos"), ""]
+        return [titulo(APARTADOS[6]), a.get("nota", "sin datos"), ""]
     por = a.get("por_partido") or {}
     reparto = a.get("reparto_de_tarjetas") or {}
     return [
-        f"## 6. {APARTADOS[5]}",
+        titulo(APARTADOS[6]),
         f"{a['arbitro']} · n={a['partidos_mirados']} partidos suyos vistos",
         f"Por partido: {por.get('amarillas')} amarillas, {por.get('rojas')} rojas, "
         f"{por.get('penaltis')} penaltis, {por.get('faltas')} faltas",
@@ -440,10 +631,10 @@ def _texto_arbitro(prev: dict) -> list[str]:
 def _texto_seguro(seguro: dict) -> list[str]:
     avisos = seguro.get("avisos") or []
     if not avisos:
-        return [f"## 7. {APARTADOS[6]}",
+        return [titulo(APARTADOS[7]),
                 "Ningún patrón medido se cumple en este partido con muestra "
                 "suficiente.", ""]
-    lineas = [f"## 7. {APARTADOS[6]} "
+    lineas = [titulo(APARTADOS[7]) + " "
               f"(calibrado con {seguro.get('calibrado_con')} partidos de la memoria)",
               "Cada patrón se mide una sola vez sobre todo el historial: la "
               "frecuencia y el suelo son del patrón, no de este partido. Lo propio "

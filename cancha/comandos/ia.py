@@ -61,11 +61,20 @@ def cmd_dictamen(args: argparse.Namespace) -> int:
             imprimir("")
 
         datos = expediente(sesion.almacen, args.consulta, cliente=cliente,
-                           ultimos=args.ultimos)
+                           ultimos=args.ultimos, crudo=args.crudo)
         if not datos.get("disponible"):
             imprimir(datos.get("nota", "No hay expediente."))
             return 1
         documento = a_texto(datos)
+
+        if args.guardados:
+            for guardado in sesion.almacen.dictamenes_de(datos["partido"]["id"]):
+                imprimir(f"— {guardado['hecho_el']} · {guardado['modelo'] or '?'}"
+                         + (" · en la nube" if guardado["en_la_nube"] else ""))
+                for linea in (guardado["respuesta"] or "").splitlines():
+                    imprimir(f"  {linea}")
+                imprimir("")
+            return 0
 
         if args.solo_expediente:
             imprimir(documento)
@@ -95,6 +104,16 @@ def cmd_dictamen(args: argparse.Namespace) -> int:
             return 2
         for linea in salida["respuesta"].splitlines():
             imprimir(linea)
+        # Guardado con el partido: cuesta dinero y tiempo, y es lo que dijo con
+        # la memoria que había hoy. Mañana sigue ahí.
+        sesion.almacen.guardar_dictamen(
+            datos["partido"]["id"], salida.get("respuesta") or "",
+            modelo=salida.get("modelo") or modelo,
+            pregunta=" ".join(args.pregunta), expediente=documento,
+            en_la_nube=bool(clave), tokens=salida.get("tokens"))
+        imprimir("")
+        imprimir("Guardado con el partido: lo tienes en la pestaña del partido y en "
+                 "cancha dictamen --guardados.")
         if salida.get("tokens"):
             imprimir("")
             imprimir(f"({salida['tokens'].get('prompt_eval_count', '?')} tokens de "
@@ -247,6 +266,12 @@ def registrar(sub, comun, informe, listado) -> None:
                             help="Partidos anteriores por equipo en el expediente.")
     p_dictamen.add_argument("--abastecer", action="store_true",
                             help="Traer antes lo que falte de ese partido.")
+    p_dictamen.add_argument("--crudo", choices=["todo", "tabla", "no"], default="todo",
+                            help="Cuántas estadísticas partido a partido se le dan: "
+                                 "todas (por defecto), una tabla por partido, o ninguna.")
+    p_dictamen.add_argument("--guardados", action="store_true",
+                            help="Enseñar los dictámenes ya guardados de ese partido, "
+                                 "sin pedir otro.")
     p_dictamen.add_argument("--solo-expediente", action="store_true",
                             help="Solo enseñar el documento, sin mandarlo a nadie.")
     p_dictamen.add_argument("--temperatura", type=float, default=0.3)

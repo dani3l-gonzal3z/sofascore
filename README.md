@@ -87,7 +87,7 @@ partido.available()            # secciones con datos
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
   respuesta es *no se sabe*.
-- **Probado sin red.** 1.050 tests en menos de quince segundos, y un modo de grabar
+- **Probado sin red.** 1.065 tests en menos de quince segundos, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---

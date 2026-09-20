@@ -587,7 +587,7 @@ function abastecer(idPartido, alTerminar) {
     if (err) { cuerpo.replaceChildren(err); return; }
     cuerpo.replaceChildren(
       cifras([[d.guardados, "traídos ahora"], [d.ya_estaban, "ya estaban"],
-        [d.peticiones, "peticiones"], [d.fallos, "fallos"]]),
+        [d.sin_estadisticas || 0, "sin estadísticas"], [d.peticiones, "peticiones"]]),
       d.completo ? msg("Ya está todo el contexto de este partido en la memoria.")
         : msg("Falta algo por traer: vuelve a darle y sigue por donde lo dejó.", "ojo"),
       nota(d.como_leerlo));
@@ -607,6 +607,13 @@ function abastecer(idPartido, alTerminar) {
         `${plan.de_cada_uno.local} del local · ${plan.de_cada_uno.visitante} del visitante · `
         + `${plan.entre_ellos} entre ellos`
         + (plan.arbitro ? ` · ${plan.del_arbitro} de ${plan.arbitro}` : "")),
+      /* Los que la fuente no tiene con detalle se dicen aparte. Si no, se
+         quedaban en «faltan 2» para siempre y parecía que no se guardaba. */
+      plan.sin_estadisticas
+        ? nota(`${plan.sin_estadisticas} de esos partidos no tienen estadísticas en `
+            + "Sofascore: se pidieron una vez y no se volverán a pedir. Es normal en "
+            + "categorías menores y partidos viejos.")
+        : null,
       plan.hay_que_pedir
         ? nota("La segunda vez que pidas un partido de esta liga costará mucho menos: "
             + "los últimos de un equipo son también los últimos de sus rivales.")
@@ -1458,34 +1465,76 @@ async function pintarPartido(raiz, consulta) {
 /* El dictamen: se monta el expediente entero —que es mucho texto— y se le da
    de una vez a un modelo para que ate cabos. Es lo más caro que hace la
    página, así que no se pide solo: hay que darle al botón. */
+/* El dictamen, y lo que ya se dictaminó antes. Lo que dice un modelo se guarda
+   atado al id del partido: cuesta dinero y tiempo, y sobre todo es lo que dijo
+   **entonces**, con la memoria que había entonces. Volver mañana y encontrarlo
+   igual es la mitad de su valor. */
 function tarjetaDictamen(consulta) {
   const cuerpo = el("div", { class: "bloque" });
+  const guardados = el("div", { class: "bloque" });
   const boton = el("button", { class: "btn", type: "button" }, "Pedir el dictamen");
+  const crudo = el("select", { class: "campo", style: "flex:0 1 210px" },
+    el("option", { value: "todo" }, "con todas las estadísticas"),
+    el("option", { value: "tabla" }, "con una tabla por partido"),
+    el("option", { value: "no" }, "sin datos en crudo"));
+
+  const pintarUno = (d, viejo) => [
+    el("div", { class: "fila peq gris" },
+      etiqueta(d.modelo || "?", "azul"),
+      viejo ? el("span", {}, d.hecho_el) : null,
+      el("span", {}, `${(d.expediente ? d.expediente.tokens_aprox
+        : Math.round((d.caracteres || 0) / 4))} tokens de expediente`),
+      d.en_la_nube ? etiqueta("en la nube", "ambar") : etiqueta("en tu máquina", "verde"),
+      d.tokens_prompt ? el("span", {}, `${d.tokens_prompt} tokens cobrados`) : null),
+    el("div", { class: "bloque" }, ...(d.respuesta || "").split("\n\n")
+      .filter((p) => p.trim()).map((p) => el("p", {}, p))),
+    d.expediente && d.expediente.texto
+      ? el("details", {}, el("summary", {}, "El expediente que se le ha dado"),
+          el("pre", { class: "registro" }, d.expediente.texto))
+      : null,
+  ];
+
+  const traerGuardados = async () => {
+    const r = await api.post("/api/dictamenes", { partido: String(consulta) });
+    if (fallo(r) || !r.cuantos) return;
+    poner(guardados,
+      el("p", { class: "peq gris" },
+        `${r.cuantos} dictamen${r.cuantos === 1 ? "" : "es"} guardado`
+        + `${r.cuantos === 1 ? "" : "s"} de este partido:`),
+      ...r.dictamenes.map((d, i) => el("div", { class: "bloque" },
+        i === 0 ? el("div", {}, ...pintarUno(d, true))
+          : el("details", {},
+              el("summary", {}, `${d.hecho_el} · ${d.modelo || "?"}`),
+              el("div", {}, ...pintarUno(d, true))))));
+    boton.textContent = "Pedir otro";
+  };
+
   boton.addEventListener("click", async () => {
     boton.disabled = true;
     boton.textContent = "Pensando…";
     cuerpo.replaceChildren(espera("Montando el expediente y mandándolo al modelo. "
       + "Con uno grande esto tarda; puedes irte a otra pantalla."));
-    const d = await api.post("/api/dictamen", { partido: String(consulta) });
+    const d = await api.post("/api/dictamen",
+      { partido: String(consulta), crudo: crudo.value });
     boton.disabled = false;
     boton.textContent = "Pedir otro";
     const err = fallo(d);
     if (err) { cuerpo.replaceChildren(err); return; }
-    poner(cuerpo,
-      el("div", { class: "fila peq gris" },
-        etiqueta(d.modelo || "?", "azul"),
-        el("span", {}, `${d.expediente.tokens_aprox} tokens de expediente`),
-        d.en_la_nube ? etiqueta("en la nube", "ambar") : etiqueta("en tu máquina", "verde")),
-      el("div", { class: "bloque" }, ...(d.respuesta || "").split("\n\n")
-        .filter((p) => p.trim()).map((p) => el("p", {}, p))),
-      el("details", {}, el("summary", {}, "El expediente que se le ha dado"),
-        el("pre", { class: "registro" }, d.expediente.texto)),
+    poner(cuerpo, ...pintarUno(d, false),
+      d.guardado ? nota("Guardado con el partido: mañana seguirá aquí.") : null,
       nota("Los números del expediente los calcula el programa; el modelo solo "
         + "ata cabos. Si dice una cifra que no está ahí, se la ha inventado."));
+    guardados.replaceChildren();
+    traerGuardados();
   });
-  return tarjeta("Dictamen", cuerpo, boton,
+
+  traerGuardados();
+  return tarjeta("Dictamen", guardados, cuerpo,
+    el("div", { class: "fila" }, boton, crudo),
     nota("Le da al modelo todo lo que se sabe del partido de una vez, en vez de "
-      + "que lo pida a cachitos. Con un modelo grande es donde se nota."));
+      + "que lo pida a cachitos: el pronóstico, los perfiles, los patrones y —con "
+      + "«todas las estadísticas»— los números partido a partido de todo lo que "
+      + "tienes guardado. Con un modelo grande es donde se nota."));
 }
 
 /* El pronóstico: marcador, córners y tarjetas. Los números salen calculados
