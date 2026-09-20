@@ -208,6 +208,29 @@ def _estado_de_la_memoria(sesion):
 
 
 @herramienta(
+    "expediente_partido",
+    "TODO LO DE UN PARTIDO DE UNA VEZ: pronóstico calculado, cómo juega cada "
+    "equipo comparado con su liga, los cruces, los últimos partidos de los dos, "
+    "el historial entre ellos, el árbitro, el mercado y los patrones medidos. "
+    "Una sola llamada en vez de ocho. Úsala cuando te pidan analizar un partido "
+    "entero; para una cosa concreta, la herramienta concreta. Trae 'texto' ya "
+    "escrito y ordenado: léelo y ata cabos, no recalcules nada.",
+    {
+        "partido": {"type": "string", "description": "Id, URL o 'Equipo A vs Equipo B'."},
+        "ultimos": {"type": "integer",
+                    "description": "Partidos anteriores por equipo (por defecto 6)."},
+    },
+    ["partido"],
+)
+def _expediente_partido(sesion, partido: str, ultimos: int = 6):
+    from ..expediente import a_texto, expediente
+
+    datos = expediente(sesion.almacen, partido, cliente=sesion.cliente, ultimos=ultimos)
+    datos["texto"] = a_texto(datos)
+    return datos
+
+
+@herramienta(
     "pronostico_partido",
     "EL PRONÓSTICO, YA CALCULADO. Marcador exacto con su probabilidad, 1X2, "
     "más/menos goles, marcan los dos, córners y tarjetas, todo salido de la "

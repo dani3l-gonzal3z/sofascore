@@ -54,9 +54,9 @@ obligue a volver al terminal.
 | --- | --- |
 | **Hoy** | Los partidos del día, **plegados**: hora, equipos, la barra del mercado, la forma de cada uno y las insignias que importan. Tocar uno lo abre **ahí mismo**, sin cambiar de página: mercado, cómo llega cada equipo, dónde se pueden hacer daño, jugador contra sistema y árbitro. Arriba, el resumen de lo casi seguro del día. El selector **Directo** enseña lo que se está jugando ahora, refrescándose solo. |
 | **Casi seguro** | Lo que se repite, con su número. Cada aviso lleva la frecuencia, el suelo de confianza, cuántos casos lo sostienen y cuánto se separa de su referencia. La pestaña *Los patrones* enseña la calibración entera. |
-| **Analista** | Pregunta en castellano y un modelo local busca los datos. Los pasos se ven mientras ocurren: qué herramienta pidió y cuánto le contestaron. |
+| **Analista** | Pregunta en castellano y un modelo local busca los datos. Los pasos se ven mientras ocurren: qué herramienta pidió y cuánto le contestaron. Debajo, **Dictamen**: el expediente entero de un partido a un modelo de una vez, con el documento que se le manda a la vista y, si usas la nube, el aviso de que eso sale de tu ordenador ([Dictamen](dictamen.md)). |
 | **Buscar** | Partido, equipo, jugador, **liga** o duelo, con un selector arriba. El partido trae alineaciones, cronología, quién mandaba tramo a tramo, historial entre los dos, quién generó el peligro y los datos en crudo de cualquier sección. El equipo y el jugador traen su ficha completa, y el equipo además su Elo. La liga trae clasificación, histórico desde 1993, ranking Elo, agenda y noticias de ESPN y las tablas de FBref. |
-| **Memoria** | Qué hay guardado, el barrido en segundo plano con su registro, el catálogo de competiciones (y un botón para buscar los ids que faltan), rellenar cuotas, árbitros, fuentes, el QR para abrirlo en el móvil, el **diagnóstico** (lo que dice `cancha doctor`, más la caché) y la **consola de herramientas**. |
+| **Memoria** | Qué hay guardado, el barrido en segundo plano con su registro, el catálogo de competiciones (y un botón para buscar los ids que faltan), rellenar cuotas, árbitros, fuentes, el QR para abrirlo en el móvil, el **diagnóstico** (lo que dice `cancha doctor`, más la caché), los **[ajustes](ajustes.md)** —donde se le puede poner el token del bot de Telegram sin reiniciar nada, y se ve si está escuchando— y la **consola de herramientas**. |
 
 ### Las tarjetas plegadas
 
@@ -85,7 +85,7 @@ sistema, que es lo que hace el iPhone por la noche.
 ## La API
 
 Todo cuelga de `POST /api/herramienta/<nombre>` con los argumentos en JSON:
-las 43 herramientas de la IA, con la misma sesión para toda la vida del
+las 44 herramientas de la IA, con la misma sesión para toda la vida del
 servidor (lo ya traído no se vuelve a pedir). Además:
 
 | Ruta | Qué |
@@ -96,6 +96,7 @@ servidor (lo ya traído no se vuelve a pedir). Además:
 | `POST /api/seguro` | Los avisos del día, o la calibración entera con `calibrar: true` |
 | `POST /api/analista` | Una pregunta al modelo local. Contesta en **NDJSON**, un paso por línea |
 | `GET /api/analista` | Si Ollama está, qué modelos tiene y si LangChain está instalado |
+| `POST /api/dictamen` | Monta el expediente de un partido y se lo da entero a un modelo ([Dictamen](dictamen.md)) |
 | `POST /api/barrido` | Lanza un barrido (`fecha`, `grupos`, `max`) en segundo plano |
 | `GET /api/barrido` | Cómo va: líneas de registro y resumen al acabar |
 | `GET /api/diagnostico` | Transportes, credenciales, caché y grabaciones. Con `?red=1` prueba contra la API |

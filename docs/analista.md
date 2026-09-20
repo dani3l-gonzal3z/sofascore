@@ -11,6 +11,15 @@ hablan, y los esquemas sueltos, para montártelo tú. Faltaba la tercera y la m�
 útil en una máquina propia: **preguntar en castellano y que alguien vaya a
 buscarlo**.
 
+## El otro camino: darle todo de una vez
+
+Esto de arriba es un modelo pequeño **buscando**: pide una herramienta, lee,
+pide otra. Con 8B en tu ordenador es lo correcto. Si lo que quieres es un modelo
+**grande** que lo vea todo a la vez y ate cabos —el suyo no es buscar, es
+razonar sobre lo ya reunido—, eso es `cancha dictamen`, y está en
+**[Dictamen](dictamen.md)**. Ahí entra también la nube de Ollama, que es la
+única parte de este proyecto en la que los datos salen de tu ordenador.
+
 ## Qué hace falta
 
 [Ollama](https://ollama.com), arrancado, y un modelo que sepa **llamar
@@ -90,7 +99,7 @@ pip install "cancha[langchain]"
 ```python
 from cancha.agentes.langchain import agente, herramientas
 
-herramientas()          # 43 StructuredTool, para tu propio agente
+herramientas()          # 44 StructuredTool, para tu propio agente
 agente(modelo="hermes3").invoke({"messages": [("user", "¿qué hay hoy?")]})
 ```
 

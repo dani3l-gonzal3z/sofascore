@@ -253,3 +253,64 @@ def test_la_guardia_no_comparte_cliente_con_la_web(tmp_path, monkeypatch, client
     assert recibido["cliente"] is not del_web, "la guardia usa el cliente de la web"
     assert len(hechos) >= 2, "tiene que haberse construido uno para cada cosa"
     aplicaciones["app"].close()
+
+
+# -------------------------------------------------------------------- el bot
+# Otro fallo que llegó al usuario, y de los peores: uno silencioso. Guardó el
+# token del bot en la pestaña Ajustes, le escribió por Telegram y no pasó nada.
+# El hilo del bot solo se creaba si había token al arrancar, así que el token
+# nuevo no lo miraba nadie hasta reiniciar.
+
+def test_el_bot_se_levanta_aunque_todavia_no_haya_token(tmp_path, llamadas):
+    ruta = _ajustes(tmp_path, memoria=str(tmp_path / "bot1.db"))
+    assert cli.main(["arrancar", "--ajustes", ruta, "--sin-guardia"]) == 0
+    bot = llamadas["app"].bot
+    assert bot is not None, "sin hilo, poner el token en Ajustes no sirve de nada"
+    assert bot.releer is not None, "y tiene que volver a mirar los ajustes"
+    assert bot.releer()["telegram"]["token"] == ""
+    bot.parar()
+    bot.close()
+
+
+def test_el_bot_coge_el_token_que_se_guarde_despues(tmp_path, llamadas):
+    """El camino del usuario, entero: arrancar sin token y ponerlo desde el móvil."""
+    from cancha.ajustes import cargar, guardar, poner
+
+    ruta = _ajustes(tmp_path, memoria=str(tmp_path / "bot2.db"))
+    cli.main(["arrancar", "--ajustes", ruta, "--sin-guardia"])
+    bot = llamadas["app"].bot
+    try:
+        assert bot.token == ""
+        # Esto es lo que hace la pestaña Ajustes al darle a Guardar.
+        guardar(poner(poner(cargar(ruta), "telegram.token", "123:ABC"),
+                      "telegram.chats", "4242"), ruta)
+        assert bot.refrescar() == ["token puesto", "contesta a 4242"]
+        assert bot.token == "123:ABC"
+        assert bot.permitidos == (4242,)
+    finally:
+        bot.parar()
+        bot.close()
+
+
+def test_con_sin_bot_no_hay_bot(tmp_path, llamadas):
+    ruta = _ajustes(tmp_path, memoria=str(tmp_path / "bot3.db"))
+    cli.main(["arrancar", "--ajustes", ruta, "--sin-guardia", "--sin-bot"])
+    assert llamadas["app"].bot is None
+
+
+def test_un_token_de_la_linea_de_comandos_manda(tmp_path, llamadas, monkeypatch):
+    ruta = _ajustes(tmp_path, memoria=str(tmp_path / "bot4.db"))
+    import cancha.telegrama as telegrama
+
+    monkeypatch.setattr(telegrama.Bot, "comprobar",
+                        lambda self: {"nombre": "cancha", "enlace": None})
+    cli.main(["arrancar", "--ajustes", ruta, "--sin-guardia", "--token", "123:ABC"])
+    bot = llamadas["app"].bot
+    try:
+        assert bot.token == "123:ABC"
+        assert bot.token_fijo, "los ajustes vacíos no pueden borrar un --token"
+        assert bot.refrescar() == []
+        assert bot.token == "123:ABC"
+    finally:
+        bot.parar()
+        bot.close()

@@ -18,15 +18,23 @@ entera.
 
     cancha telegram --token 123:ABC --chat 987654321
     cancha telegram --token 123:ABC            # dice quién te escribe y no contesta
+
+**El token y la lista se pueden cambiar sin reiniciar.** El bot mira los
+ajustes en cada vuelta, así que ponerle el token desde la pestaña Ajustes
+—desde el móvil, sin tocar el ordenador— hace que empiece a escuchar él solo
+en veinticinco segundos. Arrancar sin token y no volver a mirar era peor que un
+error: escribías al bot y no pasaba nada, sin una línea que lo explicara.
 """
 
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -40,6 +48,9 @@ LIMITE = 3900
 #: Cuánto espera cada consulta antes de volver vacía. Cuanto más alto, menos
 #: peticiones; veinticinco segundos es el equilibrio que recomienda Telegram.
 ESPERA = 25
+#: Cuánto se espera entre vuelta y vuelta cuando todavía no hay token. No se
+#: le puede preguntar nada a Telegram sin token, pero sí mirar si ya lo hay.
+ESPERA_SIN_TOKEN = 5
 #: Cuántos remitentes sin permiso se recuerdan. Normalmente es uno —tú— pero
 #: caben unos pocos por si te equivocas de cuenta.
 RECORDAR_VISTOS = 5
@@ -52,6 +63,7 @@ class TelegramNoDisponible(SofascoreError):
 
 
 def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 60.0) -> Any:
+    detalle = ""
     datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
     peticion = urllib.request.Request(
         url, data=datos, method="POST" if datos is not None else "GET",
@@ -59,11 +71,20 @@ def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 60.0) -> 
     try:
         respuesta = urllib.request.urlopen(peticion, timeout=timeout)  # noqa: S310
     except urllib.error.HTTPError as exc:
-        detalle = exc.read().decode("utf-8", "replace")[:300]
+        with suppress(Exception):  # el cuerpo es un extra; puede no haberlo
+            detalle = exc.read().decode("utf-8", "replace")[:300]
         if exc.code == 401:
             raise TelegramNoDisponible(
                 "Telegram dice que el token no vale. Pídele uno a @BotFather en "
                 "Telegram: /newbot, y te da algo como 123456:AA....") from exc
+        if exc.code == 409:
+            # Telegram solo deja un oyente por token. Da un 409 y el bot se
+            # queda mudo sin más explicación, que es exactamente lo que parece
+            # «no funciona»: casi siempre hay dos cancha abiertos.
+            raise TelegramNoDisponible(
+                "Hay otro programa escuchando con este mismo token, y Telegram "
+                "solo deja uno. Cierra el otro cancha (o el otro `cancha "
+                "telegram`) y este empezará a contestar.") from exc
         raise TelegramNoDisponible(f"Telegram ha contestado {exc.code}: {detalle}") from exc
     except OSError as exc:
         raise TelegramNoDisponible(f"No llego a Telegram: {exc}") from exc
@@ -99,11 +120,25 @@ class Bot:
     permitidos: tuple[int, ...] = ()
     sesion: Sesion | None = None
     modelo: str = ""
+    #: Clave de la nube de Ollama, si la hay. Vacía = el modelo de casa.
+    api_key: str = ""
     carpeta_briefings: str = "datos/briefings"
+    #: Devuelve los ajustes de ahora mismo. Se consulta en cada vuelta, y es
+    #: lo que hace que poner el token desde el móvil valga para algo sin
+    #: reiniciar nada. Ver ``refrescar``.
+    releer: Callable[[], dict] | None = field(default=None, repr=False)
+    #: El token viene de la línea de comandos o del entorno, así que los
+    #: ajustes no lo tocan. Sin esto, un ``--token`` se lo comería el primer
+    #: ``releer`` que devolviese los ajustes de fábrica, que van vacíos.
+    token_fijo: bool = False
     #: Cómo se habla con Telegram. Se sustituye para probar sin red.
     pedir: Callable[[str, dict | None], Any] = field(default=None, repr=False)
     _propia: bool = field(default=False, repr=False)
     _desde: int = field(default=0, repr=False)
+    _parando: bool = field(default=False, repr=False)
+    _callado: bool = field(default=False, repr=False)
+    _ultimo_error: str = field(default="", repr=False)
+    _escuchando: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.pedir is None:
@@ -126,6 +161,18 @@ class Bot:
                 "usuario": yo.get("username"),
                 "enlace": f"https://t.me/{yo.get('username')}" if yo.get("username") else None,
                 "permitidos": list(self.permitidos)}
+
+    def _presentarse(self) -> str:
+        """Quién soy y dónde escribirme, en una línea. Para el token recién puesto."""
+        try:
+            quien = self.comprobar()
+        except (TelegramNoDisponible, OSError) as exc:
+            return f"token puesto, pero Telegram dice: {exc}"
+        donde = f" · escríbele en {quien['enlace']}" if quien.get("enlace") else ""
+        if not self.permitidos:
+            return (f"«{quien['nombre']}» escuchando{donde}. Todavía no contesta a "
+                    "nadie: escríbele y te dirá tu identificador de chat.")
+        return f"«{quien['nombre']}» escuchando{donde}."
 
     def enviar(self, chat: int, texto: str) -> None:
         for trozo in _trozos(texto):
@@ -158,26 +205,76 @@ class Bot:
             self.atender(chat, texto, quien)
         return atendidos
 
-    def escuchar(self, tandas: int = 0, avisar: Callable[[str], None] | None = None) -> int:
-        """Se queda escuchando. ``tandas`` limita cuántas vueltas da (0 = siempre)."""
+    def escuchar(self, tandas: int = 0, avisar: Callable[[str], None] | None = None,
+                 dormir: Callable[[float], None] = time.sleep) -> int:
+        """Se queda escuchando. ``tandas`` limita cuántas vueltas da (0 = siempre).
+
+        Cada vuelta empieza mirando los ajustes (``refrescar``), así que el bot
+        se puede quedar aquí sin token —esperando a que lo pongas— y arrancar
+        solo cuando aparezca. Eso es a propósito: la alternativa es no arrancar
+        el hilo, y entonces poner el token no sirve de nada hasta reiniciar.
+        """
         decir = avisar or (lambda _t: None)
         vueltas = 0
         try:
             while True:
                 try:
-                    for atendido in self.una_tanda():
-                        decir(f"[{atendido['chat']}] {atendido['texto'][:60]}")
-                except TelegramNoDisponible as exc:
-                    decir(f"✗ ERROR Telegram: {exc}")
-                    import time
-
-                    time.sleep(10)
+                    self._una_vuelta(decir, dormir)
+                except KeyboardInterrupt:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    # Nada tumba este hilo. Vive en segundo plano dentro de
+                    # `cancha arrancar`, así que morirse aquí es quedarse mudo
+                    # sin que nadie se entere: exactamente el fallo que
+                    # estamos arreglando, pero por otro camino.
+                    self._fallo(decir, f"{type(exc).__name__}: {exc}")
+                    dormir(10)
                 vueltas += 1
                 if tandas and vueltas >= tandas:
+                    break
+                if self._parando:
                     break
         except KeyboardInterrupt:
             decir("Bot detenido.")
         return vueltas
+
+    def _una_vuelta(self, decir: Callable[[str], None],
+                    dormir: Callable[[float], None]) -> None:
+        """Una vuelta del bucle: ponerse al día y atender lo que haya llegado."""
+        for cambio in self.refrescar():
+            decir(f"telegram: {cambio}")
+        if not self.token:
+            self._escuchando = False
+            if not self._callado:
+                decir("telegram: esperando un token. Ponlo en Ajustes y "
+                      "empiezo a escuchar solo.")
+                self._callado = True
+            dormir(ESPERA_SIN_TOKEN)
+            return
+        if self._callado:
+            self._callado = False
+            decir("telegram: " + self._presentarse())
+        self._escuchando = True
+        try:
+            for atendido in self.una_tanda():
+                decir(f"[{atendido['chat']}] {atendido['texto'][:60]}")
+        except TelegramNoDisponible as exc:
+            self._fallo(decir, str(exc))
+            dormir(10)
+        else:
+            self._ultimo_error = ""
+
+    def _fallo(self, decir: Callable[[str], None], dicho: str) -> None:
+        """Apunta un fallo y lo cuenta **una** vez.
+
+        Un token caducado daría seis líneas por minuto y taparía todo lo demás
+        en la consola; y el último fallo se queda guardado para poder verlo
+        desde la pestaña Ajustes, que es donde se va a mirar.
+        """
+        self._escuchando = False
+        if dicho != self._ultimo_error:
+            decir(f"✗ ERROR Telegram: {dicho}")
+            self._ultimo_error = dicho
 
     # --- entender ---
 
@@ -188,8 +285,9 @@ class Bot:
             respuesta = (
                 "Este bot no tiene lista de permitidos, así que no contesta a nadie.\n\n"
                 f"Tu identificador de chat es: {chat}\n\n"
-                "Ponlo en la interfaz, en Memoria → Ajustes → «chats permitidos», "
-                "y reinicia cancha. O arráncalo así:\n"
+                "Ponlo en la interfaz, en Memoria → Ajustes → «chats permitidos»: "
+                "ahí sale con tu nombre al lado para meterlo de un toque, y no hace "
+                "falta reiniciar nada. O arráncalo así:\n"
                 f"    cancha telegram --token ... --chat {chat}")
             self.enviar(chat, respuesta)
             return respuesta
@@ -220,6 +318,71 @@ class Bot:
         # Sin orden reconocida, es una pregunta para el analista.
         return _analista(self, texto)
 
+    def refrescar(self) -> list[str]:
+        """Se pone al día con los ajustes. Devuelve qué ha cambiado, en palabras.
+
+        Un bot que no hace esto obliga a reiniciar el programa para cambiar el
+        token o la lista de permitidos, y eso —lo hemos visto— se parece
+        demasiado a que el bot esté roto: escribes al bot, el bot no está
+        escuchando porque arrancó sin token, y nadie te lo dice.
+
+        Se consulta en cada vuelta del bucle, así que un cambio tarda como
+        mucho una espera larga (veinticinco segundos) en notarse.
+        """
+        if self.releer is None:
+            return []
+        try:
+            frescos = self.releer() or {}
+        except Exception:  # noqa: BLE001 - unos ajustes ilegibles no paran el bot
+            return []
+        cambios = []
+        suyo = frescos.get("telegram") or {}
+        if not self.token_fijo:
+            token = str(suyo.get("token") or "")
+            if token != self.token:
+                cambios.append("token puesto" if token else "token quitado; me callo")
+                self.token = token
+                # Un token nuevo se presenta en la vuelta siguiente (quién es el
+                # bot y dónde escribirle); uno borrado, al contrario, dice que
+                # se queda esperando. Las dos cosas las hace `escuchar`.
+                self._callado = bool(token)
+        permitidos = _numeros(suyo.get("chats") or ())
+        if permitidos != self.permitidos:
+            cambios.append("contesta a " + (", ".join(str(c) for c in permitidos)
+                                            if permitidos else "nadie"))
+            self.permitidos = permitidos
+        modelo = str(frescos.get("modelo") or "")
+        if modelo and modelo != self.modelo:
+            cambios.append(f"modelo {modelo}")
+            self.modelo = modelo
+        clave = str(frescos.get("ollama_api_key") or "")
+        if clave != self.api_key:
+            cambios.append("clave de la nube puesta" if clave else "clave de la nube quitada")
+            self.api_key = clave
+        return cambios
+
+    def estado(self) -> dict:
+        """Si de verdad está escuchando, para poder mirarlo desde la interfaz.
+
+        Es la respuesta a «le escribo al bot y no hace nada»: en vez de tener
+        que buscarlo en la consola del ordenador, se ve desde el móvil.
+        """
+        return {
+            "token_puesto": bool(self.token),
+            "escuchando": self._escuchando,
+            "permitidos": list(self.permitidos),
+            "ultimo_error": self._ultimo_error,
+        }
+
+    def parar(self) -> None:
+        """Que salga del bucle en cuanto termine la vuelta que esté haciendo.
+
+        No se deshace: un bot al que se le ha dicho que pare no vuelve a
+        escuchar. Lo contrario —que ``escuchar`` lo rearmara— deja pasar sin
+        ruido el caso de pararlo antes de arrancarlo, que es un bucle infinito.
+        """
+        self._parando = True
+
     def apuntar_visto(self, chat: int, quien: str = "") -> None:
         """Deja constancia de quién ha escrito sin estar en la lista.
 
@@ -246,6 +409,17 @@ class Bot:
             self.sesion.close()
 
 
+def _numeros(crudos) -> tuple[int, ...]:
+    """Identificadores de chat, vengan como números o como texto."""
+    salida = []
+    for crudo in crudos or ():
+        try:
+            salida.append(int(str(crudo).strip()))
+        except (TypeError, ValueError):
+            continue
+    return tuple(salida)
+
+
 def vistos(almacen) -> list[dict]:
     """Quién ha escrito al bot sin estar en la lista de permitidos."""
     try:
@@ -265,6 +439,7 @@ def _ayuda(bot: Bot, _resto: str) -> str:
         "/seguro — lo que casi siempre pasa, de hoy\n"
         "/previa <equipos> — la previa de un partido\n"
         "/pronostico <equipos> — marcador, córners y tarjetas, calculados\n"
+        "/dictamen <equipos> — todo el expediente a un modelo, que ate cabos\n"
         "/equipo <nombre> — cómo juega, comparado con su liga\n"
         "/jugador <nombre> — forma y rachas\n"
         "/memoria — qué hay guardado y cuándo fue la última guardia\n"
@@ -344,6 +519,29 @@ def _pronostico(bot: Bot, resto: str) -> str:
     return "🔮 " + "\n".join(texto_pronostico(datos, ancho=48))
 
 
+def _dictamen(bot: Bot, resto: str) -> str:
+    """El expediente entero a un modelo, y su lectura. Lo más caro que hace."""
+    if not resto:
+        return "Dime qué partido: /dictamen Girona vs Osasuna"
+    from .analista import Analista, OllamaNoDisponible
+    from .expediente import a_texto, expediente
+
+    datos = expediente(bot.sesion.almacen, resto, cliente=bot.sesion.cliente)
+    if not datos.get("disponible"):
+        return datos.get("nota", "No hay expediente de ese partido.")
+    extra = {"modelo": bot.modelo} if bot.modelo else {}
+    if bot.api_key:
+        extra["api_key"] = bot.api_key
+    try:
+        salida = Analista(sesion=bot.sesion, **extra).dictaminar(a_texto(datos))
+    except (OllamaNoDisponible, OSError) as exc:
+        return f"No he podido pedir el dictamen: {exc}"
+    cabeza = (f"🧠 {datos['partido']['local']} - {datos['partido']['visitante']}\n"
+              f"({salida['modelo']}, {datos['tamano']['tokens_aprox']} tokens de "
+              "expediente)\n\n")
+    return cabeza + (salida["respuesta"] or "El modelo no ha dicho nada.")
+
+
 def _equipo(bot: Bot, resto: str) -> str:
     if not resto:
         return "Dime qué equipo: /equipo Girona"
@@ -412,6 +610,7 @@ ORDENES: dict[str, Callable[[Bot, str], str]] = {
     "hoy": _hoy, "manana": _manana, "mañana": _manana,
     "directo": _directo, "live": _directo,
     "seguro": _seguro, "previa": _previa, "pronostico": _pronostico,
+    "dictamen": _dictamen,
     "pronóstico": _pronostico,
     "equipo": _equipo, "jugador": _jugador, "memoria": _memoria,
 }

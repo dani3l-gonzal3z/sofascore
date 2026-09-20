@@ -128,8 +128,8 @@ def cmd_telegram(args: argparse.Namespace) -> int:
     from ..telegrama import Bot, TelegramNoDisponible
 
     guardados = _ajustes(args)
-    token = (args.token or os.environ.get(ENV_TOKEN, "")
-             or (guardados["telegram"]["token"] or ""))
+    de_fuera = args.token or os.environ.get(ENV_TOKEN, "")
+    token = de_fuera or (guardados["telegram"]["token"] or "")
     if not token:
         _problema("Falta el token del bot.",
                   "Abre Telegram, habla con @BotFather, manda /newbot y te dará "
@@ -141,8 +141,13 @@ def cmd_telegram(args: argparse.Namespace) -> int:
     cliente = comun.construir_cliente(args)
     sesion = Sesion(cliente=cliente,
                     ruta_almacen=modulo_ajustes.valor(args, "db", guardados["memoria"]))
-    bot = Bot(token=token, permitidos=_chats(args, guardados), sesion=sesion,
-              modelo=args.modelo or guardados["modelo"] or "")
+    bot = Bot(token=token, token_fijo=bool(de_fuera),
+              permitidos=_chats(args, guardados), sesion=sesion,
+              modelo=args.modelo or guardados["modelo"] or "",
+              api_key=guardados.get("ollama_api_key") or "",
+              # Para que añadir tu chat desde la interfaz valga sin reiniciar:
+              # es justo lo que se hace con el bot delante, mirándolo.
+              releer=lambda: modulo_ajustes.cargar(getattr(args, "ajustes", None)))
     try:
         quien = bot.comprobar()
     except TelegramNoDisponible as exc:
@@ -156,8 +161,9 @@ def cmd_telegram(args: argparse.Namespace) -> int:
     if not bot.permitidos:
         imprimir("")
         imprimir("  ⚠ Sin lista de permitidos: NO va a contestar a nadie.")
-        imprimir("    Escríbele desde tu Telegram y te dirá tu identificador de chat;")
-        imprimir("    luego arráncalo con --chat <ese número>.")
+        imprimir("    Escríbele desde tu Telegram y te dirá tu identificador de chat.")
+        imprimir("    Ponlo en la pestaña Ajustes —sale con tu nombre al lado— y lo")
+        imprimir("    coge al vuelo, sin reiniciar. O arráncalo con --chat <número>.")
     else:
         imprimir(f"  Contesta a: {', '.join(str(c) for c in bot.permitidos)}")
     imprimir("Ctrl+C para parar.")
@@ -219,6 +225,16 @@ def cmd_ajustes(args: argparse.Namespace) -> int:
 
 
 # ------------------------------------------------------------------ arrancar
+
+def _del_bot(linea: str) -> None:
+    """Lo que cuenta el bot, con la sangría de todo lo demás.
+
+    Antes iba a ninguna parte: el hilo se arrancaba sin ``avisar`` y cualquier
+    fallo de Telegram —un token caducado, otro cancha abierto con el mismo
+    token— se lo tragaba el silencio.
+    """
+    imprimir(f"  {linea}")
+
 
 def cmd_arrancar(args: argparse.Namespace) -> int:
     """Todo junto: comprobación, interfaz, guardia y bot, en un proceso."""
@@ -312,40 +328,61 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
     elif not suya.get("activa", True):
         imprimir("  guardia      apagada en tus ajustes")
 
-    # 3. El bot, si hay token.
-    token = (args.token or os.environ.get(ENV_TOKEN, "")
-             or guardados["telegram"]["token"] or "")
-    if token and not args.sin_bot:
+    # 3. El bot. El hilo se levanta siempre —aunque todavía no haya token—
+    #    porque el bot mira los ajustes en cada vuelta: así se le puede poner
+    #    el token desde el móvil y empieza a contestar solo, sin reiniciar.
+    #    Antes el hilo no se creaba sin token, y poner el token en Ajustes no
+    #    servía para nada hasta volver a arrancar; lo único que se notaba era
+    #    que escribías al bot y no pasaba nada.
+    bot = None
+    de_fuera = args.token or os.environ.get(ENV_TOKEN, "")
+    token = de_fuera or guardados["telegram"]["token"] or ""
+    if not args.sin_bot:
         from ..telegrama import Bot, TelegramNoDisponible
 
         # Sesión propia, igual que la guardia: el bot vive en su hilo y
         # compartir la conexión de SQLite con las peticiones de la web es una
         # carrera esperando a pasar. Cada uno la suya, y que SQLite haga su
         # trabajo, que para eso está en modo WAL.
-        bot = Bot(token=token, permitidos=_chats(args, guardados),
+        bot = Bot(token=token, token_fijo=bool(de_fuera),
+                  permitidos=_chats(args, guardados),
                   sesion=Sesion(cliente=comun.construir_cliente(args),
                                 ruta_almacen=opciones["memoria"]),
-                  modelo=opciones["modelo"])
-        try:
-            quien = bot.comprobar()
-            threading.Thread(target=bot.escuchar, daemon=True, name="telegram").start()
+                  modelo=opciones["modelo"],
+                  api_key=guardados.get("ollama_api_key") or "",
+                  releer=lambda: modulo_ajustes.cargar(getattr(args, "ajustes", None)))
+        quien = None
+        if token:
+            try:
+                quien = bot.comprobar()
+            except TelegramNoDisponible as exc:
+                _problema(f"El bot de Telegram no arranca: {exc}",
+                          "El resto sigue funcionando, y el bot lo reintenta: si "
+                          "arreglas el token en Ajustes se pone en marcha solo.")
+        threading.Thread(target=lambda: bot.escuchar(avisar=_del_bot),
+                         daemon=True, name="telegram").start()
+        if quien:
             imprimir(f"  telegram     «{quien['nombre']}»"
                      + (f" · {quien['enlace']}" if quien.get("enlace") else ""))
             if not bot.permitidos:
-                imprimir("               ⚠ sin chats permitidos: no contestará a "
-                         "nadie (escríbele y te dirá tu id)")
-        except TelegramNoDisponible as exc:
-            _problema(f"El bot de Telegram no arranca: {exc}",
-                      "El resto sigue funcionando; arréglalo cuando quieras.")
-    elif not token:
-        imprimir("  telegram     apagado (sin token; ponlo en Ajustes, o con "
-                 f"--token o {ENV_TOKEN})")
+                imprimir("               ⚠ sin chats permitidos todavía: escríbele y "
+                         "te dirá tu identificador")
+                imprimir("                 de chat, y sale con tu nombre en Ajustes "
+                         "para ponerlo de un toque")
+        elif not token:
+            imprimir("  telegram     esperando token · ponlo en Ajustes (o con "
+                     f"--token / {ENV_TOKEN})")
+            imprimir("               y empieza a escuchar solo, sin reiniciar esto")
 
     # 4. La interfaz, que es la que se queda en primer plano.
     aplicacion = Servidor(sesion=sesion, clave=opciones["clave"],
                           carpeta_briefings=opciones["briefings"],
                           modelo=opciones["modelo"], ollama=guardados["ollama"],
+                          api_key=guardados.get("ollama_api_key") or "",
                           ruta_ajustes=getattr(args, "ajustes", None))
+    # Para que la pestaña Ajustes pueda decir si el bot está escuchando de
+    # verdad, en vez de dejarte adivinándolo desde el móvil.
+    aplicacion.bot = bot
     a_la_red = guardados["web"]["lan"] and not args.solo_local
     host = "0.0.0.0" if a_la_red else "127.0.0.1"
     imprimir("")

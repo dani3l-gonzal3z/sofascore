@@ -41,6 +41,70 @@ def cmd_tools(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_dictamen(args: argparse.Namespace) -> int:
+    """El expediente de un partido, entero, a un modelo grande."""
+    from .. import ajustes as modulo_ajustes
+    from ..analista import Analista, OllamaNoDisponible
+    from ..expediente import a_texto, expediente
+    from ..sesion import Sesion
+
+    guardados = modulo_ajustes.cargar(getattr(args, "ajustes", None))
+    valor = modulo_ajustes.valor
+    cliente = comun.construir_cliente(args)
+    sesion = Sesion(cliente=cliente,
+                    ruta_almacen=valor(args, "db", guardados["memoria"]))
+    try:
+        if args.abastecer:
+            from ..abastecer import abastecer
+
+            abastecer(cliente, sesion.almacen, args.consulta, avisar=imprimir)
+            imprimir("")
+
+        datos = expediente(sesion.almacen, args.consulta, cliente=cliente,
+                           ultimos=args.ultimos)
+        if not datos.get("disponible"):
+            imprimir(datos.get("nota", "No hay expediente."))
+            return 1
+        documento = a_texto(datos)
+
+        if args.solo_expediente:
+            imprimir(documento)
+            imprimir("")
+            imprimir(f"({datos['tamano']['caracteres']} caracteres, "
+                     f"~{datos['tamano']['tokens_aprox']} tokens)")
+            return 0
+
+        clave = args.api_key or guardados.get("ollama_api_key") or ""
+        modelo = valor(args, "modelo", guardados["modelo"])
+        url = args.url or (None if clave else guardados["ollama"])
+        analista = Analista(sesion=sesion, modelo=modelo, api_key=clave,
+                            temperatura=args.temperatura,
+                            **({"url": url} if url else {}))
+
+        donde = "la nube de Ollama" if clave else analista.url
+        imprimir(f"{datos['partido']['local']} - {datos['partido']['visitante']}")
+        imprimir(f"Expediente: {datos['tamano']['caracteres']} caracteres "
+                 f"(~{datos['tamano']['tokens_aprox']} tokens) → {modelo} en {donde}")
+        if clave:
+            imprimir("⚠ Esto sale de tu ordenador: el expediente viaja a Ollama.")
+        imprimir("")
+        try:
+            salida = analista.dictaminar(documento, " ".join(args.pregunta))
+        except OllamaNoDisponible as exc:
+            imprimir(f"✗ {exc}")
+            return 2
+        for linea in salida["respuesta"].splitlines():
+            imprimir(linea)
+        if salida.get("tokens"):
+            imprimir("")
+            imprimir(f"({salida['tokens'].get('prompt_eval_count', '?')} tokens de "
+                     f"entrada, {salida['tokens'].get('eval_count', '?')} de salida)")
+        depuracion(args, cliente)
+        return 0
+    finally:
+        sesion.close()
+
+
 def cmd_analista(args: argparse.Namespace) -> int:
     """Pregunta en castellano; el modelo local busca los datos y contesta."""
     from ..analista import Analista, OllamaNoDisponible, texto_de_paso
@@ -164,6 +228,31 @@ def registrar(sub, comun, informe, listado) -> None:
     p_web.add_argument("--db", help="Fichero de la memoria (por defecto: datos/cancha.db).")
     p_web.add_argument("--briefings", help="Carpeta de los briefings guardados.")
     p_web.set_defaults(func=cmd_web)
+
+    p_dictamen = sub.add_parser(
+        "dictamen", parents=[comun],
+        help="El expediente entero de un partido a un modelo grande.",
+        description="Monta todo lo que se sabe del partido —pronóstico, estilos, "
+                    "cruces, últimos partidos, árbitro, mercado y patrones— y se lo "
+                    "da de una vez a un modelo para que ate cabos. Con --api-key "
+                    "habla con la nube de Ollama, y entonces el expediente sale de "
+                    "tu ordenador. Los números los sigue calculando Python.")
+    p_dictamen.add_argument("consulta", help="Id, URL o 'Equipo A vs Equipo B'.")
+    p_dictamen.add_argument("pregunta", nargs="*",
+                            help="Qué quieres saber. Sin nada, un análisis general.")
+    p_dictamen.add_argument("--modelo", help="Modelo. Por defecto, el de tus ajustes.")
+    p_dictamen.add_argument("--api-key", help="Clave de la nube de Ollama.")
+    p_dictamen.add_argument("--url", help="Otro servidor compatible con la API.")
+    p_dictamen.add_argument("--ultimos", type=int, default=6,
+                            help="Partidos anteriores por equipo en el expediente.")
+    p_dictamen.add_argument("--abastecer", action="store_true",
+                            help="Traer antes lo que falte de ese partido.")
+    p_dictamen.add_argument("--solo-expediente", action="store_true",
+                            help="Solo enseñar el documento, sin mandarlo a nadie.")
+    p_dictamen.add_argument("--temperatura", type=float, default=0.3)
+    p_dictamen.add_argument("--ajustes", help="Otro fichero de ajustes.")
+    p_dictamen.add_argument("--db", help="Fichero de la memoria.")
+    p_dictamen.set_defaults(func=cmd_dictamen)
 
     p_analista = sub.add_parser(
         "analista", parents=[comun],

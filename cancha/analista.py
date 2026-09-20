@@ -38,6 +38,10 @@ from .sesion import Sesion
 
 #: Dónde escucha Ollama si no le han dicho otra cosa.
 URL_OLLAMA = "http://localhost:11434"
+#: La nube de Ollama, que habla exactamente el mismo protocolo: mismo
+#: ``/api/chat``, mismo cuerpo, y una clave en la cabecera. Por eso aquí cabe
+#: en cuatro líneas y no en un módulo aparte.
+URL_NUBE = "https://ollama.com"
 #: El de casa. Hermes está afinado para llamar funciones, que es todo lo que
 #: se le pide aquí.
 MODELO_POR_DEFECTO = "hermes3"
@@ -85,23 +89,76 @@ Cuando termines de usar herramientas, escribe la respuesta final directamente.\
 """
 
 
+#: Para cuando se le da el expediente entero de un partido y se le pide que
+#: ate cabos. Es lo contrario del bucle de herramientas: aquí no tiene que
+#: averiguar qué pedir, tiene que **pensar** con lo que ya tiene delante.
+INSTRUCCIONES_DICTAMEN = """\
+Eres un analista de fútbol. Abajo tienes el expediente completo de un partido:
+el pronóstico ya calculado, cómo juega cada equipo comparado con su liga, los
+cruces entre lo que uno hace bien y el otro defiende mal, los últimos
+partidos, el árbitro, lo que dice el mercado y los patrones medidos.
+
+Tu trabajo es **atar cabos**, no recalcular.
+
+Reglas que no se negocian:
+
+1. **Todos los números salen del expediente.** No estimes, no promedies, no
+   redondees, no inventes una probabilidad. Si quieres decir una cifra que no
+   esté escrita abajo, no la digas. Puedes comparar dos cifras que sí estén.
+2. **Mira la muestra antes de afirmar.** «7 goles en 3 partidos» no es un
+   delantero en racha, son tres partidos. Cuando el expediente diga cuántos
+   partidos sostienen algo, tenlo en cuenta y dilo.
+3. **El mercado es un rival serio.** Sabe de alineaciones, bajas y dinero.
+   Donde el pronóstico y la cuota coinciden, no hay nada que ganar: dilo así.
+   Donde no coinciden, lo más probable sigue siendo que se equivoque el
+   pronóstico, no el mercado.
+4. **Un patrón que dice «se cae» fuera de muestra no se menciona como bueno.**
+5. **Nada es seguro.** El marcador más probable de un partido de fútbol ronda
+   el 10-12 %. Si das uno, di su probabilidad al lado.
+6. **Lo que el expediente no sabe, tú tampoco.** No hay alineaciones, ni
+   lesiones, ni si el partido vale algo. Si eso cambiaría tu lectura, dilo en
+   vez de suponerlo.
+
+Contesta en castellano. Primero la lectura en tres o cuatro frases, luego en
+qué te apoyas, y al final lo que te haría cambiar de opinión.\
+"""
+
+
 class OllamaNoDisponible(SofascoreError):
     """Ollama no contesta, o el modelo que se pide no está instalado."""
 
 
 def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 300.0,
-                flujo: bool = False) -> Any:
-    """Un POST (o GET) a Ollama. Es localhost: urllib sobra y no arrastra nada."""
+                flujo: bool = False, api_key: str = "") -> Any:
+    """Un POST (o GET) a Ollama, en casa o en su nube.
+
+    Con ``api_key`` se manda la cabecera ``Authorization``, que es lo único que
+    cambia entre hablar con el Ollama de tu máquina y con el de pago.
+    """
     datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
+    cabeceras = {"Content-Type": "application/json"}
+    if api_key:
+        cabeceras["Authorization"] = f"Bearer {api_key}"
     peticion = urllib.request.Request(
         url, data=datos, method="POST" if datos is not None else "GET",
-        headers={"Content-Type": "application/json"})
+        headers=cabeceras)
     try:
         respuesta = urllib.request.urlopen(peticion, timeout=timeout)  # noqa: S310
     except urllib.error.HTTPError as exc:
         detalle = exc.read().decode("utf-8", "replace")[:300]
+        if exc.code in (401, 403):
+            raise OllamaNoDisponible(
+                f"La clave no vale para {url} ({exc.code}). Sácala en "
+                "ollama.com → Settings → API keys, y ponla en Ajustes → "
+                f"clave de la nube. Dijo: {detalle}") from exc
+        if exc.code == 402:
+            raise OllamaNoDisponible(
+                f"No te queda saldo en la nube de Ollama. Dijo: {detalle}") from exc
         raise OllamaNoDisponible(f"Ollama ha contestado {exc.code}: {detalle}") from exc
     except OSError as exc:
+        if url.startswith("https://"):
+            raise OllamaNoDisponible(
+                f"No llego a {url}. ¿Hay internet?") from exc
         raise OllamaNoDisponible(
             f"No hay nadie escuchando en {url}. ¿Está Ollama arrancado? "
             "Instálalo desde ollama.com y luego: ollama serve"
@@ -144,6 +201,9 @@ class Analista:
     sesion: Sesion | None = None
     modelo: str = MODELO_POR_DEFECTO
     url: str = URL_OLLAMA
+    #: Clave para la nube de Ollama. Vacía = el de tu máquina, gratis y en
+    #: local. Con clave, los datos del partido salen de tu ordenador.
+    api_key: str = ""
     temperatura: float = 0.2
     contexto: int = 16384
     max_vueltas: int = MAX_VUELTAS
@@ -158,7 +218,11 @@ class Analista:
     def __post_init__(self) -> None:
         if self.pedir is None:
             self.pedir = lambda ruta, cuerpo=None: _pedir_http(
-                f"{self.url.rstrip('/')}{ruta}", cuerpo)
+                f"{self.url.rstrip('/')}{ruta}", cuerpo, api_key=self.api_key)
+        # Con clave y sin decir a dónde, se supone la nube: nadie pone una
+        # clave de pago para hablar con el Ollama de su propio portátil.
+        if self.api_key and self.url == URL_OLLAMA:
+            self.url = URL_NUBE
         if self.sesion is None:
             self.sesion = Sesion()
             self._propia = True
@@ -205,6 +269,7 @@ class Analista:
         return {
             "disponible": True,
             "url": self.url,
+            "en_la_nube": bool(self.api_key),
             "modelo": self.modelo,
             "instalado": tiene,
             "modelos": instalados,
@@ -242,6 +307,40 @@ class Analista:
         if not isinstance(argumentos, dict):
             argumentos = {}
         return ejecutar(nombre, argumentos, sesion=self.sesion, max_chars=self.max_chars)
+
+    def dictaminar(self, expediente: str, pregunta: str = "",
+                   instrucciones: str | None = None) -> dict:
+        """Una sola llamada con el expediente entero delante. Sin herramientas.
+
+        Es lo que tiene sentido con un modelo grande: no que sepa qué pedir,
+        sino que vea todo a la vez y ate cabos. Y al no dar vueltas, se paga
+        una sola vez.
+        """
+        sistema = instrucciones or INSTRUCCIONES_DICTAMEN
+        peticion = pregunta.strip() or (
+            "Analiza este partido: qué esperas que pase y por qué, qué te parece "
+            "lo más aprovechable y qué te haría cambiar de opinión.")
+        mensajes = [
+            {"role": "system", "content": sistema},
+            {"role": "user", "content": f"{expediente}\n\n---\n\n{peticion}"},
+        ]
+        respuesta = self.pedir("/api/chat", {
+            "model": self.modelo,
+            "messages": mensajes,
+            "stream": False,
+            "options": {"temperature": self.temperatura, "num_ctx": self.contexto},
+        }) or {}
+        texto = ((respuesta.get("message") or {}).get("content") or "").strip()
+        return {
+            "respuesta": texto,
+            "modelo": self.modelo,
+            "url": self.url,
+            "en_la_nube": bool(self.api_key),
+            "caracteres_enviados": len(expediente) + len(sistema) + len(peticion),
+            # Lo que cuenta Ollama, cuando lo cuenta: es lo que se paga.
+            "tokens": {k: respuesta[k] for k in
+                       ("prompt_eval_count", "eval_count") if k in respuesta},
+        }
 
     def preguntar(self, pregunta: str, historial: list[dict] | None = None,
                   al_paso: Callable[[Paso], None] | None = None) -> dict:
@@ -339,5 +438,6 @@ def texto_de_paso(paso: dict) -> str:
     return ""
 
 
-__all__ = ["Analista", "Paso", "OllamaNoDisponible", "texto_de_paso",
-           "INSTRUCCIONES", "URL_OLLAMA", "MODELO_POR_DEFECTO", "ALTERNATIVOS"]
+__all__ = ["ALTERNATIVOS", "INSTRUCCIONES", "INSTRUCCIONES_DICTAMEN",
+           "MODELO_POR_DEFECTO", "URL_NUBE", "URL_OLLAMA", "Analista",
+           "OllamaNoDisponible", "Paso", "texto_de_paso"]

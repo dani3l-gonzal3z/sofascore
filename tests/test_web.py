@@ -387,6 +387,8 @@ POR_OTRO_CAMINO = {
     "carrera_xg": "viene dentro de analisis_partido",
     "estado_de_la_memoria": "la página usa /api/estado, que es lo mismo con el barrido dentro",
     "casi_seguro": "la página usa /api/seguro, que además permite calibrar",
+    "expediente_partido": "la página usa /api/dictamen, que lo monta y además se "
+                          "lo manda al modelo; el documento se enseña entero dentro",
 }
 
 
@@ -598,5 +600,111 @@ def test_los_ajustes_ofrecen_quien_ha_escrito_al_bot(servidor, tmp_path):
 def test_la_pagina_explica_como_conseguir_el_id_de_chat(servidor):
     html = _pagina()
     assert "telegram_vistos" in html
-    assert "escríbele a tu bot" in html
-    assert "Te contestará con tu identificador" in html
+    assert "¿Me ha escrito ya?" in html, "hay que poder mirarlo sin recargar"
+    assert "identificador de chat" in html
+
+
+def test_la_pagina_no_manda_reiniciar_para_el_bot(servidor):
+    """Decía «guarda el token y reinicia cancha», y ya no hace falta.
+
+    Aquello mandaba a reiniciar el programa para algo que ahora se coge al
+    vuelo, y peor: si no reiniciabas, escribirle al bot no hacía nada.
+    """
+    html = _pagina()
+    assert "guarda el token aquí, reinicia cancha" not in html
+    assert "el bot se cogen al arrancar" not in html
+    assert "el bot mira los ajustes" in html
+    assert "no hace falta reiniciar" in html
+
+
+def test_la_pagina_dice_si_el_bot_esta_escuchando(servidor):
+    html = _pagina()
+    assert "telegram_estado" in html
+    assert "El bot está escuchando" in html
+    assert "esperando un token" in html
+
+
+def test_el_estado_del_bot_sale_en_los_ajustes(servidor, tmp_path):
+    """Sin bot es None, y con bot es lo que diga él: se mira desde el móvil."""
+    servidor.ruta_ajustes = str(tmp_path / "aj_estado.json")
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/ajustes")
+    assert cuerpo["telegram_estado"] is None
+
+    class BotDeMentira:
+        def estado(self):
+            return {"token_puesto": True, "escuchando": True,
+                    "permitidos": [42], "ultimo_error": ""}
+
+    servidor.bot = BotDeMentira()
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/ajustes")
+    assert cuerpo["telegram_estado"]["escuchando"] is True
+
+
+def test_el_token_del_bot_ya_no_pide_reiniciar(servidor, tmp_path):
+    """Lo coge el bot solo, y decir lo contrario hacía reiniciar sin motivo."""
+    servidor.ruta_ajustes = str(tmp_path / "aj_frio.json")
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes",
+                          {"telegram": {"token": "123:ABC", "chats": [42]}})
+    assert cuerpo["guardado"] is True
+    assert cuerpo["hace_falta_reiniciar"] == []
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes", {"web": {"puerto": 9191}})
+    assert cuerpo["hace_falta_reiniciar"] == ["el puerto"], "el puerto sí"
+
+
+def test_la_clave_de_la_nube_no_sale_por_la_api(servidor, tmp_path):
+    """Como el token del bot: se escribe, pero no se devuelve."""
+    ruta = tmp_path / "aj_nube.json"
+    servidor.ruta_ajustes = str(ruta)
+    _pedir(servidor, "POST", "/api/ajustes", {"ollama_api_key": "s3cr3ta-de-verdad"})
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/ajustes")
+    assert "s3cr3ta-de-verdad" not in json.dumps(cuerpo)
+    assert cuerpo["ajustes"]["ollama_api_key_puesto"] is True
+
+    from cancha.ajustes import cargar
+
+    assert cargar(ruta)["ollama_api_key"] == "s3cr3ta-de-verdad", "sí se guarda"
+
+
+def test_guardar_los_ajustes_no_borra_la_clave_de_la_nube(servidor, tmp_path):
+    ruta = tmp_path / "aj_nube2.json"
+    servidor.ruta_ajustes = str(ruta)
+    _pedir(servidor, "POST", "/api/ajustes", {"ollama_api_key": "la-buena"})
+    _, _, leidos = _pedir(servidor, "GET", "/api/ajustes")
+    # La página devuelve lo que se le enseñó, con la clave tapada.
+    _pedir(servidor, "POST", "/api/ajustes",
+           {"ollama_api_key": leidos["ajustes"]["ollama_api_key"],
+            "guardia": {"hora": "04:00"}})
+
+    from cancha.ajustes import cargar
+
+    assert cargar(ruta)["ollama_api_key"] == "la-buena"
+    assert cargar(ruta)["guardia"]["hora"] == "04:00"
+
+
+def test_el_dictamen_monta_el_expediente_y_lo_manda(servidor, monkeypatch):
+    from cancha.analista import Analista
+
+    monkeypatch.setattr(Analista, "dictaminar",
+                        lambda self, doc, preg="": {"respuesta": "Lo veo claro.",
+                                                    "modelo": self.modelo,
+                                                    "en_la_nube": False,
+                                                    "recibido": len(doc)})
+    estado, _, cuerpo = _pedir(servidor, "POST", "/api/dictamen",
+                               {"partido": str(EVENT_ID)})
+    assert estado == 200, cuerpo
+    assert cuerpo["respuesta"] == "Lo veo claro."
+    assert cuerpo["expediente"]["texto"].startswith("# Real Madrid")
+    assert cuerpo["expediente"]["tokens_aprox"] > 0
+    assert cuerpo["recibido"] == len(cuerpo["expediente"]["texto"])
+
+
+def test_el_dictamen_sin_partido_lo_dice(servidor):
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/dictamen", {})
+    assert "Falta el partido" in cuerpo["error"]
+
+
+def test_la_pagina_avisa_de_que_la_nube_saca_los_datos_de_tu_ordenador(servidor):
+    html = _pagina()
+    assert "clave de la nube de ollama" in html
+    assert "SALE de tu ordenador" in html
+    assert "tarjetaDictamen" in html

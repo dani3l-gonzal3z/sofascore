@@ -36,6 +36,7 @@ cancha ajustes guardia.hora=02:00         # a partir de ahora
 | `ligas` | Las competiciones que sigues (ver abajo) | todas |
 | `modelo` | Modelo de Ollama para el analista y el bot | `hermes3` |
 | `ollama` | Dónde escucha Ollama | `http://127.0.0.1:11434` |
+| `ollama_api_key` | Clave de la nube de Ollama. Con ella se usa `ollama.com` y **los datos salen de tu ordenador** (ver [Dictamen](dictamen.md)) | vacía |
 | `web.puerto` | Puerto de la interfaz | `8765` |
 | `web.lan` | Abrirla a la wifi | `true` |
 | `web.clave` | Clave de la interfaz | vacía |
@@ -43,10 +44,13 @@ cancha ajustes guardia.hora=02:00         # a partir de ahora
 | `telegram.chats` | Quién puede hablarle | vacío |
 | `memoria`, `briefings` | Dónde viven los ficheros | `datos/…` |
 
-**La hora se coge al vuelo.** La guardia mira los ajustes mientras espera, así
-que cambiarla desde el móvil a las once de la noche vale para esa misma noche.
-El puerto, la clave y el bot se leen al arrancar: la interfaz te avisa de cuáles
-necesitan reiniciar.
+**Casi todo se coge al vuelo.** La guardia mira los ajustes mientras espera, así
+que cambiar la hora desde el móvil a las once de la noche vale para esa misma
+noche. El bot de Telegram hace lo mismo en cada vuelta: puedes ponerle el token
+y los chats permitidos con el programa funcionando y empieza a contestar él solo
+en menos de medio minuto. Lo único que se lee al arrancar es lo que decide cómo
+se abre el puerto —`web.puerto`, `web.lan` y `web.clave`—, y la interfaz te avisa
+cuando tocas uno de esos tres.
 
 ## Las ligas
 
@@ -82,6 +86,16 @@ El fichero se escribe con permisos solo para ti donde el sistema lo permite. En
 Windows eso no significa gran cosa y no se finge que sí: si compartes el
 ordenador, ten en cuenta que el token está ahí.
 
+## La clave de la nube
+
+`ollama_api_key` se tapa igual que el token del bot, y por la misma razón. Pero
+tiene una consecuencia que el resto de los ajustes no tiene: **con clave, los
+datos del partido salen de tu ordenador** y viajan a Ollama. Es la única parte de
+todo esto que no es local, y en la interfaz va con su aviso. Sin clave, el
+analista habla con el Ollama de tu máquina y no sale nada.
+
+Está contada entera en **[Dictamen](dictamen.md)**.
+
 ## En una Surface Laptop (Copilot+, ARM64)
 
 Merece un apartado porque hay tres cosas que se comportan distinto. Antes de
@@ -107,6 +121,11 @@ Si el analista se te hace lento, baja de modelo antes que de expectativas:
 ```bash
 cancha ajustes modelo=qwen2.5:7b
 ```
+
+Y si lo que quieres es un modelo **grande** —de los que en 16 GB no entran—, esa
+es justo la puerta de la nube de Ollama: se le manda el expediente del partido ya
+calculado y contesta un modelo de los que aquí no caben. Cuesta dinero y los
+datos salen de tu ordenador; está en **[Dictamen](dictamen.md)**.
 
 **3. La suspensión.** Es lo de siempre de estos portátiles: con la tapa cerrada
 se duermen. La guardia le pide al sistema que no suspenda mientras trabaja

@@ -4,6 +4,90 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.12.0
+
+Un modelo grande mirando el partido entero, y el arreglo del bot que no
+contestaba.
+
+### Novedades
+
+- **`cancha dictamen`: todo el expediente a un modelo, de una vez.** El analista
+  de casa trabaja a cachitos —pide una herramienta, lee, pide otra— y con 8B en
+  tu ordenador es lo correcto. Con un modelo grande es desperdiciarlo: lo que se
+  quiere de él no es que sepa qué pedir, sino que **vea todo a la vez y ate
+  cabos**. Que se dé cuenta de que el equipo que mejor llega es el que peor
+  defiende los córners y enfrente hay alguien que vive de eso.
+
+  Así que `cancha/expediente.py` monta el expediente completo de un partido
+  —pronóstico calculado, cómo juega cada uno comparado con su liga, los cruces,
+  los últimos seis de cada equipo y los seis entre ellos, jugadores, árbitro,
+  mercado y los patrones medidos— y lo manda en **una** llamada, sin
+  herramientas. Está en la línea de comandos, en la interfaz (tarjeta Dictamen)
+  y en el bot (`/dictamen`).
+
+  Los números van **ya calculados**: el expediente no trae datos en bruto para
+  que el modelo los promedie. El modelo pone el razonamiento y la aritmética la
+  pone Python, que es la línea de siempre y con un modelo grande importa más, no
+  menos: se equivoca con más aplomo. Y el documento cierra con un apartado que
+  importa tanto como los otros, **«Lo que este expediente NO sabe»**
+  —alineaciones, lesiones, si el partido vale algo—, para que no rellene esos
+  huecos por su cuenta.
+
+  Medido: 2.263 caracteres en un partido sin historia detrás, unos 1.100 más
+  cuando la memoria ya tiene los doce partidos anteriores. Del orden de 900
+  tokens por partido. `--solo-expediente` lo enseña sin gastar nada.
+
+- **La nube de Ollama, con clave.** `ollama_api_key` en los ajustes y ya: el
+  protocolo es el mismo que en casa, así que solo cambia la URL a
+  `https://ollama.com` y la clave va en la cabecera `Authorization`. Con eso
+  contesta un modelo de los que en 16 GB no entran.
+
+  **Y hay que decirlo claro: con clave, el expediente de cada partido SALE de tu
+  ordenador.** Es la única parte de todo esto que no es local. La clave se tapa
+  igual que el token del bot —`••••••••` y no se devuelve por la API—, el aviso
+  sale en la interfaz cada vez, y en la respuesta vienen los tokens que Ollama
+  dice haber cobrado. Una clave que no vale o un saldo agotado se explican por
+  su nombre en vez de dejar un 401 pelado. Todo en
+  **[Dictamen](docs/dictamen.md)**.
+
+### Arreglos
+
+- **El bot de Telegram no contestaba, y lo peor: en silencio.** Guardabas el
+  token en la pestaña Ajustes, le escribías al bot y no pasaba nada. El hilo del
+  bot solo se creaba **si había token al arrancar el programa**, así que guardarlo
+  después no servía de nada hasta reiniciar, y nadie lo decía en ninguna parte.
+
+  Ahora el bot mira los ajustes **en cada vuelta**: el hilo se levanta siempre,
+  espera a que aparezca el token y empieza a escuchar él solo en menos de medio
+  minuto. Cuando lo coge, dice quién es y dónde escribirle. Y lo mismo con los
+  chats permitidos y con el modelo: se cambian con el programa funcionando. Un
+  `--token` de la línea de comandos sigue mandando sobre los ajustes, que si no
+  lo borraría el primer fichero de ajustes vacío.
+
+  Lo que la interfaz decía —«guarda el token y reinicia cancha»— era además
+  mentira a medias: ahora dice si el bot **está escuchando**, y si no, qué le
+  pasa. Que es lo que hacía falta para no tener que ir al ordenador a mirarlo.
+
+- **Los fallos del bot iban a ninguna parte.** El hilo se arrancaba sin a quién
+  avisar, así que un token caducado o un problema de red se los tragaba el
+  silencio. Ahora se cuentan en la consola y el último se guarda para verlo desde
+  el móvil. El mismo fallo se dice **una** vez: un token malo daba seis líneas por
+  minuto y tapaba todo lo demás.
+
+- **Dos `cancha` abiertos con el mismo token dejaban el bot mudo.** Telegram solo
+  permite un oyente por token y devuelve un 409 al segundo, sin más explicación.
+  Ahora se dice con palabras: «hay otro programa escuchando con este mismo token,
+  cierra el otro».
+
+- **Y nada tumba el hilo del bot.** Cualquier excepción inesperada lo mataba, y
+  morirse en segundo plano es quedarse mudo sin que nadie se entere: exactamente
+  el fallo de arriba por otro camino. Ahora la vuelta se cuenta, se dice y se
+  sigue.
+
+- **El token y los chats ya no salen en «hace falta reiniciar».** Se cogen al
+  vuelo; lo único que de verdad se lee al arrancar es lo que decide cómo se abre
+  el puerto: `web.puerto`, `web.lan` y `web.clave`.
+
 ## 0.11.3
 
 Más cosas que salieron usándolo.

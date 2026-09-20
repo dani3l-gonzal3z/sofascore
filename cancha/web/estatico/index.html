@@ -208,6 +208,7 @@ form.busca { display: flex; gap: 8px; flex-wrap: wrap; }
        padding: 9px 12px; border-radius: 0 var(--r-s) var(--r-s) 0; font-size: 13.5px; }
 .msg.mal { border-color: var(--bandera); background: var(--bandera-t); }
 .msg.ojo { border-color: var(--ambar); background: var(--ambar-t); }
+.msg.bien { border-color: var(--cesped); background: var(--cesped-t); }
 .espera { color: var(--gris); font-size: 13.5px; display: flex; align-items: center; gap: 9px;
           padding: 14px 0; }
 .espera::before { content: ""; width: 14px; height: 14px; border: 2px solid var(--linea-2);
@@ -1206,6 +1207,7 @@ async function pintarPartido(raiz, consulta) {
 
   raiz.append(abastecer(p.id));
   raiz.append(tarjetaPronostico(consulta));
+  raiz.append(tarjetaDictamen(consulta));
 
   raiz.append(tarjeta("Los once y los que salieron",
     plegable("Alineaciones, minutos y notas", async () => {
@@ -1346,6 +1348,39 @@ async function pintarPartido(raiz, consulta) {
               t.tiros || [], (f, c) => c.k === "xg" ? n2(f.xg) : f[c.k])];
         }) : null);
     } }, "Cruzar con Understat, ClubElo y football-data")));
+}
+
+/* El dictamen: se monta el expediente entero —que es mucho texto— y se le da
+   de una vez a un modelo para que ate cabos. Es lo más caro que hace la
+   página, así que no se pide solo: hay que darle al botón. */
+function tarjetaDictamen(consulta) {
+  const cuerpo = el("div", { class: "bloque" });
+  const boton = el("button", { class: "btn", type: "button" }, "Pedir el dictamen");
+  boton.addEventListener("click", async () => {
+    boton.disabled = true;
+    boton.textContent = "Pensando…";
+    cuerpo.replaceChildren(espera("Montando el expediente y mandándolo al modelo. "
+      + "Con uno grande esto tarda; puedes irte a otra pantalla."));
+    const d = await api.post("/api/dictamen", { partido: String(consulta) });
+    boton.disabled = false;
+    boton.textContent = "Pedir otro";
+    const err = fallo(d);
+    if (err) { cuerpo.replaceChildren(err); return; }
+    poner(cuerpo,
+      el("div", { class: "fila peq gris" },
+        etiqueta(d.modelo || "?", "azul"),
+        el("span", {}, `${d.expediente.tokens_aprox} tokens de expediente`),
+        d.en_la_nube ? etiqueta("en la nube", "ambar") : etiqueta("en tu máquina", "verde")),
+      el("div", { class: "bloque" }, ...(d.respuesta || "").split("\n\n")
+        .filter((p) => p.trim()).map((p) => el("p", {}, p))),
+      el("details", {}, el("summary", {}, "El expediente que se le ha dado"),
+        el("pre", { class: "registro" }, d.expediente.texto)),
+      nota("Los números del expediente los calcula el programa; el modelo solo "
+        + "ata cabos. Si dice una cifra que no está ahí, se la ha inventado."));
+  });
+  return tarjeta("Dictamen", cuerpo, boton,
+    nota("Le da al modelo todo lo que se sabe del partido de una vez, en vez de "
+      + "que lo pida a cachitos. Con un modelo grande es donde se nota."));
 }
 
 /* El pronóstico: marcador, córners y tarjetas. Los números salen calculados
@@ -2057,6 +2092,53 @@ function tarjetaAjustes() {
       class: "sug", "data-liga": clave, type: "button",
       onclick: () => alterna(clave) }, texto);
 
+    /* Lo que pasa con el bot ahora mismo, y a quién puedes añadir. Se puede
+       volver a mirar sin recargar la página ni perder lo escrito: el camino
+       normal es guardar el token, escribirle al bot desde Telegram y mirar
+       aquí a los pocos segundos. */
+    const cajaBot = el("div", { class: "bloque" });
+    const pintaBot = (datos) => {
+      const e = datos.telegram_estado, vistos = datos.telegram_vistos || [];
+      const puesto = (datos.ajustes.telegram || {}).token_puesto;
+      const estado = !e
+        ? nota("Este cancha se arrancó sin bot (o con --sin-bot).")
+        : e.ultimo_error ? msg("El bot dice: " + e.ultimo_error, "mal")
+        : e.escuchando ? msg("El bot está escuchando. Escríbele por Telegram.", "bien")
+        : e.token_puesto ? nota("El bot arranca…")
+        : msg("El bot está esperando un token. Guárdalo aquí arriba y empieza a "
+            + "escuchar él solo en menos de medio minuto: no hace falta reiniciar "
+            + "nada.", "ojo");
+      poner(cajaBot, estado,
+        vistos.length
+          ? el("div", { class: "bloque" },
+              el("span", { class: "peq gris" }, "Te han escrito desde:"),
+              el("div", { class: "fila" }, ...vistos.map((v) =>
+                el("button", { class: "sug", type: "button", onclick: () => {
+                  const ya = campos.chats.value.split(",").map((x) => x.trim())
+                    .filter(Boolean);
+                  if (ya.indexOf(String(v.chat)) < 0) ya.push(String(v.chat));
+                  campos.chats.value = ya.join(", ");
+                } }, `${v.quien || "alguien"} · ${v.chat}`)),
+                el("button", { class: "btn plano s", type: "button",
+                  onclick: (ev) => mirarBot(ev.currentTarget) }, "Mirar otra vez")))
+          : el("div", { class: "bloque" },
+              el("span", { class: "peq gris" },
+                puesto
+                  ? "Nadie le ha escrito todavía. Escríbele por Telegram y pulsa aquí: "
+                    + "te contesta con tu identificador y sale como un botón."
+                  : "Guarda el token, escríbele por Telegram y pulsa aquí: te contesta "
+                    + "con tu identificador de chat y sale como un botón."),
+              el("button", { class: "btn plano s", style: "justify-self:start",
+                type: "button", onclick: (ev) => mirarBot(ev.currentTarget) },
+                "¿Me ha escrito ya?")));
+    };
+    const mirarBot = async (boton) => {
+      if (boton) { boton.disabled = true; boton.textContent = "Mirando…"; }
+      const frescos = await api.get("/api/ajustes");
+      if (fallo(frescos)) { if (boton) boton.disabled = false; return; }
+      pintaBot(frescos);
+    };
+
     const porGrupo = {};
     for (const c of d.competiciones || []) (porGrupo[c.grupo] ||= []).push(c);
 
@@ -2119,7 +2201,20 @@ function tarjetaAjustes() {
             ? nota(`${d.modelos.length} instalados en Ollama.`)
             : nota("No veo Ollama. Escribe el nombre igualmente: se usará cuando lo "
                 + "arranques."),
-        campo("ollama", "dónde escucha ollama", { value: a.ollama })),
+        campo("ollama", "dónde escucha ollama", { value: a.ollama },
+          "Solo se usa sin clave de nube."),
+        campo("nube", "clave de la nube de ollama",
+          { type: "password", value: a.ollama_api_key,
+            placeholder: "vacío = el modelo de tu máquina" },
+          a.ollama_api_key_puesto ? "Hay una guardada. Déjala como está para no tocarla."
+            : "ollama.com → Settings → API keys."),
+        a.ollama_api_key_puesto
+          ? msg("Con clave, el expediente de cada partido SALE de tu ordenador y "
+              + "viaja a Ollama. Es la única parte de esto que no es local. Los "
+              + "datos son de fútbol público, pero conviene saberlo.", "ojo")
+          : nota("Sin clave todo se queda en tu máquina. Con clave puedes usar "
+              + "modelos grandes que aquí no caben; mira en ollama.com cuáles hay "
+              + "y a cómo están.")),
 
       el("hr", { class: "hr" }),
       el("div", { class: "bloque" },
@@ -2140,27 +2235,14 @@ function tarjetaAjustes() {
             : "Te lo da @BotFather en Telegram con /newbot."),
         campo("chats", "chats permitidos", { value: (t.chats || []).join(", ") }),
         /* El identificador de chat es un número que nadie se sabe. En vez de
-           pedirlo a secas, se explican los tres pasos y se ofrece de un botón
-           a quien ya le haya escrito al bot. */
-        (d.telegram_vistos || []).length
-          ? el("div", { class: "bloque" },
-              el("span", { class: "peq gris" }, "Te han escrito desde:"),
-              el("div", { class: "fila" }, ...d.telegram_vistos.map((v) =>
-                el("button", { class: "sug", type: "button", onclick: () => {
-                  const ya = campos.chats.value.split(",").map((x) => x.trim())
-                    .filter(Boolean);
-                  if (ya.indexOf(String(v.chat)) < 0) ya.push(String(v.chat));
-                  campos.chats.value = ya.join(", ");
-                } }, `${v.quien || "alguien"} · ${v.chat}`))))
-          : el("div", { class: "bloque" },
-              msg("Es un número, y no se sabe de antemano. Para conseguirlo: "
-                + "guarda el token aquí, reinicia cancha, y escríbele a tu bot "
-                + "por Telegram. Te contestará con tu identificador, y aparecerá "
-                + "aquí como un botón.", "ojo")),
+           pedirlo a secas se explican los pasos, se dice si el bot está
+           escuchando de verdad —«le escribo y no hace nada» era casi siempre
+           eso— y se ofrece de un botón a quien ya le haya escrito. */
+        cajaBot,
         nota("Sin ningún chat permitido el bot no contesta a nadie, y es a "
           + "propósito: cualquiera que dé con su nombre puede escribirle."),
-        nota("El puerto, la clave y el bot se cogen al arrancar: cámbialos y "
-          + "reinicia.")),
+        nota("El token y los chats se cogen al vuelo: el bot mira los ajustes cada "
+          + "medio minuto. El puerto, la clave y la wifi sí piden reiniciar.")),
 
       el("hr", { class: "hr" }),
       avisoAjustes,
@@ -2171,6 +2253,7 @@ function tarjetaAjustes() {
           ligas: [...elegidas],
           modelo: campos.modelo.value.trim(),
           ollama: campos.ollama.value.trim(),
+          ollama_api_key: campos.nube.value,
           guardia: { activa: campos.activa.checked, hora: campos.hora.value,
             dias: Number(campos.dias.value), partidos: Number(campos.partidos.value),
             max: Number(campos.max.value) },
@@ -2190,14 +2273,19 @@ function tarjetaAjustes() {
         poner(avisoAjustes, msg("Guardado."),
           (r.hace_falta_reiniciar || []).length
             ? msg("Para que valga " + r.hace_falta_reiniciar.join(", ")
-                + ", reinicia cancha. La hora de la guardia sí se coge al vuelo.", "ojo")
+                + ", reinicia cancha. Lo demás —la hora, las ligas, el modelo y el "
+                + "bot— se coge al vuelo.", "ojo")
             : null);
+        // El bot tarda como mucho una espera larga en enterarse; se vuelve a
+        // mirar un poco después para que se vea aquí que ya escucha.
+        setTimeout(() => mirarBot(null), 2000);
       } }, "Guardar ajustes"),
       (d.problemas || []).length
         ? el("div", { class: "bloque" }, ...d.problemas.map((x) => msg(x, "ojo"))) : null,
       nota(`Se guardan en el ordenador, así que cambiarlo desde aquí lo cambia para `
         + `todo: la guardia, el bot y el terminal.`));
     pinta();
+    pintaBot(d);
   });
   cuerpo.append(espera("Leyendo los ajustes…"));
   return tarjeta("Ajustes", cuerpo);

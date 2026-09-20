@@ -37,6 +37,10 @@ POR_DEFECTO: dict[str, Any] = {
     "ligas": [],
     "modelo": "hermes3",
     "ollama": "http://127.0.0.1:11434",
+    #: Con clave, `ollama` se ignora y se habla con https://ollama.com. Los
+    #: datos del partido salen entonces de tu ordenador: es la única parte de
+    #: esto que no es local, y por eso va con su aviso en la interfaz.
+    "ollama_api_key": "",
     "guardia": {
         "activa": True,
         "hora": "03:00",
@@ -53,7 +57,7 @@ POR_DEFECTO: dict[str, Any] = {
 #: Lo que no se enseña de vuelta. El token del bot es una llave: se puede
 #: escribir desde la interfaz, pero no se devuelve para que no acabe en una
 #: captura de pantalla ni en el historial del navegador.
-SECRETOS = ("telegram.token",)
+SECRETOS = ("telegram.token", "ollama_api_key")
 
 
 def ruta(dada: str | Path | None = None) -> Path:

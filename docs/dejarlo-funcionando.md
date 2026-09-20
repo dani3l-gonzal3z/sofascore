@@ -50,6 +50,13 @@ Eso levanta tres cosas en un solo proceso, y Ctrl+C se las lleva todas:
   telegram     «cancha» · https://t.me/tubot
 ```
 
+Sin token todavía, la última línea es otra y no es un error:
+
+```
+  telegram     esperando token · ponlo en Ajustes (o con --token / CANCHA_TELEGRAM_TOKEN)
+               y empieza a escuchar solo, sin reiniciar esto
+```
+
 Todo eso sale de tus **[ajustes](ajustes.md)** —la hora, las ligas, el modelo,
 el puerto y el bot— que se cambian desde la pestaña Ajustes de la interfaz,
 también desde el móvil, o con `cancha ajustes`. Lo que escribas en la línea de
@@ -126,11 +133,17 @@ Para preguntarle desde la calle. El ordenador se queda en casa haciendo el
 trabajo y tú escribes desde donde estés. **No hace falta abrir ningún puerto ni
 tener IP fija**: es tu ordenador quien llama a Telegram, no al revés.
 
-Montarlo son dos minutos:
+Montarlo son dos minutos, y se puede hacer **entero desde el móvil** con
+`cancha arrancar` ya funcionando:
 
 1. En Telegram, habla con **@BotFather** y manda `/newbot`. Te pide un nombre y
    te da un token, algo como `123456:AAE...`.
-2. Arranca el bot con ese token, sin más:
+2. Pega el token en **Memoria → Ajustes → token del bot de telegram** y dale a
+   guardar. **No hay que reiniciar nada**: el bot mira los ajustes en cada
+   vuelta, así que en menos de medio minuto está escuchando. La misma pestaña te
+   dice si lo está («el bot está escuchando») o qué le pasa.
+
+   Desde el terminal es lo mismo con otra puerta:
 
    ```bash
    cancha telegram --token 123456:AAE...
@@ -138,18 +151,36 @@ Montarlo son dos minutos:
 
 3. Escríbele desde tu Telegram. Te contestará con **tu identificador de chat** y
    nada más.
-4. Ponlo donde te venga mejor y reinicia:
+4. Ponlo en **chats permitidos**. Ahí no hace falta que lo copies a mano: al
+   escribirle, el bot lo apunta y aparece como un botón —con tu nombre al
+   lado— para meterlo de un toque. Si todavía no sale, el botón **«¿Me ha
+   escrito ya?»** lo vuelve a mirar sin recargar la página. También vale por
+   la línea de comandos:
 
    ```bash
    cancha telegram --token 123456:AAE... --chat 987654321
    ```
 
-   O en la interfaz: **Memoria → Ajustes → chats permitidos**. Ahí no hace
-   falta que lo copies: al escribirle, el bot lo apunta y aparece como un
-   botón —con tu nombre al lado— para meterlo de un toque.
+### Si le escribes y no contesta
 
-Para no escribirlo cada vez, guárdalo en el entorno y `cancha arrancar` lo coge
-solo:
+Eso pasaba antes por una razón tonta y ya está arreglada: el bot solo se
+arrancaba si había token **al abrir el programa**, así que guardarlo en Ajustes
+no servía de nada hasta reiniciar, y nadie te lo decía. Ahora el hilo del bot se
+levanta siempre y espera al token. Si aun así no contesta, mira la pestaña
+Ajustes —lo que le pase lo dice ahí— y en la consola del ordenador. Los dos
+casos que hay:
+
+* **«Hay otro programa escuchando con este mismo token»**. Telegram solo deja un
+  oyente por token, y devuelve un 409 al segundo. Casi siempre son dos `cancha`
+  abiertos: cierra uno.
+* **«Telegram dice que el token no vale»**. El token está mal copiado o
+  @BotFather lo ha revocado. Cámbialo en Ajustes; se coge al vuelo.
+
+Y si no está en tu lista de permitidos, el bot contesta «No tengo nada para ti»
+a propósito: ver el punto siguiente.
+
+Un token que le pases con `--token` o por el entorno **manda sobre los
+ajustes**: no lo borra un fichero de ajustes vacío. Para no escribirlo cada vez:
 
 ```bash
 setx CANCHA_TELEGRAM_TOKEN "123456:AAE..."      &:: Windows

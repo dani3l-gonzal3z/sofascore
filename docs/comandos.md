@@ -58,6 +58,9 @@ cancha fuentes                             # qué fuentes y qué librerías hay
 cancha ligas [--descubrir] [--faltan]      # el catálogo de competiciones
 cancha seguro [--calibrar]                 # lo que casi siempre pasa, medido
 cancha analista "…" [--modelo hermes3]     # pregunta y un modelo local lo busca
+cancha dictamen "Girona vs Osasuna"        # el expediente entero a un modelo, que ate cabos
+cancha dictamen "…" --solo-expediente      # solo el documento: qué se le manda
+cancha dictamen "…" --api-key ...          # con un modelo grande de la nube de Ollama
 ```
 
 Opciones más usadas de `match`:

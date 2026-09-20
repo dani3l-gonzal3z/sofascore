@@ -42,7 +42,7 @@ class Servidor:
 
     def __init__(self, sesion: Sesion | None = None, ruta_almacen: str = "datos/cancha.db",
                  clave: str = "", carpeta_briefings: str = "datos/briefings",
-                 modelo: str = "", ollama: str = "",
+                 modelo: str = "", ollama: str = "", api_key: str = "",
                  ruta_ajustes: str | None = None) -> None:
         from ..analista import MODELO_POR_DEFECTO, URL_OLLAMA
 
@@ -51,7 +51,11 @@ class Servidor:
         self.carpeta_briefings = carpeta_briefings
         self.modelo = modelo or MODELO_POR_DEFECTO
         self.ollama = ollama or URL_OLLAMA
+        self.api_key = api_key
         self.ruta_ajustes = ruta_ajustes
+        #: El bot, si lo hay, para poder decir en Ajustes si está escuchando.
+        #: Lo pone ``cancha arrancar``; sin él la página funciona igual.
+        self.bot: Any = None
         self._analistas: dict[str, Any] = {}
         #: Los rellena ``arrancar``; la página los usa para el QR de la wifi.
         self.puerto = 8765
@@ -102,7 +106,7 @@ class Servidor:
         clave = modelo or self.modelo
         if clave not in self._analistas:
             self._analistas[clave] = Analista(sesion=self.sesion, modelo=clave,
-                                              url=self.ollama)
+                                              url=self.ollama, api_key=self.api_key)
         return self._analistas[clave]
 
     def estado_analista(self, modelo: str | None = None) -> dict:
@@ -127,6 +131,23 @@ class Servidor:
         with self.cerrojo:
             return self.analista(modelo).preguntar(pregunta, historial=historial,
                                                    al_paso=al_paso)
+
+    # --- dictamen ---
+
+    def dictamen(self, partido: str, pregunta: str = "") -> dict:
+        """El expediente entero a un modelo. Lo más caro que hace el servidor."""
+        from ..expediente import a_texto, expediente
+
+        if not partido:
+            return {"error": "Falta el partido."}
+        with self.cerrojo:
+            datos = expediente(self.sesion.almacen, partido, cliente=self.sesion.cliente)
+            if not datos.get("disponible"):
+                return {"error": datos.get("nota", "No hay expediente de ese partido.")}
+            documento = a_texto(datos)
+            salida = self.analista().dictaminar(documento, pregunta)
+        salida["expediente"] = {**datos["tamano"], "texto": documento}
+        return salida
 
     # --- casi seguro ---
 
@@ -154,6 +175,7 @@ class Servidor:
             quien_ha_escrito = vistos(self.sesion.almacen)
         return {
             "telegram_vistos": quien_ha_escrito,
+            "telegram_estado": self.bot.estado() if self.bot is not None else None,
             "ajustes": sin_secretos({k: v for k, v in guardados.items()
                                      if not k.startswith("_")}),
             "error": guardados.get("_error"),
@@ -191,14 +213,15 @@ class Servidor:
         if problemas:
             return {"guardado": False, "problemas": problemas}
         destino = guardar(nuevos, self.ruta_ajustes)
-        # Lo que no se puede cambiar en caliente, dicho por su nombre.
+        # Lo que no se puede cambiar en caliente, dicho por su nombre. El token
+        # y los chats del bot **sí** se cogen al vuelo —el bot mira los ajustes
+        # en cada vuelta—, y decir lo contrario hacía que la gente reiniciase
+        # sin necesidad. Lo que queda es lo que se decide al abrir el puerto.
         en_frio = [
             nombre for nombre, camino in (
                 ("el puerto", ("web", "puerto")),
                 ("abrirlo a la wifi", ("web", "lan")),
                 ("la clave", ("web", "clave")),
-                ("el bot de Telegram", ("telegram", "token")),
-                ("los chats del bot", ("telegram", "chats")),
             ) if antes[camino[0]][camino[1]] != nuevos[camino[0]][camino[1]]
         ]
         return {
@@ -549,6 +572,9 @@ class Manejador(BaseHTTPRequestHandler):
             return self._analista(cuerpo)
         if ruta == "/api/ajustes":
             return self._json(self.app.poner_ajustes(cuerpo))
+        if ruta == "/api/dictamen":
+            return self._json(self.app.dictamen(str(cuerpo.get("partido") or ""),
+                                                str(cuerpo.get("pregunta") or "")))
         if ruta == "/api/cache":
             return self._json(self.app.limpiar_cache())
         if ruta == "/api/ligas":

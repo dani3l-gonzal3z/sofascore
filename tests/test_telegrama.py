@@ -310,3 +310,179 @@ def test_una_nota_corrupta_no_rompe_los_ajustes(bot):
     solo, _ = bot
     solo.sesion.almacen.anotar(NOTA_VISTOS, "{ esto no es json")
     assert vistos(solo.sesion.almacen) == []
+
+
+# ------------------------------------------------ los ajustes, en caliente
+# Esto nace de un fallo que llegó al usuario y que no era un error en pantalla
+# sino un silencio: guardó el token en la pestaña Ajustes, le escribió al bot y
+# no pasó nada. El hilo del bot no se creaba sin token, así que el token nuevo
+# no se miraba hasta reiniciar, y nadie lo decía.
+
+def test_sin_token_no_se_le_pregunta_nada_a_telegram(bot):
+    """Antes esto ni se planteaba: sin token no había bucle."""
+    solo, falso = bot
+    solo.token = ""
+    solo.escuchar(tandas=2, dormir=lambda _s: None)
+    assert falso.llamadas == [], "no hay a quién preguntar sin token"
+
+
+def test_el_token_que_aparece_en_los_ajustes_pone_el_bot_a_escuchar(bot):
+    """El fallo entero, de una punta a la otra."""
+    solo, falso = bot
+    solo.token = ""
+    guardados = [{"telegram": {"token": "", "chats": []}}]
+    solo.releer = lambda: guardados[0]
+
+    solo.escuchar(tandas=1, dormir=lambda _s: None)
+    assert falso.llamadas == [], "todavía no hay token"
+
+    guardados[0] = {"telegram": {"token": "123:ABC", "chats": [42]}}
+    solo.escuchar(tandas=1, dormir=lambda _s: None)
+    assert solo.token == "123:ABC"
+    assert solo.permitidos == (42,)
+    assert "getUpdates" in falso.llamadas, "ya tiene token: tiene que escuchar"
+
+
+def test_al_coger_el_token_dice_quien_es_y_donde_escribirle(bot):
+    solo, falso = bot
+    solo.token = ""
+    dicho: list[str] = []
+    solo.releer = lambda: {"telegram": {"token": "123:ABC", "chats": []}}
+    solo.escuchar(tandas=2, avisar=dicho.append, dormir=lambda _s: None)
+    todo = "\n".join(dicho)
+    assert "canchabot" in todo, "el enlace del bot es lo que hace falta para escribirle"
+    assert "identificador de chat" in todo, "y qué hacer ahora: mandarle un mensaje"
+
+
+def test_un_token_de_la_linea_de_comandos_no_lo_borran_los_ajustes(bot):
+    """`cargar` devuelve los ajustes de fábrica —token vacío— si no hay fichero."""
+    solo, falso = bot
+    solo.token_fijo = True
+    solo.releer = lambda: {"telegram": {"token": "", "chats": []}}
+    solo.escuchar(tandas=1, dormir=lambda _s: None)
+    assert solo.token == "x"
+    assert "getUpdates" in falso.llamadas
+
+
+def test_quitar_el_token_de_los_ajustes_calla_al_bot(bot):
+    solo, falso = bot
+    solo.releer = lambda: {"telegram": {"token": "", "chats": []}}
+    solo.escuchar(tandas=1, dormir=lambda _s: None)
+    assert solo.token == ""
+    assert falso.llamadas == []
+
+
+def test_los_chats_nuevos_valen_sin_reiniciar(bot):
+    """El camino normal: el bot te dice tu id y lo pones desde el móvil."""
+    solo, falso = bot
+    solo.permitidos = ()
+    solo.releer = lambda: {"telegram": {"token": "x", "chats": ["42"]}}
+    assert solo.refrescar() == ["contesta a 42"]
+    assert solo.permitidos == (42,), "los ajustes los guardan como texto a veces"
+    assert solo.atender(42, "/memoria") != "No tengo nada para ti."
+
+
+def test_el_modelo_y_la_clave_de_la_nube_tambien(bot):
+    solo, _ = bot
+    solo.releer = lambda: {"telegram": {"token": "x", "chats": [42]},
+                           "modelo": "qwen3:32b", "ollama_api_key": "k"}
+    solo.refrescar()
+    assert solo.modelo == "qwen3:32b"
+    assert solo.api_key == "k"
+
+
+def test_unos_ajustes_ilegibles_no_paran_el_bot(bot):
+    def revienta():
+        raise OSError("el disco dice que no")
+
+    solo, falso = bot
+    solo.releer = revienta
+    solo.escuchar(tandas=1, dormir=lambda _s: None)
+    assert "getUpdates" in falso.llamadas, "sigue con lo que ya tenía"
+
+
+def test_el_estado_se_puede_mirar_desde_la_interfaz(bot):
+    solo, _ = bot
+    assert solo.estado()["escuchando"] is False, "todavía no ha dado ni una vuelta"
+    solo.escuchar(tandas=1, dormir=lambda _s: None)
+    estado = solo.estado()
+    assert estado == {"token_puesto": True, "escuchando": True,
+                      "permitidos": [42], "ultimo_error": ""}
+
+
+def test_sin_token_el_estado_lo_dice(bot):
+    solo, _ = bot
+    solo.token = ""
+    solo.escuchar(tandas=1, dormir=lambda _s: None)
+    assert solo.estado() == {"token_puesto": False, "escuchando": False,
+                             "permitidos": [42], "ultimo_error": ""}
+
+
+def test_el_mismo_fallo_no_se_repite_cada_diez_segundos(bot):
+    def roto(metodo, cuerpo=None):
+        raise TelegramNoDisponible("Telegram dice que el token no vale.")
+
+    solo, _ = bot
+    solo.pedir = roto
+    dicho: list[str] = []
+    solo.escuchar(tandas=4, avisar=dicho.append, dormir=lambda _s: None)
+    errores = [x for x in dicho if x.startswith("✗")]
+    assert len(errores) == 1, f"cuatro vueltas, un error, no cuatro: {dicho}"
+    assert solo.estado()["ultimo_error"]
+
+
+def test_dos_cancha_con_el_mismo_token_se_explica():
+    """Telegram da 409 y el bot se queda mudo: es el otro «no funciona»."""
+    import urllib.error
+
+    from cancha.telegrama import _pedir_http
+
+    def conflicto(*_a, **_k):
+        raise urllib.error.HTTPError("u", 409, "Conflict", {}, None)
+
+    import urllib.request
+    original = urllib.request.urlopen
+    urllib.request.urlopen = conflicto
+    try:
+        with pytest.raises(TelegramNoDisponible) as exc:
+            _pedir_http("https://api.telegram.org/botx/getUpdates")
+    finally:
+        urllib.request.urlopen = original
+    assert "otro programa escuchando" in str(exc.value)
+    assert "Cierra el otro" in str(exc.value)
+
+
+def test_parar_saca_al_bot_del_bucle(bot):
+    solo, _ = bot
+    solo.parar()
+    assert solo.escuchar(dormir=lambda _s: None) == 1, "una vuelta y fuera"
+
+
+def test_nada_tumba_el_hilo_del_bot(bot):
+    """Morirse en segundo plano es quedarse mudo sin que nadie se entere."""
+    solo, _ = bot
+    vueltas = {"n": 0}
+
+    def revienta(_metodo, _cuerpo=None):
+        vueltas["n"] += 1
+        raise RuntimeError("algo con lo que nadie contaba")
+
+    solo.pedir = revienta
+    dicho: list[str] = []
+    assert solo.escuchar(tandas=3, avisar=dicho.append, dormir=lambda _s: None) == 3
+    assert vueltas["n"] == 3, "sigue dando vueltas después del fallo"
+    assert [x for x in dicho if "RuntimeError" in x], "y lo cuenta"
+
+
+def test_lo_que_contesta_no_manda_reiniciar(cliente, tmp_path):
+    """Ya no hace falta: los chats permitidos se cogen al vuelo."""
+    falso = Falso()
+    sesion = Sesion(cliente=cliente, ruta_almacen=str(tmp_path / "t9.db"))
+    solo = Bot(token="x", permitidos=(), sesion=sesion, pedir=falso)
+    try:
+        respuesta = solo.atender(777, "hola")
+    finally:
+        sesion.close()
+    assert "y reinicia cancha" not in respuesta
+    assert "no hace falta reiniciar" in respuesta
+    assert "777" in respuesta
