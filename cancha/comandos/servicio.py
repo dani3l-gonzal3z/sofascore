@@ -223,6 +223,7 @@ def cmd_ajustes(args: argparse.Namespace) -> int:
 def cmd_arrancar(args: argparse.Namespace) -> int:
     """Todo junto: comprobación, interfaz, guardia y bot, en un proceso."""
     from ..diagnostico import diagnostico
+    from ..guardia import puede_impedir_suspension
     from ..sesion import Sesion
     from ..web import Servidor, arrancar
 
@@ -230,8 +231,30 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
     imprimir("  cancha — arrancando")
     imprimir("")
 
+    # Todo lo que se puede configurar se resuelve aquí arriba y una sola vez.
+    # Leerlo de `args` más abajo es lo que hacía este comando antes, y como los
+    # valores por defecto del parser son None para que ganen los ajustes, lo
+    # que llegaba al servidor era None: reventaba al abrir el puerto.
+    guardados = _ajustes(args)
+    valor = modulo_ajustes.valor
+    suya = guardados["guardia"]
+    opciones = {
+        "memoria": valor(args, "db", guardados["memoria"]),
+        "briefings": valor(args, "briefings", guardados["briefings"]),
+        "hora": valor(args, "a_las", suya["hora"]),
+        "dias": valor(args, "dias", suya["dias"]),
+        "registro": valor(args, "registro", suya["registro"]),
+        "ultimos": valor(args, "ultimos", suya["ultimos"]),
+        "partidos": valor(args, "partidos", suya["partidos"]),
+        "max": valor(args, "max", suya["max"]),
+        "puerto": valor(args, "port", guardados["web"]["puerto"]),
+        "clave": valor(args, "clave", guardados["web"]["clave"]) or "",
+        "grupos": _ligas(args, guardados),
+        "modelo": args.modelo or guardados["modelo"] or "",
+    }
+
     cliente = comun.construir_cliente(args)
-    sesion = Sesion(cliente=cliente, ruta_almacen=args.db or "datos/cancha.db")
+    sesion = Sesion(cliente=cliente, ruta_almacen=opciones["memoria"])
 
     # 1. Lo que puede estar mal, dicho antes de que se note.
     estado = diagnostico(cliente)
@@ -242,15 +265,15 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
              f"{memoria['con_estadisticas']} con estadísticas")
     imprimir(f"  transporte   {estado.get('en_uso', '?')}")
     imprimir(f"  credenciales {estado.get('credenciales', '?')}")
+    imprimir("  ligas        " + (", ".join(opciones["grupos"]) if opciones["grupos"]
+                                  else "todo el catálogo"))
     if not memoria["partidos"]:
         imprimir("")
         imprimir("  La memoria está vacía. La guardia la llenará esta noche, o")
         imprimir("  puedes empezar ya con:  cancha guardia --una-vez")
 
-    hilos = []
-
     # 2. La guardia, en segundo plano.
-    if not args.sin_guardia:
+    if not args.sin_guardia and suya.get("activa", True):
         def correr_guardia() -> None:
             from ..almacen import Almacen as AlmacenHilo
             from ..guardia import vigilar
@@ -260,25 +283,25 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
             # de la guardia se mide con el contador de peticiones del cliente,
             # así que cada cosa que pidieras desde la página se le descontaría
             # a la guardia y se cortaría sola sin motivo.
-            propio = AlmacenHilo(args.db or "datos/cancha.db")
+            propio = AlmacenHilo(opciones["memoria"])
             suyo = comun.construir_cliente(args)
             try:
-                vigilar(suyo, propio, a_las=args.a_las, dias_vista=args.dias,
-                        grupos=args.grupos.split(",") if args.grupos else None,
-                        abastecer_partidos=args.partidos, maximo_peticiones=args.max,
-                        carpeta_briefings=args.briefings or "datos/briefings",
-                        registro=args.registro, en_pantalla=False)
+                vigilar(suyo, propio, a_las=opciones["hora"],
+                        dias_vista=opciones["dias"], grupos=opciones["grupos"],
+                        ultimos=opciones["ultimos"],
+                        abastecer_partidos=opciones["partidos"],
+                        maximo_peticiones=opciones["max"],
+                        carpeta_briefings=opciones["briefings"],
+                        registro=opciones["registro"], en_pantalla=False,
+                        releer=lambda: modulo_ajustes.cargar(
+                            getattr(args, "ajustes", None)))
             finally:
                 propio.close()
                 suyo.close()
 
-        hilo = threading.Thread(target=correr_guardia, daemon=True, name="guardia")
-        hilo.start()
-        hilos.append(hilo)
-        from ..guardia import puede_impedir_suspension
-
-        imprimir(f"  guardia      cada día a las {args.a_las}, prepara el día "
-                 f"+{args.dias} · registro en {args.registro}")
+        threading.Thread(target=correr_guardia, daemon=True, name="guardia").start()
+        imprimir(f"  guardia      cada día a las {opciones['hora']}, prepara el día "
+                 f"+{opciones['dias']} · registro en {opciones['registro']}")
         if puede_impedir_suspension():
             imprimir("               el equipo no se suspenderá mientras trabaje "
                      "(la pantalla sí se apaga)")
@@ -286,44 +309,48 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
             imprimir("               ⚠ no sé impedir la suspensión en este sistema:")
             imprimir("                 si el equipo se duerme, la guardia se duerme")
             imprimir("                 con él. Desactívala en los ajustes de energía.")
+    elif not suya.get("activa", True):
+        imprimir("  guardia      apagada en tus ajustes")
 
     # 3. El bot, si hay token.
-    token = args.token or os.environ.get(ENV_TOKEN, "")
+    token = (args.token or os.environ.get(ENV_TOKEN, "")
+             or guardados["telegram"]["token"] or "")
     if token and not args.sin_bot:
         from ..telegrama import Bot, TelegramNoDisponible
 
-        bot = Bot(token=token, permitidos=_chats(args), sesion=sesion,
-                  modelo=args.modelo or "")
+        bot = Bot(token=token, permitidos=_chats(args, guardados), sesion=sesion,
+                  modelo=opciones["modelo"])
         try:
             quien = bot.comprobar()
-            hilo = threading.Thread(target=lambda: bot.escuchar(), daemon=True,
-                                    name="telegram")
-            hilo.start()
-            hilos.append(hilo)
+            threading.Thread(target=bot.escuchar, daemon=True, name="telegram").start()
             imprimir(f"  telegram     «{quien['nombre']}»"
                      + (f" · {quien['enlace']}" if quien.get("enlace") else ""))
             if not bot.permitidos:
-                imprimir("               ⚠ sin --chat: no contestará a nadie "
-                         "(escríbele y te dirá tu id)")
+                imprimir("               ⚠ sin chats permitidos: no contestará a "
+                         "nadie (escríbele y te dirá tu id)")
         except TelegramNoDisponible as exc:
             _problema(f"El bot de Telegram no arranca: {exc}",
                       "El resto sigue funcionando; arréglalo cuando quieras.")
     elif not token:
-        imprimir("  telegram     apagado (sin token; --token o "
-                 f"{ENV_TOKEN} para encenderlo)")
+        imprimir("  telegram     apagado (sin token; ponlo en Ajustes, o con "
+                 f"--token o {ENV_TOKEN})")
 
     # 4. La interfaz, que es la que se queda en primer plano.
-    aplicacion = Servidor(sesion=sesion, clave=args.clave or "",
-                          carpeta_briefings=args.briefings or "datos/briefings")
-    host = "127.0.0.1" if args.solo_local else "0.0.0.0"
+    aplicacion = Servidor(sesion=sesion, clave=opciones["clave"],
+                          carpeta_briefings=opciones["briefings"],
+                          modelo=opciones["modelo"], ollama=guardados["ollama"],
+                          ruta_ajustes=getattr(args, "ajustes", None))
+    a_la_red = guardados["web"]["lan"] and not args.solo_local
+    host = "0.0.0.0" if a_la_red else "127.0.0.1"
     imprimir("")
     try:
-        return arrancar(aplicacion, host=host, puerto=args.port, abrir=args.abrir,
-                        avisar=imprimir, qr=not args.sin_qr, color=not args.sin_color)
+        return arrancar(aplicacion, host=host, puerto=opciones["puerto"],
+                        abrir=args.abrir, avisar=imprimir, qr=not args.sin_qr,
+                        color=not args.sin_color)
     except OSError as exc:
-        _problema(f"No he podido abrir el puerto {args.port}: {exc}",
+        _problema(f"No he podido abrir el puerto {opciones['puerto']}: {exc}",
                   "Casi siempre es que ya hay otro cancha abierto. Ciérralo, o "
-                  f"arranca este con --port {args.port + 1}.")
+                  f"arranca este con --port {opciones['puerto'] + 1}.")
         sesion.close()
         return 2
 

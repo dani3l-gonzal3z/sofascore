@@ -4,6 +4,28 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.11.1
+
+Un arreglo, y la prueba que faltaba.
+
+### Arreglos
+
+- **`cancha arrancar` no arrancaba.** Al conectar los ajustes cambié los
+  valores por defecto del parser a `None` —para que los ajustes guardados
+  pudieran ganar— pero `cmd_arrancar` seguía leyendo `args.port`, `args.a_las`
+  y compañía sin resolverlos. Resultado: «cada día a las None» y un
+  `TypeError` al abrir el puerto. `cancha guardia` y `cancha telegram` sí
+  estaban bien; era justo el comando que se usa todos los días el que no.
+
+  Lo peor no es el fallo: es que había 889 pruebas y **ninguna ejecutaba
+  `cancha arrancar`**. Ahora hay dieciocho que sí, y una de ellas comprueba
+  que ninguna opción le llegue al servidor en `None`, sea cual sea. Se ha
+  verificado que fallan con el código roto antes de darlas por buenas.
+
+- La prueba de que la guardia no comparte cliente con la web leía el código
+  fuente en vez de ejecutarlo, así que se rompió sola al cambiar una línea.
+  Ahora arranca el comando de verdad y compara los dos clientes.
+
 ## 0.11.0
 
 Decidirlo una vez: la hora de la guardia, las ligas y el modelo, desde donde
