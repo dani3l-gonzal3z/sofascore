@@ -143,6 +143,7 @@ def cmd_telegram(args: argparse.Namespace) -> int:
                     ruta_almacen=modulo_ajustes.valor(args, "db", guardados["memoria"]))
     bot = Bot(token=token, token_fijo=bool(de_fuera),
               permitidos=_chats(args, guardados), sesion=sesion,
+              grupos=tuple(_ligas(args, guardados) or ()),
               modelo=args.modelo or guardados["modelo"] or "",
               api_key=guardados.get("ollama_api_key") or "",
               # Para que añadir tu chat desde la interfaz valga sin reiniciar:
@@ -358,6 +359,7 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
                   permitidos=_chats(args, guardados),
                   sesion=Sesion(cliente=comun.construir_cliente(args),
                                 ruta_almacen=opciones["memoria"]),
+                  grupos=tuple(opciones["grupos"] or ()),
                   modelo=opciones["modelo"],
                   api_key=guardados.get("ollama_api_key") or "",
                   **opciones["red"],

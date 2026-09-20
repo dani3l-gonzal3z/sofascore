@@ -94,6 +94,44 @@ Las dos últimas líneas son el motivo de que esto exista. «El que gana todo» 
 tiene, y el recuento dice que una no añade nada sobre ser favorito y la otra va
 en contra.
 
+## Un patrón, no una ficha por partido
+
+Un patrón se mide **una sola vez** sobre todo el historial. Así que cuando se
+cumple en sesenta partidos del día, la frecuencia, los casos, la elevación y el
+suelo son los mismos en los sesenta: lo único propio de cada partido es que la
+condición se cumple, y el precio que le pone el mercado hoy.
+
+Eso se enseñaba por partido, y salían sesenta fichas idénticas en las que solo
+cambiaba el nombre del equipo. Parecía roto —y con razón: no era un error de
+cálculo, era un error de cuento—. Ahora la respuesta trae las dos formas:
+
+| Clave | Qué |
+| --- | --- |
+| `avisos` | La lista plana de siempre: un aviso por partido y patrón |
+| `por_patron` | Agrupado: el patrón con su medición, y debajo sus partidos |
+
+Dentro de cada grupo, los partidos van ordenados por **cuánto se separan del
+mercado**, que es la única cifra que distingue a uno de otro. La interfaz y el
+bot enseñan `por_patron`, con los que más se separan arriba.
+
+## El mercado responde a la misma pregunta, o no se compara
+
+«¿Evita la derrota?» no se compara con la probabilidad de que **gane**. Eso es lo
+que hacía —enseñaba un 84 % de no perder al lado de un 49 % de ganar— y parecía
+una ventaja enorme en todos los partidos del día cuando lo que había era una
+resta entre dos cosas distintas.
+
+Ahora cada patrón declara con qué número del mercado se compara:
+
+| Patrón | Se compara con |
+| --- | --- |
+| El favorito no pierde, El rebote tras la derrota | `1 − P(gana el rival)` |
+| El favorito claro gana, La reacción del favorito, El que gana todo | `P(gana)` |
+| Goles, córners, tarjetas, marcan los dos | nada: el 1X2 no dice nada de eso |
+
+Y cuando no hay equivalente, el aviso lo dice en vez de poner un número que no
+viene al caso.
+
 ## Lo que no dice
 
 - **No hay apuestas seguras.** El número más alto que sale de un historial de

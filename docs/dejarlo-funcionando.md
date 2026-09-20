@@ -242,14 +242,31 @@ pasar por tu bot. No lo subas a ningún sitio.
 
 | Orden | Qué |
 | --- | --- |
-| `/hoy` | Los partidos de hoy |
+| `/hoy` | Qué se juega hoy, por competición y **en tu hora** |
+| `/hoy laliga` | Una competición entera |
+| `/hoy 2026-09-22` | Otro día |
 | `/manana` | Los de mañana |
-| `/directo` | Lo que se está jugando ahora |
-| `/seguro` | Lo que casi siempre pasa, con su número y si aguanta fuera de muestra |
+| `/directo` | Lo que se juega ahora, en tus competiciones (`/directo laliga`) |
+| `/seguro` | Los patrones que se cumplen hoy, con su número y si aguantan fuera de muestra |
+| `/pronostico Girona vs Osasuna` | Marcador, córners y tarjetas, calculados |
 | `/previa Girona vs Osasuna` | La previa entera |
+| `/dictamen Girona vs Osasuna` | El expediente entero a un modelo ([Dictamen](dictamen.md)) |
 | `/equipo Girona` | Cómo juega, comparado con su liga |
 | `/jugador Vinicius` | Forma y rachas |
 | `/memoria` | Qué hay guardado y cuándo fue la última guardia |
+
+**Las horas son las de tu reloj.** Antes salían en UTC sin decirlo, así que un
+partido a las 14:15 UTC se leía como las dos y cuarto cuando en España empezaba
+a las cuatro y cuarto.
+
+**Solo tus competiciones.** El bot pregunta por las ligas que elijas en Ajustes,
+y las coge al vuelo. Sin filtrar, «en directo» traía el fútbol entero del
+planeta: en una consulta real salieron Perú sub-15 y juveniles gallegos
+mezclados con LaLiga.
+
+**Un día largo no se vuelca entero.** Se enseñan las seis competiciones más
+importantes con hasta ocho partidos cada una, las demás por nombre y número, y
+`/hoy <liga>` abre la que quieras.
 
 Y cualquier otra cosa se la pasa al **analista local**, si tienes Ollama
 arrancado. Si no lo tienes, lo dice en vez de quedarse mudo.

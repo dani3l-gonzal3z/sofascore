@@ -105,6 +105,24 @@ def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 60.0,
         return json.loads(respuesta.read().decode("utf-8"))
 
 
+def _escapar(texto: str) -> str:
+    """Lo que hay que hacerle a un nombre de equipo antes de meterlo en HTML.
+
+    Telegram entiende un HTML pequeñito, y un «&» o un «<» sueltos le tumban el
+    mensaje entero con un 400. Los nombres vienen de la API —«Brighton & Hove
+    Albion»—, así que no son de fiar.
+    """
+    return (str(texto).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _sin_etiquetas(texto: str) -> str:
+    """El mismo texto en plano, para cuando Telegram rechaza el HTML."""
+    import re
+
+    limpio = re.sub(r"</?(b|i|u|s|code|pre)>", "", texto)
+    return (limpio.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
+
+
 def _trozos(texto: str, limite: int = LIMITE) -> list[str]:
     """Parte un texto largo por saltos de línea, sin cortar palabras a lo bruto."""
     if len(texto) <= limite:
@@ -140,6 +158,9 @@ class Bot:
     #: lo que hace que poner el token desde el móvil valga para algo sin
     #: reiniciar nada. Ver ``refrescar``.
     releer: Callable[[], dict] | None = field(default=None, repr=False)
+    #: Las competiciones que se siguen. Sin esto, «qué se juega hoy» traía el
+    #: fútbol entero del planeta y «en directo» acababa en Perú sub-15.
+    grupos: tuple[str, ...] = ()
     #: Certificados propios, para cuando algo abre tu HTTPS por el camino
     #: (antivirus, proxy de empresa, VPN). Ver :mod:`cancha.tls`.
     ca_bundle: str = ""
@@ -203,9 +224,26 @@ class Bot:
         return f"«{quien['nombre']}» escuchando{donde}."
 
     def enviar(self, chat: int, texto: str) -> None:
+        """Manda el texto, partido si hace falta, con negritas si las lleva.
+
+        Solo se pide HTML cuando el texto trae etiquetas puestas por nosotros.
+        Y si Telegram lo rechaza —un nombre raro, una etiqueta a medias—, se
+        manda en plano en vez de perder el mensaje: el contenido importa más
+        que las negritas.
+        """
+        con_formato = "<b>" in texto or "<i>" in texto
         for trozo in _trozos(texto):
-            self.pedir("sendMessage", {"chat_id": chat, "text": trozo,
-                                       "disable_web_page_preview": True})
+            cuerpo = {"chat_id": chat, "text": trozo, "disable_web_page_preview": True}
+            if con_formato:
+                cuerpo["parse_mode"] = "HTML"
+            try:
+                self.pedir("sendMessage", cuerpo)
+            except TelegramNoDisponible:
+                if not con_formato:
+                    raise
+                self.pedir("sendMessage", {"chat_id": chat,
+                                           "text": _sin_etiquetas(trozo),
+                                           "disable_web_page_preview": True})
 
     # --- escuchar ---
 
@@ -387,6 +425,10 @@ class Bot:
         if clave != self.api_key:
             cambios.append("clave de la nube puesta" if clave else "clave de la nube quitada")
             self.api_key = clave
+        ligas = tuple(str(x).strip() for x in (frescos.get("ligas") or ()) if str(x).strip())
+        if ligas != self.grupos:
+            cambios.append("ligas: " + (", ".join(ligas) if ligas else "las de por defecto"))
+            self.grupos = ligas
         red = frescos.get("red") or {}
         bundle = str(red.get("ca_bundle") or "")
         flojo = bool(red.get("sin_verificar"))
@@ -469,71 +511,212 @@ def vistos(almacen) -> list[dict]:
 # ------------------------------------------------------------------ órdenes
 
 def _ayuda(bot: Bot, _resto: str) -> str:
+    ligas = ", ".join(bot.grupos) if bot.grupos else "las de por defecto"
     return (
-        "Lo que sé hacer:\n\n"
-        "/hoy — los partidos de hoy\n"
+        "<b>Lo que sé hacer</b>\n\n"
+        "<b>El día</b>\n"
+        "/hoy — qué se juega hoy, por competición\n"
+        "/hoy laliga — una competición entera\n"
+        "/hoy 2026-09-22 — otro día\n"
         "/manana — los de mañana\n"
-        "/seguro — lo que casi siempre pasa, de hoy\n"
-        "/previa <equipos> — la previa de un partido\n"
-        "/pronostico <equipos> — marcador, córners y tarjetas, calculados\n"
-        "/dictamen <equipos> — todo el expediente a un modelo, que ate cabos\n"
-        "/equipo <nombre> — cómo juega, comparado con su liga\n"
-        "/jugador <nombre> — forma y rachas\n"
-        "/memoria — qué hay guardado y cuándo fue la última guardia\n"
-        "/directo — lo que se está jugando ahora\n\n"
-        "Y cualquier otra cosa se la paso al analista local, si lo tienes "
-        "arrancado.")
+        "/directo — lo que se juega ahora (/directo laliga)\n\n"
+        "<b>Un partido</b>\n"
+        "/pronostico Girona vs Osasuna — marcador, córners y tarjetas, calculados\n"
+        "/previa Girona vs Osasuna — cómo llegan y dónde se hacen daño\n"
+        "/dictamen Girona vs Osasuna — el expediente entero a un modelo\n"
+        "/seguro — los patrones que se cumplen hoy, con su número\n\n"
+        "<b>Quién es quién</b>\n"
+        "/equipo Girona — cómo juega, comparado con su liga\n"
+        "/jugador Vinicius — forma y rachas\n"
+        "/memoria — qué hay guardado y cuándo fue la última guardia\n\n"
+        f"<i>Sigo estas competiciones: {_escapar(ligas)}. Se cambian en la "
+        "interfaz, en Ajustes.</i>\n"
+        "<i>Cualquier otra cosa se la paso al analista, si lo tienes arrancado.</i>")
+
+
+#: Cuántas competiciones se listan enteras antes de resumir. Un día normal son
+#: veinticinco ligas y cien partidos: eso en el móvil no se lee, se scrollea.
+LIGAS_ENTERAS = 6
+#: Y cuántos partidos de cada una.
+PARTIDOS_POR_LIGA = 8
 
 
 def _hoy(bot: Bot, resto: str, dias: int = 0) -> str:
+    """Qué se juega, en las ligas que sigues y a la hora de tu reloj.
+
+    Antes volcaba las veinticinco competiciones del día una detrás de otra
+    —cien partidos, con la hora en UTC y sin decirlo—. Ahora manda la fecha o el
+    nombre de una liga: con liga, esa liga entera.
+    """
     from datetime import datetime, timedelta
 
-    fecha = resto or (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d")
-    datos = _herramienta(bot, "agenda_del_dia", {"fecha": fecha})
+    fecha, liga = _fecha_y_liga(resto, dias)
+    datos = _herramienta(bot, "agenda_del_dia", _con_grupos(bot, {"fecha": fecha}))
     por_liga = datos.get("por_competicion") or {}
+    del datetime, timedelta
     if not por_liga:
-        return f"No hay partidos el {fecha} en las competiciones que sigues."
-    lineas = [f"⚽ {fecha}", ""]
-    for liga in sorted(por_liga):
-        lineas.append(liga)
-        for partido in por_liga[liga]:
-            lineas.append(f"  {partido.get('hora_utc') or '  ?  '}  {partido['partido']}")
-        lineas.append("")
-    return "\n".join(lineas).strip()
+        return (f"No hay partidos el {fecha} en las competiciones que sigues.\n"
+                "Las eliges en Ajustes → Ligas que sigues.")
+    if liga:
+        elegidas = {k: v for k, v in por_liga.items() if _parecido(liga, k)}
+        if not elegidas:
+            return (f"No encuentro «{liga}» entre las {len(por_liga)} competiciones "
+                    f"que juegan el {fecha}:\n" + "\n".join(f"  {k}" for k in por_liga))
+        por_liga, enteras = elegidas, len(elegidas)
+    else:
+        enteras = LIGAS_ENTERAS
+    zona = datos.get("zona") or "hora local"
+    cabeza = [f"⚽ <b>{_escapar(fecha)}</b> · {datos.get('total', 0)} partidos en "
+              f"{datos.get('competiciones', len(por_liga))} competiciones",
+              f"<i>Horas en {_escapar(zona)}</i>", ""]
+    cuerpo: list[str] = []
+    # Por importancia, no por número de partidos: ordenar por cantidad abría con
+    # diez de la MLS a las dos y media de la mañana y dejaba el Atlético - Real
+    # Madrid en tercer lugar.
+    from .ligas import relevancia
+
+    ordenadas = sorted(por_liga.items(), key=lambda x: (relevancia(x[0]), x[0]))
+    for lista in por_liga.values():
+        lista.sort(key=lambda p: p.get("hora_utc") or "99:99")
+    for nombre, lista in ordenadas[:enteras]:
+        cuerpo.append(f"<b>{_escapar(nombre)}</b>")
+        for partido in lista[:PARTIDOS_POR_LIGA]:
+            hora = partido.get("hora") or partido.get("hora_utc") or " ?  "
+            cuerpo.append(f"  {hora}  {_escapar(partido['partido'])}")
+        if len(lista) > PARTIDOS_POR_LIGA:
+            cuerpo.append(f"  <i>y {len(lista) - PARTIDOS_POR_LIGA} más</i>")
+        cuerpo.append("")
+    resto_ligas = ordenadas[enteras:]
+    if resto_ligas:
+        cuerpo.append("<b>También se juega en</b>")
+        for nombre, lista in resto_ligas:
+            cuerpo.append(f"  {_escapar(nombre)} ({len(lista)})")
+        cuerpo.append("")
+        cuerpo.append("<i>Para ver una entera: /hoy y el nombre "
+                      "(/hoy laliga, /hoy champions).</i>")
+    return "\n".join(cabeza + cuerpo).strip()
+
+
+def _fecha_y_liga(resto: str, dias: int) -> tuple[str, str]:
+    """Del texto de la orden a (fecha, liga). Acepta cualquiera de los dos."""
+    from datetime import datetime, timedelta
+
+    dicho = (resto or "").strip()
+    fecha = ""
+    if len(dicho) >= 10 and dicho[:4].isdigit() and dicho[4] == "-":
+        fecha, dicho = dicho[:10], dicho[10:].strip()
+    return (fecha or (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d"), dicho)
+
+
+def _parecido(buscado: str, nombre: str) -> bool:
+    """¿Se refiere «premier» a «England Premier League»? Sin acentos ni mayúsculas."""
+    from .resolve import normalizar
+
+    return normalizar(buscado) in normalizar(nombre)
+
+
+def _con_grupos(bot: Bot, argumentos: dict) -> dict:
+    """Añade las ligas que sigue el bot, si las sigue."""
+    if bot.grupos:
+        argumentos["grupos"] = ",".join(bot.grupos)
+    return argumentos
 
 
 def _manana(bot: Bot, resto: str) -> str:
     return _hoy(bot, resto, dias=1)
 
 
-def _directo(bot: Bot, _resto: str) -> str:
-    datos = _herramienta(bot, "partidos", {"limite": 40})
+#: Cuántos partidos en directo se enseñan de una vez.
+EN_DIRECTO = 15
+
+
+def _directo(bot: Bot, resto: str) -> str:
+    """Lo que se está jugando **en tus competiciones**.
+
+    Sin filtrar, el directo trae el fútbol entero del planeta: en una consulta
+    real salieron Perú sub-15, juveniles gallegos y la segunda femenina alemana
+    mezclados con LaLiga. Aquí se pide con las ligas que se siguen.
+    """
+    argumentos = {"limite": 60, "grupos": ",".join(bot.grupos) if bot.grupos else "*"}
+    if resto.strip():
+        argumentos["liga"] = resto.strip()
+    datos = _herramienta(bot, "partidos", argumentos)
     partidos = datos.get("partidos") or []
     if not partidos:
+        de_todo = datos.get("de_todo_el_mundo") or 0
+        if de_todo:
+            return (f"En tus competiciones no se juega nada ahora mismo.\n"
+                    f"(Hay {de_todo} partidos en el mundo, pero son de ligas que no "
+                    "sigues. Se eligen en Ajustes → Ligas que sigues.)")
         return "Ahora mismo no se juega nada."
-    lineas = ["🔴 En juego", ""]
+    por_liga: dict[str, list] = {}
     for partido in partidos:
-        lineas.append(f"  {partido['partido']}  ({partido.get('estado') or ''})")
-    return "\n".join(lineas)
+        por_liga.setdefault(partido.get("competicion") or "?", []).append(partido)
+    lineas = [f"🔴 <b>En juego</b> · {len(partidos)} partidos", ""]
+    enseñados = 0
+    for liga in sorted(por_liga):
+        if enseñados >= EN_DIRECTO:
+            break
+        lineas.append(f"<b>{_escapar(liga)}</b>")
+        for partido in por_liga[liga]:
+            if enseñados >= EN_DIRECTO:
+                break
+            estado = partido.get("estado") or ""
+            lineas.append(f"  {_escapar(partido['partido'])}"
+                          + (f"  <i>{_escapar(estado)}</i>" if estado else ""))
+            enseñados += 1
+        lineas.append("")
+    if len(partidos) > enseñados:
+        lineas.append(f"<i>y {len(partidos) - enseñados} más. Para una liga: "
+                      "/directo laliga</i>")
+    return "\n".join(lineas).strip()
+
+
+#: Partidos que se enseñan de cada patrón: los que más se separan del mercado.
+POR_PATRON = 5
 
 
 def _seguro(bot: Bot, resto: str) -> str:
+    """Los patrones que se cumplen hoy, uno por patrón.
+
+    Antes salía una ficha por partido, y como un patrón se mide una sola vez
+    sobre todo el historial, eran sesenta fichas con la misma frecuencia, los
+    mismos casos y el mismo suelo. Lo único que cambiaba era el equipo.
+    """
     from .seguro import avisos
 
-    datos = avisos(bot.sesion.almacen, bot.sesion.cliente, fecha=resto or None)
+    datos = avisos(bot.sesion.almacen, bot.sesion.cliente, fecha=resto or None,
+                   grupos=list(bot.grupos) or None)
     if not datos["avisos"]:
         return ("Hoy no se cumple nada que aguante el recuento.\n"
-                f"Calibrado con {datos['calibrado_con']} partidos guardados.")
-    lineas = [f"🎯 Casi seguro · {datos['fecha']}", ""]
-    for aviso in datos["avisos"][:12]:
-        fuera = (aviso.get("fuera_de_muestra") or {}).get("veredicto") or ""
-        marca = {"aguanta": " · aguanta después", "se cae": " · ⚠ SE CAE después"}.get(fuera, "")
-        lineas.append(f"{aviso['suelo']:.0%}  {aviso['partido']}")
-        lineas.append(f"      {aviso['sujeto']}: {aviso['dice']}")
-        lineas.append(f"      {aviso['frecuencia']:.0%} en {aviso['casos']} casos"
-                      f" ({aviso['elevacion']:+.0%} sobre su referencia){marca}")
+                f"Calibrado con {datos['calibrado_con']} partidos guardados. "
+                "Cuantos más barras, más cosas pueden salir aquí.")
+    lineas = [f"🎯 <b>Casi seguro</b> · {_escapar(datos['fecha'])}",
+              f"<i>Calibrado con {datos['calibrado_con']} partidos de tu memoria</i>", ""]
+    for grupo in datos.get("por_patron") or []:
+        fuera = (grupo.get("fuera_de_muestra") or {}).get("veredicto") or ""
+        marca = {"aguanta": " · aguanta fuera de muestra",
+                 "se cae": " · ⚠ SE CAE fuera de muestra"}.get(fuera, "")
+        lineas.append(f"<b>{grupo['suelo']:.0%}  {_escapar(grupo['titulo'])}</b>")
+        lineas.append(f"      {_escapar(grupo['dice'])}")
+        lineas.append(f"      {grupo['frecuencia']:.0%} en {grupo['casos']} casos"
+                      f" ({grupo['elevacion']:+.0%} sobre su referencia){marca}")
+        lineas.append(f"      <i>Se cumple en {grupo['cuantos_partidos']} partidos "
+                      "de hoy; estos son los que más se separan del precio:</i>")
+        for partido in grupo["partidos"][:POR_PATRON]:
+            hora = partido.get("hora") or partido.get("hora_utc") or ""
+            quien = partido["sujeto"] if partido["sujeto"] != "el partido" else ""
+            precio = ("sin cuotas" if partido["mercado"] is None else
+                      f"mercado {partido['mercado']:.0%} ({partido['mercado_de']}), "
+                      f"{partido['diferencia']:+.0%}")
+            lineas.append(f"      {hora} {_escapar(partido['partido'])}")
+            lineas.append(f"           {_escapar(quien)} · {precio}" if quien
+                          else f"           {precio}")
         lineas.append("")
-    lineas.append("Ninguna de estas es una apuesta segura: son frecuencias contadas.")
+    lineas.append("<i>Ninguna de estas es una apuesta segura: son frecuencias "
+                  "contadas sobre tu memoria. La frecuencia y el suelo son del "
+                  "patrón —los mismos en todos sus partidos—; lo que cambia es el "
+                  "precio de hoy.</i>")
     return "\n".join(lineas)
 
 
@@ -586,13 +769,25 @@ def _equipo(bot: Bot, resto: str) -> str:
     if not datos.get("disponible"):
         return datos.get("nota") or "No tengo nada de ese equipo guardado."
     r = datos["resultados"]
-    lineas = [f"{datos['equipo']} — {datos['liga']}",
-              f"{datos['partidos_mirados']} partidos: {r['racha']}, "
-              f"{r['goles_favor']}-{r['goles_contra']}", ""]
-    for rasgo in datos.get("lo_que_le_distingue") or []:
-        lineas.append(f"  · {rasgo['rasgo']} ({rasgo['cuanto']})")
-    if not datos.get("lo_que_le_distingue"):
-        lineas.append("  No se sale de la media de su liga en nada llamativo.")
+    cuantos = datos["partidos_mirados"]
+    lineas = [f"<b>{_escapar(datos['equipo'])}</b> — {_escapar(datos['liga'] or '')}",
+              f"{cuantos} partido{'s' if cuantos != 1 else ''} guardado"
+              f"{'s' if cuantos != 1 else ''}: {r['racha']}, "
+              f"{r['goles_favor']}-{r['goles_contra']} en goles", ""]
+    rasgos = datos.get("lo_que_le_distingue") or []
+    for rasgo in rasgos:
+        lineas.append(f"  · {_escapar(rasgo['rasgo'])} "
+                      f"({rasgo['diferencia']:+.0%} sobre su liga)")
+    if rasgos:
+        lineas.append("")
+        lineas.append(f"<i>Medido sobre {cuantos} partidos suyos contra la media de "
+                      f"{datos.get('partidos_en_la_media_de_liga', 0)} de su liga.</i>")
+    elif datos.get("aviso"):
+        # Y esto es lo importante: con un partido no se dice cómo juega nadie.
+        # Antes salía «genera peligro (+187%)» de un 2-0 y parecía un retrato.
+        lineas.append(f"<i>{_escapar(datos['aviso'])}</i>")
+    else:
+        lineas.append("No se sale de la media de su liga en nada llamativo.")
     return "\n".join(lineas)
 
 
@@ -634,12 +829,31 @@ def _analista(bot: Bot, texto: str) -> str:
     # Solo se pasa `modelo` si hay uno: mandar None machacaría el de por
     # defecto del dataclass y el analista se quedaría sin modelo que pedir.
     extra = {"modelo": bot.modelo} if bot.modelo else {}
+    if bot.api_key:
+        extra["api_key"] = bot.api_key
     try:
         salida = Analista(sesion=bot.sesion, **extra).preguntar(texto)
     except (OllamaNoDisponible, OSError) as exc:
-        return (f"No tengo analista: {exc}\n\n"
-                "Prueba con una orden concreta. /ayuda las lista.")
+        return _sin_analista(bot, exc)
     return salida.get("respuesta") or "El modelo no ha dicho nada."
+
+
+def _sin_analista(bot: Bot, exc: Exception) -> str:
+    """Por qué no hay analista, y qué escribir para tenerlo.
+
+    El caso que salió en cuanto se usó: «Ollama ha contestado 404: model
+    'hermes3' not found». Ollama estaba arrancado y el modelo sin descargar, y
+    lo que hacía falta era una línea que decir en el terminal.
+    """
+    dicho = str(exc)
+    if "not found" in dicho and bot.modelo:
+        return (f"Ollama está funcionando, pero no tiene el modelo «{bot.modelo}».\n\n"
+                f"En el ordenador:\n    ollama pull {bot.modelo}\n\n"
+                "Tarda un rato (unos 5 GB) y luego esto ya va. O elige otro en "
+                "Ajustes → Analista, que ahí salen los que sí tienes.\n\n"
+                "Mientras, las órdenes funcionan igual: /ayuda las lista.")
+    return (f"No tengo analista: {dicho}\n\n"
+            "Las órdenes no lo necesitan: /ayuda las lista.")
 
 
 ORDENES: dict[str, Callable[[Bot, str], str]] = {

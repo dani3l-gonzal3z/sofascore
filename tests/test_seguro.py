@@ -466,3 +466,98 @@ def test_un_aviso_del_dia_lleva_la_comprobacion_encima(base):
     for aviso in salida["avisos"]:
         assert "fuera_de_muestra" in aviso
     assert "aguantan_fuera_de_muestra" in salida
+
+
+# ------------------------------------------- un patrón, no sesenta fichas
+# Esto sale de una pantalla real: sesenta partidos del día, y en los sesenta la
+# misma ficha —«Sale de favorito: ¿evita la derrota?», 84 % en 64 casos, +22 %,
+# el mismo suelo—. Solo cambiaba el nombre del equipo. No estaba mal calculado:
+# estaba mal contado. Un patrón se mide UNA vez sobre todo el historial.
+
+def _con_cuotas(base, partido_id: int, local: float, empate: float, visitante: float):
+    base._conexion.execute(
+        """INSERT INTO cuotas (partido_id,fuente,mercado,prob_local,prob_empate,prob_visitante)
+           VALUES (?,?,?,?,?,?)""",
+        (partido_id, "test", "FT", local, empate, visitante))
+    base._conexion.commit()
+
+
+def test_el_patron_se_enseña_una_vez_y_sus_partidos_debajo(base):
+    _liga(base, 60, lambda j, local, historial: (2, 0))
+    eventos = []
+    for numero, (local_id, visitante_id) in enumerate(
+            ((100, 200), (100, 300), (100, 400)), start=1):
+        evento = _evento(9000 + numero, local_id, visitante_id)
+        base.guardar_evento(evento)
+        _con_cuotas(base, 9000 + numero, 0.70 + numero / 100, 0.15, 0.15 - numero / 100)
+        eventos.append(evento)
+
+    datos = avisos(base, eventos=eventos)
+    assert datos["avisos"], "el local gana siempre: algo tiene que salir"
+    grupos = datos["por_patron"]
+    assert grupos, "tiene que venir agrupado"
+    # Un grupo por patrón, no uno por partido.
+    assert len(grupos) == len({a["patron"] for a in datos["avisos"]})
+    for grupo in grupos:
+        # La medición vive en el grupo, no repetida en cada partido.
+        for clave in ("frecuencia", "suelo", "casos", "elevacion", "veredicto"):
+            assert clave in grupo
+            assert clave not in grupo["partidos"][0]
+        assert grupo["cuantos_partidos"] == len(grupo["partidos"])
+
+
+def test_los_partidos_de_un_patron_van_por_distancia_al_mercado(base):
+    """Es lo único que distingue un partido de otro dentro del mismo patrón."""
+    _liga(base, 60, lambda j, local, historial: (2, 0))
+    eventos = []
+    for numero, (local_id, precio) in enumerate(
+            ((200, 0.50), (300, 0.90), (400, 0.70)), start=1):
+        evento = _evento(9100 + numero, 100, local_id)
+        base.guardar_evento(evento)
+        _con_cuotas(base, 9100 + numero, precio, 0.05, 0.95 - precio)
+        eventos.append(evento)
+
+    grupo = next(g for g in avisos(base, eventos=eventos)["por_patron"]
+                 if g["patron"] == "favorito_no_pierde")
+    diferencias = [abs(p["diferencia"]) for p in grupo["partidos"]]
+    assert diferencias == sorted(diferencias, reverse=True)
+    assert grupo["mayor_diferencia"] is not None
+
+
+def test_el_mercado_responde_a_la_misma_pregunta_que_el_patron(base):
+    """«¿Evita la derrota?» no se compara con la probabilidad de ganar."""
+    _liga(base, 60, lambda j, local, historial: (2, 0))
+    evento = _evento(9201, 100, 200)
+    base.guardar_evento(evento)
+    _con_cuotas(base, 9201, 0.70, 0.15, 0.15)
+
+    datos = avisos(base, eventos=[evento])
+    no_pierde = next(a for a in datos["avisos"] if a["patron"] == "favorito_no_pierde")
+    # No perder es ganar o empatar: 1 - 0.15, no 0.70.
+    assert no_pierde["mercado"] == pytest.approx(0.85)
+    assert no_pierde["mercado_de"] == "que no pierda"
+    gana = next(a for a in datos["avisos"] if a["patron"] == "favorito_claro_gana")
+    assert gana["mercado"] == pytest.approx(0.70)
+    assert gana["mercado_de"] == "que gane"
+    assert gana["diferencia"] == pytest.approx(gana["frecuencia"] - 0.70, abs=1e-6)
+
+
+def test_sin_equivalente_en_el_mercado_no_se_inventa_uno(base):
+    """Los córners y las tarjetas no están en el 1X2."""
+    from cancha.seguro import POR_NOMBRE, mercado_comparable
+    from cancha.seguro import Antes as Contexto
+
+    antes = Contexto(equipo_id=100, rival_id=200, es_local=True, fecha="2026-01-01",
+                     liga_id=8, mercado={"local": 0.6, "empate": 0.25, "visitante": 0.15})
+    valor, etiqueta = mercado_comparable(antes, POR_NOMBRE["corners"])
+    assert valor is None and etiqueta == ""
+
+
+def test_sin_cuotas_el_aviso_lo_dice_y_no_compara(base):
+    _liga(base, 60, lambda j, local, historial: (2, 0))
+    evento = _evento(9301, 100, 200)
+    base.guardar_evento(evento)
+    datos = avisos(base, eventos=[evento])
+    for aviso in datos["avisos"]:
+        assert aviso["mercado"] is None
+        assert aviso["diferencia"] is None

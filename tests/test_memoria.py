@@ -451,3 +451,82 @@ def test_un_cruce_necesita_medir_los_dos_lados():
     cruces = _cruces({"local": ataca, "visitante": flojo})
     assert len(cruces) == 1
     assert cruces[0]["concede_el_rival"] == 0.5
+
+
+# ---------------------------------------------- muestra: cuándo NO se describe
+# Esto viene de una conversación real por Telegram: «/equipo barcelona» contestó
+# «1 partidos: G, 2-0» y debajo «genera peligro (+187% sobre la media de su
+# liga)». Con un partido. Lo que describía no era el Barcelona, era el sábado.
+
+def test_con_un_partido_no_se_dice_como_juega_un_equipo(almacen):
+    _liga_inventada(almacen)          # la liga sí tiene con qué comparar
+    # Un equipo nuevo que solo ha jugado una vez, y ese día se salió.
+    almacen._conexion.execute(
+        """INSERT OR REPLACE INTO partidos (id,fecha,momento,liga_id,liga,temporada_id,
+           local_id,local,visitante_id,visitante,goles_local,goles_visitante,estado)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (900, "2026-09-01", 1790000000, 8, "LaLiga", 61643,
+         777, "Recién Llegado", 201, "E201", 4, 0, "finished"))
+    for clave, mio in (("ballPossession", 75), ("expectedGoals", 3.9),
+                       ("cornerKicks", 14), ("totalShotsOnGoal", 25)):
+        almacen._conexion.execute(
+            """INSERT OR REPLACE INTO estadisticas
+               (partido_id,periodo,clave,local,visitante) VALUES (?,?,?,?,?)""",
+            (900, "ALL", clave, mio, 3))
+
+    estilo = estilo_de_equipo(almacen, 777)
+    assert estilo["disponible"] is True
+    assert estilo["partidos_mirados"] == 1
+    assert estilo["muestra_suficiente"] is False
+    assert estilo["lo_que_le_distingue"] == [], "con un partido no hay rasgos"
+    assert "1 partido" in estilo["aviso"]
+    assert "no se puede decir cómo juega" in estilo["aviso"]
+    # Los números en bruto sí: son ciertos, y se marcan como lo que son.
+    assert estilo["dimensiones"]["posesion"]["valor"] == 75
+    assert estilo["dimensiones"]["posesion"]["muestra_corta"] is True
+
+
+def test_con_partidos_de_sobra_si_se_dice(almacen):
+    """La otra mitad: el guardia nuevo no puede haberse comido los rasgos."""
+    _liga_inventada(almacen)
+    estilo = estilo_de_equipo(almacen, 100)
+    assert estilo["muestra_suficiente"] is True
+    assert estilo["lo_que_le_distingue"], "con doce jornadas hay retrato"
+    assert estilo["aviso"] is None
+
+
+def test_una_liga_sin_barrer_no_sirve_de_vara_de_medir(almacen):
+    """Cuatro partidos de una liga no son la media de esa liga."""
+    _liga_inventada(almacen, jornadas=4)
+    estilo = estilo_de_equipo(almacen, 100)
+    assert estilo["muestra_suficiente"] is False
+    assert estilo["lo_que_le_distingue"] == []
+    assert "su liga" in estilo["aviso"].lower()
+
+
+def test_lo_que_se_le_da_mal_se_dice_en_castellano(almacen):
+    """Salía «no su portero trabaja», que no es una frase."""
+    from cancha.perfiles import DIMENSIONES
+
+    _liga_inventada(almacen)
+    estilo = estilo_de_equipo(almacen, 100)
+    bajos = [r["rasgo"] for r in estilo["lo_que_le_distingue"] if r["diferencia"] < 0]
+    assert bajos, "el equipo de la prueba juega menos en largo que su liga"
+    for rasgo in bajos:
+        assert not rasgo.startswith("no su"), rasgo
+    # Y el catálogo tiene las dos lecturas escritas, no una y un «no» delante.
+    # «no llega a ocasiones claras» coincide con hacerlo así y está bien; lo que
+    # no puede salir nunca es un «no» pegado a un posesivo.
+    for _clave, alta, baja in DIMENSIONES.values():
+        assert baja and baja != alta
+        assert not baja.startswith("no su "), f"«{baja}» no es una frase"
+    assert DIMENSIONES["paradas"][2] == "su portero no trabaja"
+
+
+def test_cada_rasgo_dice_con_cuanta_muestra_se_ha_medido(almacen):
+    """Un porcentaje sin su n al lado es media verdad."""
+    _liga_inventada(almacen)
+    for rasgo in estilo_de_equipo(almacen, 100)["lo_que_le_distingue"]:
+        assert "partidos suyos" in rasgo["cuanto"]
+        assert "de la liga" in rasgo["cuanto"]
+        assert rasgo["partidos"] >= 4

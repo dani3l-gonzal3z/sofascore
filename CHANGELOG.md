@@ -4,6 +4,88 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.13.0
+
+Lo que salió de usarlo de verdad: el bot contestaba como un bruto, y dos cosas
+que se enseñaban mal.
+
+### Arreglos
+
+- **Con un partido guardado no se dice cómo juega un equipo.** `/equipo
+  barcelona` contestaba «1 partidos: G, 2-0» y debajo «genera peligro (+187 %
+  sobre la media de su liga), vive del córner (+152 %), ataca por fuera
+  (+105 %)». Ninguna de esas cuentas estaba mal y todas eran mentira como
+  retrato: describían el sábado, no al Barcelona.
+
+  Ahora hacen falta **4 partidos del equipo y 8 de su liga** para publicar un
+  solo rasgo, y por debajo de eso se dice qué falta y cómo traerlo. Los números
+  en bruto se siguen devolviendo, marcados como muestra corta, porque son
+  ciertos. Cada rasgo que sí sale lleva las dos muestras al lado.
+
+- **«no su portero trabaja».** Lo que se le da mal a un equipo se construía
+  pegándole un «no» delante a la lectura de lo que se le da bien. Ahora las dos
+  lecturas están escritas a mano en el catálogo de dimensiones.
+
+- **El mismo patrón, repetido sesenta veces.** En la pestaña Casi seguro salían
+  sesenta fichas idénticas —«Sale de favorito: ¿evita la derrota?», 84 % en 64
+  casos, +22 %, el mismo suelo— y solo cambiaba el nombre del equipo. No estaba
+  mal calculado: un patrón se mide **una vez** sobre todo el historial. Estaba
+  mal contado.
+
+  Ahora la respuesta trae también `por_patron`: el patrón una vez con su
+  medición, y debajo los partidos donde se cumple, ordenados por lo único que
+  distingue a uno de otro —cuánto se separa del precio de hoy—. La interfaz y el
+  bot enseñan eso.
+
+- **Y el precio con el que se comparaba era otro.** «¿Evita la derrota? 84 %»
+  iba al lado de «el mercado le da 49 %», y ese 49 % era la probabilidad de que
+  **ganara**: la de no perder era veinte puntos más alta. Parecía una ventaja
+  enorme en todos los partidos del día y era una resta entre dos cosas
+  distintas. Ahora cada patrón declara con qué número del mercado se compara —
+  `P(gana)` o `1 − P(gana el rival)`— y cuando no hay equivalente, lo dice.
+
+- **«Premier League» mezclaba Inglaterra y Ucrania.** La agenda agrupaba por el
+  nombre que manda Sofascore, y ese nombre es el mismo para las dos: el
+  Manchester City - Sunderland salía en la misma lista que el Shakhtar - LNZ
+  Cherkasy. Ahora se agrupa por el nombre del catálogo, que las distingue.
+
+- **Las horas salían en UTC sin decirlo.** Un partido a las 14:15 UTC se escribía
+  «14:15» y en España se lee como las dos y cuarto, cuando empieza a las cuatro y
+  cuarto. Ahora la agenda da la hora local —y la UTC al lado— y dice en qué zona
+  está.
+
+### Novedades
+
+- **El bot, presentable.** `/hoy` agrupa por competición en orden de importancia
+  (antes abría con diez partidos de la MLS a las dos y media de la mañana y
+  dejaba el Atlético - Real Madrid en tercer lugar), enseña las seis primeras
+  enteras y el resto por nombre, y acepta `/hoy laliga` y `/hoy 2026-09-22`.
+  `/directo` filtra por tus competiciones —sin eso traía Perú sub-15 y juveniles
+  gallegos— y acepta `/directo laliga`. `/seguro` enseña un patrón, no sesenta
+  fichas. Y todo con negritas, con vuelta a texto plano si Telegram rechaza el
+  formato: el contenido importa más que las negritas.
+
+- **Las ligas que sigues las respeta el bot**, y las coge al vuelo como el resto
+  de los ajustes.
+
+- **Un modelo de Ollama que no está se explica.** «Ollama ha contestado 404:
+  model 'hermes3' not found» pasa a ser «Ollama está funcionando, pero no tiene
+  el modelo «hermes3». En el ordenador: ollama pull hermes3».
+
+- **El expediente del dictamen, escrito como un informe.** Cabecera fechada con
+  cuántos partidos hay en memoria, **clave de lectura** que define `n=`, «suelo»
+  y «fuera de muestra» dentro del propio documento, índice, y ocho apartados
+  numerados para poder citarlos. El mercado pasa a ser un apartado propio: iba
+  dentro del pronóstico y desaparecía cuando no había pronóstico.
+
+- **Y el encargo que lo acompaña, también.** `INSTRUCCIONES_DICTAMEN` pasa a
+  tener rol, entrada, método, siete reglas y un **formato de salida fijo** de
+  cinco apartados —lectura, en qué me apoyo, dónde el cálculo y el mercado no
+  coinciden, qué me haría cambiar de opinión, y confianza—. A un modelo grande al
+  que solo se le dice «analiza esto» le sale una redacción; con un encargo sale
+  un informe. Con una regla nueva: no da consejos de apuesta, describe los
+  números y dónde se separan del precio.
+
 ## 0.12.2
 
 Tres cosas que no eran errores del programa pero se comportaban como si lo

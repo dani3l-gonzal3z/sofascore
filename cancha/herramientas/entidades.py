@@ -90,14 +90,32 @@ def _clasificacion(sesion, liga: str, temporada: int | None = None):
     {
         "fecha": {"type": "string", "description": "AAAA-MM-DD. Sin fecha, los de ahora mismo."},
         "liga": {"type": "string", "description": "Solo esta competición ('laliga', 'premier')."},
+        "grupos": {"type": "string",
+                   "description": "Solo las competiciones de estos grupos, separados por "
+                                  "comas ('grandes,uefa'). Con '*' valen todas las que se "
+                                  "siguen por defecto. Sin esto vuelve **todo** el fútbol "
+                                  "del mundo: amistosos, juveniles y sub-15 incluidos."},
         "limite": {"type": "integer", "description": "Cuántos devolver (por defecto 30)."},
     },
 )
-def _partidos(sesion, fecha: str | None = None, liga: str | None = None, limite: int = 30):
+def _partidos(sesion, fecha: str | None = None, liga: str | None = None,
+              grupos: str | None = None, limite: int = 30):
     from ..catalog import find_league
 
     crudos = sesion.cliente.scheduled_events(fecha) if fecha else sesion.cliente.live_events()
     eventos = [Event.from_api(e) for e in crudos]
+    todos = len(eventos)
+    if grupos:
+        # El directo sin filtrar trae el fútbol entero del planeta: en una
+        # consulta real salieron Perú sub-15, juveniles gallegos y la segunda
+        # femenina alemana entre los partidos de LaLiga. Con esto se queda en
+        # las competiciones que se siguen.
+        from ..barrido import ligas_de
+
+        elegidos = None if grupos.strip() == "*" else [
+            x.strip() for x in grupos.split(",") if x.strip()]
+        conocidas = ligas_de(elegidos, sesion.almacen)
+        eventos = [e for e in eventos if e.unique_tournament_id in conocidas]
     if liga:
         identificador = find_league(liga)
         if identificador:
@@ -107,12 +125,20 @@ def _partidos(sesion, fecha: str | None = None, liga: str | None = None, limite:
 
             buscado = normalizar(liga)
             eventos = [e for e in eventos if buscado in normalizar(e.tournament)]
+    del_catalogo = {}
+    if grupos:
+        from ..barrido import ligas_de as _ligas
+
+        del_catalogo = _ligas(None if grupos.strip() == "*" else [
+            x.strip() for x in grupos.split(",") if x.strip()], sesion.almacen)
     return {
         "cuando": fecha or "en directo",
         "total": len(eventos),
+        "de_todo_el_mundo": todos,
         "partidos": [
             {"id": e.id, "partido": f"{e.home} {e.scoreline} {e.away}",
-             "competicion": e.tournament, "estado": e.status_description or e.status_type}
+             "competicion": del_catalogo.get(e.unique_tournament_id) or e.tournament,
+             "estado": e.status_description or e.status_type}
             for e in eventos[:limite]
         ],
     }

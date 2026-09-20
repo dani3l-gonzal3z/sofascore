@@ -135,8 +135,9 @@ def _previa_de_partido(sesion, partido: str, ultimos: int = 6, jugadores: int = 
 
 @herramienta(
     "agenda_del_dia",
-    "QUÉ SE JUEGA un día en las competiciones que importan (las cinco grandes "
-    "europeas, UEFA, MLS, Arabia y varias europeas menores). Es por donde "
+    "QUÉ SE JUEGA un día en las competiciones elegidas. Agrupado por "
+    "competición, con el nombre completo del catálogo (que distingue la Premier "
+    "inglesa de la ucraniana) y la hora **local** de cada partido. Es por donde "
     "empieza un repaso diario: de aquí salen los partidos sobre los que luego "
     "pedir la previa.",
     {
@@ -147,18 +148,39 @@ def _previa_de_partido(sesion, partido: str, ultimos: int = 6, jugadores: int = 
     },
 )
 def _agenda_del_dia(sesion, fecha: str | None = None, grupos: str | None = None):
-    from ..barrido import agenda
+    from datetime import datetime
 
-    partidos = agenda(sesion.cliente, fecha, grupos.split(",") if grupos else None)
+    from ..barrido import agenda, ligas_de
+
+    elegidos = grupos.split(",") if grupos else None
+    partidos = agenda(sesion.cliente, fecha, elegidos)
+    # El nombre del catálogo, no el que manda Sofascore. Sofascore llama
+    # «Premier League» tanto a la inglesa como a la ucraniana, así que agrupar
+    # por ese nombre juntaba el Manchester City - Sunderland con el Shakhtar -
+    # LNZ Cherkasy en la misma lista, y quien la leía no tenía forma de saberlo.
+    del_catalogo = ligas_de(elegidos, sesion.almacen)
     por_liga: dict[str, list] = {}
     for evento in partidos:
-        por_liga.setdefault(evento.tournament or "?", []).append({
+        liga = del_catalogo.get(evento.unique_tournament_id) or evento.tournament or "?"
+        local = evento.kickoff_local
+        por_liga.setdefault(liga, []).append({
             "id": evento.id,
             "partido": f"{evento.home} - {evento.away}",
+            # `hora` es la de este ordenador, que es la que se quiere leer;
+            # `hora_utc` se queda porque es la que guarda la memoria.
+            "hora": local.strftime("%H:%M") if local else None,
             "hora_utc": evento.kickoff.strftime("%H:%M") if evento.kickoff else None,
+            "competicion": liga,
             "arbitro": evento.referee or None,
         })
-    return {"fecha": fecha or "hoy", "total": len(partidos), "por_competicion": por_liga}
+    for lista in por_liga.values():
+        lista.sort(key=lambda p: p["hora_utc"] or "99:99")
+    ahora = datetime.now().astimezone()
+    return {"fecha": fecha or "hoy", "total": len(partidos),
+            "zona": ahora.tzname() or "hora local",
+            "desfase_utc": ahora.strftime("%z"),
+            "competiciones": len(por_liga),
+            "por_competicion": dict(sorted(por_liga.items()))}
 
 
 @herramienta(

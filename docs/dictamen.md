@@ -24,18 +24,47 @@ Osasuna`.
 
 ## Qué lleva el expediente
 
-Lo monta `cancha/expediente.py`, y estos son sus apartados en el orden en que los
-lee el modelo:
+El documento está escrito como un informe y no como un volcado, a propósito: un
+modelo grande lee mejor —y se inventa menos— cuando lo que recibe lleva
+**cabecera fechada**, **clave de lectura**, **índice** y **apartados numerados**.
+Empieza así:
+
+```
+EXPEDIENTE DE PARTIDO — Real Madrid vs Barcelona
+Competición: LaLiga · Fecha: 2026-09-20 16:15 (14:15 UTC)
+Sede: Santiago Bernabéu · Árbitro designado: César Soto Grado
+Preparado por cancha el 2026-09-20 09:31 CEST con 4.218 partidos en memoria
+
+CÓMO LEER ESTE DOCUMENTO
+- n=X es el número de partidos sobre los que está medida esa cifra…
+```
+
+La clave de lectura define `n=`, «suelo», «sobre su liga» y «fuera de muestra»
+**dentro del propio documento**, al lado de los números. Eso no se arregla en las
+instrucciones: un modelo que no sabe qué es un suelo de Wilson se inventa la
+interpretación, y la inventa con aplomo.
+
+Lo monta `cancha/expediente.py`, y estos son sus apartados, numerados para que se
+puedan citar:
 
 | Apartado | Qué |
 | --- | --- |
-| La cabecera | Equipos, competición, fecha, sede y árbitro |
-| `## Pronóstico calculado` | Marcador más probable con su probabilidad, 1X2, goles, córners y tarjetas ([Pronóstico](pronostico.md)) |
-| `MERCADO:` | Lo que implican las cuotas, y si coinciden con el pronóstico o no ([Sistemas y cuotas](sistemas.md)) |
-| `## Cómo juega cada uno, comparado con su liga` | Los rasgos en los que cada equipo **se sale de la media de su liga**, los cruces entre lo que uno hace y el otro concede, y cuatro jugadores a seguir por equipo con su forma |
-| `## Últimos partidos` | Los seis de cada equipo y los seis entre ellos, uno a uno |
-| `## Árbitro` | Su perfil de tarjetas comparado con su liga |
-| `## Lo que casi siempre pasa` | Los patrones medidos, con su muestra y su veredicto fuera de muestra ([Casi seguro](seguro.md)) |
+| 1. Ficha del partido | Equipos, competición, fecha, sede y árbitro |
+| 2. Pronóstico calculado | El método en una línea, marcador más probable con su probabilidad, 1X2, goles, córners y tarjetas ([Pronóstico](pronostico.md)) |
+| 3. Mercado | Lo que implican las cuotas, y el recordatorio de que sabe cosas que el documento no ([Sistemas y cuotas](sistemas.md)) |
+| 4. Perfil de los dos equipos | En qué se sale cada uno de la media de su liga —con `n=` de las dos partes—, los cruces entre lo que uno hace y el otro concede, y cuatro jugadores a seguir |
+| 5. Últimos partidos | Los seis de cada equipo y los seis entre ellos, uno a uno |
+| 6. Árbitro | Su perfil de tarjetas comparado con su liga |
+| 7. Patrones medidos | Con su muestra, su suelo y su veredicto fuera de muestra ([Casi seguro](seguro.md)) |
+| 8. Límites de este expediente | Lo que no contiene, y por tanto no se puede afirmar |
+
+El **mercado va en su propio apartado** y no dentro del pronóstico: es lo primero
+que hay que contrastar, y antes desaparecía del documento cuando no había
+pronóstico que calcular.
+
+Cuando un equipo no tiene muestra para ser retratado, el apartado 4 lo dice con
+esas palabras —`SIN MUESTRA PARA RETRATARLO`— en vez de decir que «no se sale de
+la media en nada llamativo», que es una afirmación distinta y no medida.
 
 Y cierra con un apartado que importa tanto como los demás: **«Lo que este
 expediente NO sabe»** —alineaciones, lesiones, si el partido se juega a algo, el
@@ -47,8 +76,26 @@ modelo pone el razonamiento; la aritmética la pone Python. Es la línea de
 siempre de este proyecto, y con un modelo grande importa **más**, no menos: se
 equivoca con más aplomo.
 
-Las instrucciones que lleva delante (`INSTRUCCIONES_DICTAMEN`, en
-`cancha/analista.py`) son seis reglas, y las tres que hacen el trabajo:
+## El encargo
+
+Las instrucciones que van delante (`INSTRUCCIONES_DICTAMEN`, en
+`cancha/analista.py`) están escritas como un encargo profesional, con cinco
+bloques: **ROL**, **ENTRADA** (qué recibe y qué significa la notación),
+**MÉTODO** (en qué orden mirar los apartados), **REGLAS QUE NO SE NEGOCIAN** y
+**FORMATO DE SALIDA**. A un modelo grande al que solo se le dice «analiza esto»
+le sale una redacción; con un encargo sale un informe.
+
+El formato de salida está fijado, y es lo que se recibe siempre:
+
+```
+**Lectura**                                    3 o 4 frases
+**En qué me apoyo**                            3 a 5 puntos, cada uno con su n
+**Dónde el cálculo y el mercado no coinciden** 1 a 3 puntos, con las dos cifras
+**Qué me haría cambiar de opinión**            2 o 3 puntos concretos
+**Confianza**                                  alta / media / baja, y por qué
+```
+
+De las siete reglas, las que hacen el trabajo:
 
 - todos los números salen del expediente, y si una cifra no está escrita, no se
   dice;
@@ -56,7 +103,9 @@ Las instrucciones que lleva delante (`INSTRUCCIONES_DICTAMEN`, en
   partidos;
 - **el mercado es un rival serio**: donde el pronóstico y la cuota coinciden no
   hay nada que ganar, y donde no coinciden, lo más probable sigue siendo que se
-  equivoque el pronóstico.
+  equivoque el pronóstico;
+- y **no da consejos de apuesta**: describe lo que dicen los números y dónde se
+  separan del precio. La decisión no es del modelo.
 
 ## La nube de Ollama
 

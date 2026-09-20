@@ -693,7 +693,7 @@ def test_el_dictamen_monta_el_expediente_y_lo_manda(servidor, monkeypatch):
                                {"partido": str(EVENT_ID)})
     assert estado == 200, cuerpo
     assert cuerpo["respuesta"] == "Lo veo claro."
-    assert cuerpo["expediente"]["texto"].startswith("# Real Madrid")
+    assert cuerpo["expediente"]["texto"].startswith("EXPEDIENTE DE PARTIDO")
     assert cuerpo["expediente"]["tokens_aprox"] > 0
     assert cuerpo["recibido"] == len(cuerpo["expediente"]["texto"])
 

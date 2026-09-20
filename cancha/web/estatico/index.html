@@ -732,13 +732,16 @@ V.hoy = async (raiz, [fecha]) => {
       const nodo = $(`#p${p.id} .insignias`);
       if (nodo && suyos.length) nodo.prepend(etiqueta(`${suyos.length} casi seguro`, "roja"));
     }
+    /* Por patrón, no por aviso: los avisos del mismo patrón llevan los mismos
+       números, así que cuatro avisos eran cuatro veces la misma línea. */
     digest.replaceChildren(tarjeta(null,
       el("div", { class: "titular" }, el("h3", {}, "Casi seguro hoy"),
         el("a", { class: "resto peq", href: `#/seguro/hoy/${fecha}` }, "ver todo →")),
-      el("ul", { class: "lista" }, ...s.avisos.slice(0, 4).map((a) => el("li", {},
-        el("span", { style: "font-family:var(--display);font-weight:800;font-size:17px;flex:none" }, pc(a.suelo)),
-        el("span", { style: "flex:1 1 200px;min-width:0" }, el("b", {}, a.sujeto), " — ", a.dice),
-        el("span", { class: "gris peq" }, `${a.casos} casos`))))));
+      el("ul", { class: "lista" }, ...(s.por_patron || []).slice(0, 4).map((g) => el("li", {},
+        el("span", { style: "font-family:var(--display);font-weight:800;font-size:17px;flex:none" }, pc(g.suelo)),
+        el("span", { style: "flex:1 1 200px;min-width:0" }, el("b", {}, g.titulo), " — ", g.dice),
+        el("span", { class: "gris peq" },
+          `${g.casos} casos · ${g.cuantos_partidos} hoy`))))));
   });
 };
 
@@ -964,26 +967,61 @@ V.seguro = async (raiz, [modo, fechaRuta]) => {
         el("a", { class: "btn plano s", href: "#/memoria" }, "Barrer más partidos"))));
     return;
   }
-  const porPartido = {};
-  for (const a of d.avisos) (porPartido[a.partido] ||= []).push(a);
-  for (const [partido, lista] of Object.entries(porPartido)) {
-    const c = tarjeta(null, el("div", { class: "titular" }, el("h2", {}, partido),
-      el("span", { class: "resto gris peq" }, `${lista[0].hora_utc || ""} · ${lista[0].competicion || ""}`)));
-    for (const a of lista) {
-      c.append(el("div", { class: "av " + (a.suelo >= 0.8 ? "alto" : "medio") },
-        el("div", { class: "cab" }, el("span", { class: "pc" }, pc(a.suelo)),
-          el("span", { style: "flex:1 1 220px;min-width:0" }, el("b", {}, a.sujeto), " — ", a.dice),
-          veredicto(a.veredicto), fueraDeMuestra(a.fuera_de_muestra)),
-        el("div", { class: "barra-conf", title: `frecuencia ${pc(a.frecuencia)} · suelo ${pc(a.suelo)}` },
-          el("i", { style: `width:${(a.suelo || 0) * 100}%` }),
-          el("b", { style: `left:calc(${(a.frecuencia || 0) * 100}% - 1px)` })),
-        el("div", { class: "fila peq gris" }, `${pc(a.frecuencia)} en ${a.casos} casos`,
-          el("span", {}, `${a.elevacion > 0 ? "+" : ""}${pc(a.elevacion)} sobre su referencia`),
-          a.mercado ? el("span", {}, `el mercado le da ${pc(a.mercado)}`) : null),
-        a.fuera_de_muestra ? nota(a.fuera_de_muestra.lectura) : null));
+  /* Un patrón se mide UNA vez sobre todo el historial. Cuando se cumple en
+     sesenta partidos del día, enseñarlo por partido daba sesenta fichas con la
+     misma frecuencia, los mismos casos y el mismo suelo, y solo cambiaba el
+     nombre del equipo: parecía roto. Así que el patrón va una vez, con su
+     medición, y debajo los partidos donde se cumple, ordenados por lo único
+     que los distingue: cuánto se separan del precio del mercado. */
+  const VISIBLES = 8;
+  for (const g of d.por_patron || []) {
+    const c = tarjeta(null, el("div", { class: "titular" },
+      el("h2", {}, g.titulo),
+      el("span", { class: "resto gris peq" },
+        `${g.cuantos_partidos} partido${g.cuantos_partidos === 1 ? "" : "s"} hoy`)));
+    c.append(el("div", { class: "av " + (g.suelo >= 0.8 ? "alto" : "medio") },
+      el("div", { class: "cab" }, el("span", { class: "pc" }, pc(g.suelo)),
+        el("span", { style: "flex:1 1 220px;min-width:0" }, g.dice),
+        veredicto(g.veredicto), fueraDeMuestra(g.fuera_de_muestra)),
+      el("div", { class: "barra-conf", title: `frecuencia ${pc(g.frecuencia)} · suelo ${pc(g.suelo)}` },
+        el("i", { style: `width:${(g.suelo || 0) * 100}%` }),
+        el("b", { style: `left:calc(${(g.frecuencia || 0) * 100}% - 1px)` })),
+      el("div", { class: "fila peq gris" }, `${pc(g.frecuencia)} en ${g.casos} casos`,
+        el("span", {}, `${g.elevacion > 0 ? "+" : ""}${pc(g.elevacion)} sobre su referencia`)),
+      g.fuera_de_muestra ? nota(g.fuera_de_muestra.lectura) : null));
+    const filas = el("ul", { class: "lista" });
+    const pintaFila = (p) => filas.append(el("li", {},
+      el("span", { class: "gris peq", style: "flex:0 0 42px" }, p.hora || p.hora_utc || ""),
+      el("a", { style: "flex:1 1 200px;min-width:0",
+        href: `#/buscar/partido/${p.partido_id}` }, p.partido),
+      p.sujeto && p.sujeto !== "el partido"
+        ? el("span", { class: "peq" }, p.sujeto) : null,
+      /* La diferencia con el mercado, y con qué se compara: el mercado dice
+         «que gane» o «que no pierda», y mezclarlos era la mitad del error. */
+      p.mercado === null || p.mercado === undefined
+        ? el("span", { class: "gris peq" }, "sin cuotas")
+        : el("span", { class: "peq" + (Math.abs(p.diferencia) >= 0.1 ? "" : " gris") },
+            `mercado ${pc(p.mercado)} (${p.mercado_de})`,
+            el("b", { style: "margin-left:6px" },
+              `${p.diferencia > 0 ? "+" : ""}${pc(p.diferencia)}`))));
+    (g.partidos || []).slice(0, VISIBLES).forEach(pintaFila);
+    c.append(filas);
+    if ((g.partidos || []).length > VISIBLES) {
+      const resto = g.partidos.slice(VISIBLES);
+      c.append(el("details", {},
+        el("summary", {}, `Los otros ${resto.length}`),
+        el("div", {}, el("ul", { class: "lista" },
+          ...resto.map((p) => el("li", {},
+            el("span", { class: "gris peq", style: "flex:0 0 42px" }, p.hora || p.hora_utc || ""),
+            el("a", { style: "flex:1 1 200px;min-width:0",
+              href: `#/buscar/partido/${p.partido_id}` }, p.partido),
+            p.mercado === null || p.mercado === undefined ? null
+              : el("span", { class: "gris peq" },
+                  `${p.diferencia > 0 ? "+" : ""}${pc(p.diferencia)}`)))))));
     }
-    c.append(el("a", { class: "btn plano s", style: "justify-self:start",
-      href: `#/buscar/partido/${lista[0].partido_id}` }, "Ver el partido"));
+    c.append(nota("La frecuencia y el suelo son del patrón, medidos sobre todo el "
+      + "historial: son los mismos en todos estos partidos. Lo que cambia de uno a "
+      + "otro es el precio de hoy, y por eso están ordenados por ahí."));
     raiz.append(c);
   }
   raiz.append(nota(d.lo_que_no_dice));

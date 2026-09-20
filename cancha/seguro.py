@@ -276,6 +276,37 @@ class Patron:
     #: mundo y parece un hallazgo, cuando lo que hay que preguntarse es si
     #: gana más que un favorito cualquiera.
     referencia: str = ""
+    #: Qué número del mercado responde a **esta misma pregunta**: ``gana``,
+    #: ``no_pierde``, o vacío si el 1X2 no dice nada de esto.
+    #:
+    #: Hace falta porque comparar dos cosas distintas es peor que no comparar.
+    #: Esto enseñaba «¿evita la derrota? 84 %» al lado de «el mercado le da
+    #: 49 %», y ese 49 % era la probabilidad de que **ganara**: la de no perder
+    #: era veinte puntos más alta. Parecía una ventaja enorme en todos los
+    #: partidos del día, y no era una ventaja, era una resta mal hecha.
+    mercado: str = ""
+
+
+#: Cómo se lee cada equivalente del mercado, para poder escribirlo al lado.
+COMO_SE_LEE = {"gana": "que gane", "no_pierde": "que no pierda"}
+
+
+def mercado_comparable(antes: Antes, patron: Patron) -> tuple[float | None, str]:
+    """El número del mercado que responde a la pregunta del patrón.
+
+    Devuelve ``(None, "")`` cuando el 1X2 no dice nada de eso —goles, córners,
+    tarjetas—, que es mejor que dar un número que no viene al caso.
+    """
+    if not patron.mercado or not antes.mercado:
+        return None, ""
+    if patron.mercado == "gana":
+        return antes.prob_propia, COMO_SE_LEE["gana"]
+    if patron.mercado == "no_pierde":
+        rival = antes.prob_rival
+        if rival is None:
+            return None, ""
+        return round(1 - rival, 4), COMO_SE_LEE["no_pierde"]
+    return None, ""
 
 
 def _racha(resultados: list[str], letra: str, cuantos: int) -> bool:
@@ -401,7 +432,7 @@ PATRONES: tuple[Patron, ...] = (
         "reaccion_del_favorito", "La reacción del favorito",
         "Era favorito, no ganó, y hoy vuelve a serlo: ¿gana?",
         _era_favorito_y_no_gano, lambda d: d.gano,
-        referencia="favorito_claro_gana",
+        referencia="favorito_claro_gana", mercado="gana",
         porque="Es la corazonada de «si el Madrid perdió, el siguiente lo gana». "
                "Solo cuenta si hoy también es favorito: si no, no hay con qué comparar. "
                "Y se compara con lo que hace un favorito cualquiera, que es la "
@@ -411,18 +442,20 @@ PATRONES: tuple[Patron, ...] = (
         "favorito_no_pierde", "El favorito no pierde",
         "Sale de favorito: ¿evita la derrota?",
         _favorito_hoy, lambda d: d.perdio is not None and not d.perdio,
+        mercado="no_pierde",
         porque="La tasa base contra la que hay que medir todo lo demás.",
     ),
     Patron(
         "favorito_claro_gana", "El favorito claro gana",
         "El mercado le da un 65 % o más: ¿gana?",
-        _favorito_claro_hoy, lambda d: d.gano,
+        _favorito_claro_hoy, lambda d: d.gano, mercado="gana",
         porque="Si el mercado acierta, esto debería salir cerca del 65 %.",
     ),
     Patron(
         "rebote_tras_derrota", "El rebote tras la derrota",
         "Perdió el último: ¿evita perder hoy?",
         _viene_de_perder, lambda d: d.perdio is not None and not d.perdio,
+        mercado="no_pierde",
         porque="La versión sin filtro de la corazonada, para ver cuánto aporta "
                "el filtro de favorito.",
     ),
@@ -441,6 +474,7 @@ PATRONES: tuple[Patron, ...] = (
         "racha_de_cuatro", "El que gana todo",
         "Ganó los cuatro últimos: ¿gana el quinto?",
         _gana_todo, lambda d: d.gano, referencia="favorito_no_pierde",
+        mercado="gana",
     ),
     Patron(
         "ambos_marcan", "Los dos marcan",
@@ -839,6 +873,41 @@ def _antes_de_un_evento(almacen: Almacen, evento, equipo_id: int | None,
     )
 
 
+def agrupar(avisados: list[dict]) -> list[dict]:
+    """Los avisos del día, por patrón en vez de por partido.
+
+    Esto nace de ver la pantalla: un patrón se mide **una vez** sobre todo el
+    historial, así que cuando se cumple en sesenta partidos del día salían
+    sesenta fichas con el mismo título, la misma frecuencia, los mismos casos y
+    el mismo suelo, y solo cambiaba el nombre del equipo. Parecía roto, y lo que
+    estaba roto era la forma de contarlo: el patrón es uno, y lo que hay son
+    sesenta partidos donde se cumple.
+
+    Así que el patrón se enseña una vez, con su medición, y debajo los partidos
+    ordenados por lo único que distingue a uno de otro: cuánto se separa del
+    precio del mercado.
+    """
+    grupos: dict[str, dict] = {}
+    for aviso in avisados:
+        grupo = grupos.get(aviso["patron"])
+        if grupo is None:
+            grupo = {clave: aviso[clave] for clave in (
+                "patron", "titulo", "dice", "frecuencia", "suelo", "base",
+                "elevacion", "casos", "veredicto", "fuera_de_muestra")}
+            grupo["partidos"] = []
+            grupos[aviso["patron"]] = grupo
+        grupo["partidos"].append({clave: aviso[clave] for clave in (
+            "partido_id", "partido", "competicion", "hora", "hora_utc", "sujeto",
+            "mercado", "mercado_de", "diferencia")})
+    for grupo in grupos.values():
+        grupo["partidos"].sort(key=lambda p: -abs(p["diferencia"] or 0))
+        grupo["cuantos_partidos"] = len(grupo["partidos"])
+        conocidos = [p["diferencia"] for p in grupo["partidos"]
+                     if p["diferencia"] is not None]
+        grupo["mayor_diferencia"] = max(conocidos, key=abs) if conocidos else None
+    return sorted(grupos.values(), key=lambda g: -g["suelo"])
+
+
 def avisos(almacen: Almacen, cliente=None, fecha: str | None = None,
            grupos: list[str] | None = None, eventos=None,
            umbral: float = UMBRAL_PROBABLE, calibracion: dict | None = None) -> dict:
@@ -876,10 +945,13 @@ def avisos(almacen: Almacen, cliente=None, fecha: str | None = None,
                 except (TypeError, KeyError, ValueError):
                     continue
                 sujeto = (evento.home.name if es_local else evento.away.name)
+                precio, de_que = mercado_comparable(antes, patron)
+                local = evento.kickoff_local
                 salida.append({
                     "partido_id": evento.id,
                     "partido": f"{evento.home} - {evento.away}",
                     "competicion": evento.tournament,
+                    "hora": local.strftime("%H:%M") if local else None,
                     "hora_utc": evento.kickoff.strftime("%H:%M") if evento.kickoff else None,
                     "sujeto": sujeto if patron.ambito == "equipo" else "el partido",
                     "patron": patron.nombre,
@@ -892,12 +964,21 @@ def avisos(almacen: Almacen, cliente=None, fecha: str | None = None,
                     "casos": medida["casos"],
                     "veredicto": medida["veredicto"],
                     "fuera_de_muestra": medida.get("fuera_de_muestra"),
-                    "mercado": antes.prob_propia,
+                    "mercado": precio,
+                    "mercado_de": de_que,
+                    "diferencia": (None if precio is None
+                                   else round(medida["frecuencia"] - precio, 4)),
                 })
-    salida.sort(key=lambda a: -a["suelo"])
+    # Por diferencia con el mercado, no por suelo: el suelo es el mismo en
+    # todos los avisos del mismo patrón —se mide una vez sobre el historial
+    # entero— así que ordenar por él dejaba sesenta fichas idénticas en un
+    # orden cualquiera. Lo que cambia de un partido a otro, y lo único que
+    # informa, es cuánto se separa del precio de hoy.
+    salida.sort(key=lambda a: (-a["suelo"], -abs(a["diferencia"] or 0)))
     return {
         "fecha": fecha or "hoy",
         "avisos": salida,
+        "por_patron": agrupar(salida),
         "partidos_mirados": len(list(eventos)),
         "calibrado_con": calibracion["partidos_mirados"],
         "como_leerlo": calibracion["como_leerlo"],
@@ -912,6 +993,7 @@ def avisos(almacen: Almacen, cliente=None, fecha: str | None = None,
 
 
 __all__ = [
+    "COMO_SE_LEE", "agrupar", "mercado_comparable",
     "Patron", "PATRONES", "POR_NOMBRE", "Antes", "Despues",
     "wilson", "veredicto", "medir", "calibrar", "avisos",
     "MINIMO_CASOS", "MINIMO_CASOS_FUERA", "UMBRAL_SEGURO", "UMBRAL_PROBABLE",

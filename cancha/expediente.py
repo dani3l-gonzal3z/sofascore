@@ -27,6 +27,7 @@ es lo que pagas; ``tamano`` lo dice antes de que lo mandes, y
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from .almacen import Almacen
@@ -50,13 +51,20 @@ def expediente(almacen: Almacen, partido, cliente=None, ultimos: int = ULTIMOS,
         return {"disponible": False,
                 "nota": "No encuentro ese partido ni en la memoria ni en la API."}
 
+    local = evento.kickoff_local
     salida: dict[str, Any] = {
         "disponible": True,
+        # Un informe lleva su fecha y de qué se ha sacado. Sin esto, un
+        # expediente guardado no se puede fechar y un modelo no sabe si lo que
+        # lee es de esta mañana o de hace tres semanas.
+        "preparado_el": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
+        "partidos_en_memoria": _cuantos_hay(almacen),
         "partido": {
             "id": evento.id,
             "local": evento.home.name,
             "visitante": evento.away.name,
             "fecha": evento.date,
+            "hora_local": local.strftime("%H:%M") if local else None,
             "hora_utc": evento.kickoff.strftime("%H:%M") if evento.kickoff else None,
             "competicion": evento.tournament,
             "sede": evento.venue,
@@ -81,6 +89,14 @@ def expediente(almacen: Almacen, partido, cliente=None, ultimos: int = ULTIMOS,
         "tokens_aprox": len(texto) // 4,
     }
     return salida
+
+
+def _cuantos_hay(almacen) -> int | str:
+    """Cuántos partidos hay guardados. Si no se puede saber, se dice."""
+    try:
+        return almacen.resumen()["partidos"]
+    except Exception:  # noqa: BLE001 - un dato de cabecera no tumba el expediente
+        return "?"
 
 
 def _o_nota(traer) -> dict:
@@ -154,20 +170,69 @@ def _seguro_de(almacen: Almacen, cliente, evento) -> dict:
 
 # --------------------------------------------------------------- el documento
 
+#: Cómo leer el documento. Va dentro del propio expediente, antes de los datos,
+#: porque un modelo que no sabe qué es «n=» o qué significa «suelo» se inventa
+#: la interpretación, y eso no se arregla en las instrucciones: se arregla
+#: diciéndolo al lado de los números.
+CLAVE_DE_LECTURA = """\
+CÓMO LEER ESTE DOCUMENTO
+- n=X es el número de partidos sobre los que está medida esa cifra. Una cifra
+  con n bajo no es una cifra: es un indicio. Nada por debajo de n=4 se afirma.
+- Las probabilidades van en % y salen de un cálculo, no de una opinión.
+- xG = goles esperados. «concede» = lo que le hacen a él, no lo que hace.
+- «sobre su liga» = diferencia porcentual contra la media de su competición,
+  excluyéndose a sí mismo de esa media.
+- «suelo» = extremo inferior del intervalo de Wilson al 95 %: lo que la muestra
+  sostiene, no lo que se observó.
+- «fuera de muestra» = el patrón se midió con el 70 % más antiguo del historial
+  y se comprobó en el 30 % más nuevo, que no participó en elegirlo.
+- Las horas son locales y, entre paréntesis, UTC.
+- Todo está cortado en la fecha del partido: aquí no hay nada posterior."""
+
+#: Los apartados, en orden y numerados. Numerarlos no es cosmética: hace que se
+#: pueda citar «el apartado 3 dice» y que el modelo no confunda el perfil de un
+#: equipo con el del rival cuando el documento es largo.
+APARTADOS = ("Ficha del partido", "Pronóstico calculado", "Mercado",
+             "Perfil de los dos equipos", "Últimos partidos", "Árbitro",
+             "Patrones medidos sobre el historial", "Límites de este expediente")
+
+
 def a_texto(datos: dict) -> str:
-    """El expediente como texto para un prompt: denso, ordenado y sin adornos."""
+    """El expediente como documento para un modelo: ordenado, fechado y con su n.
+
+    La estructura es la de un informe y no la de un volcado a propósito. Un
+    modelo grande lee mejor un documento con apartados numerados, una clave de
+    lectura delante y la muestra pegada a cada número, y —lo que más importa—
+    se inventa menos: cuando el documento dice de dónde sale cada cifra, es más
+    difícil colar una que no está.
+    """
     if not datos.get("disponible"):
         return datos.get("nota", "No hay expediente.")
 
     p = datos["partido"]
+    hora = p.get("hora_local") or p.get("hora_utc") or ""
+    utc = f" ({p['hora_utc']} UTC)" if p.get("hora_utc") and p.get("hora_local") else ""
     lineas = [
-        f"# {p['local']} contra {p['visitante']}",
-        f"{p['competicion']} · {p['fecha']} {p.get('hora_utc') or ''}"
-        + (f" · {p['sede']}" if p.get("sede") else "")
-        + (f" · árbitro: {p['arbitro']}" if p.get("arbitro") else ""),
+        f"EXPEDIENTE DE PARTIDO — {p['local']} vs {p['visitante']}",
+        f"Competición: {p['competicion']} · Fecha: {p['fecha']} {hora}{utc}",
+        (f"Sede: {p['sede']}" if p.get("sede") else "Sede: no consta")
+        + (f" · Árbitro designado: {p['arbitro']}" if p.get("arbitro")
+           else " · Árbitro: no consta"),
+        f"Preparado por cancha el {datos.get('preparado_el', '')} "
+        f"con {datos.get('partidos_en_memoria', '?')} partidos en memoria",
         "",
+        CLAVE_DE_LECTURA,
+        "",
+        "ÍNDICE",
     ]
+    lineas += [f"  {n}. {titulo}" for n, titulo in enumerate(APARTADOS, 1)]
+    lineas += ["", f"## 1. {APARTADOS[0]}",
+               f"{p['local']} (local) contra {p['visitante']} (visitante), "
+               f"{p['competicion']}, {p['fecha']}.", ""]
     lineas += _texto_pronostico(datos.get("pronostico") or {})
+    # Aparte del pronóstico a propósito: aunque no haya pronóstico, el mercado
+    # es lo primero que hay que mirar, y antes se iba con él.
+    lineas += _texto_mercado(datos.get("pronostico") or {})
     lineas += _texto_equipos(datos.get("previa") or {})
     lineas += _texto_ultimos(datos.get("ultimos_partidos") or {},
                              datos.get("entre_ellos") or {})
@@ -175,23 +240,29 @@ def a_texto(datos: dict) -> str:
     lineas += _texto_seguro(datos.get("casi_seguro") or {})
     lineas += [
         "",
-        "## Lo que este expediente NO sabe",
+        f"## {len(APARTADOS)}. {APARTADOS[-1]}",
+        "Lo que este expediente NO contiene, y por tanto no se puede afirmar:",
         "- Alineaciones de hoy, lesiones, sanciones ni rotaciones.",
-        "- Si el partido se juega a algo o no vale nada.",
+        "- Si el partido se juega a algo: puesto en la tabla, eliminatoria, descenso.",
         "- El tiempo que va a hacer, ni el estado del campo.",
-        "- Nada posterior a la fecha del partido: está todo cortado ahí a",
-        "  propósito, para que no se cuele el futuro en el análisis.",
+        "- Nada posterior a la fecha del partido: está cortado ahí a propósito,",
+        "  para que no se cuele el futuro en el análisis.",
+        "- Nada que no esté escrito arriba. Si una cifra no aparece, no existe",
+        "  para este análisis.",
     ]
     return "\n".join(lineas)
 
 
 def _texto_pronostico(pron: dict) -> list[str]:
     if not pron.get("disponible"):
-        return ["## Pronóstico", pron.get("nota", "No disponible."), ""]
+        return [f"## 2. {APARTADOS[1]}", pron.get("nota", "No disponible."), ""]
     g = pron["goles"]
     uno = g["1x2"]
     lineas = [
-        "## Pronóstico calculado",
+        f"## 2. {APARTADOS[1]}",
+        "Método: dos Poisson independientes, una por equipo, con las fuerzas de "
+        "ataque y defensa encogidas hacia la media de la liga. El marcador exacto "
+        "es el producto de las dos.",
         f"Goles esperados: {g['esperados']['local']} - {g['esperados']['visitante']} "
         f"(medido en {g['medido_en']})",
         f"1X2: {uno['local']:.0%} local / {uno['empate']:.0%} empate / "
@@ -225,16 +296,36 @@ def _texto_pronostico(pron: dict) -> list[str]:
         if arbitro.get("lectura"):
             lineas.append(f"  {arbitro['lectura']} ({arbitro['partidos_mirados']} partidos)")
 
-    mercado = pron.get("mercado") or {}
-    if mercado.get("disponible"):
-        suyas = mercado["mercado"]
-        lineas.append(f"MERCADO: {suyas.get('local', 0):.0%} / "
-                      f"{suyas.get('empate', 0):.0%} / {suyas.get('visitante', 0):.0%}")
-        lineas.append(f"  {mercado['lectura']}")
-    else:
-        lineas.append(f"MERCADO: {mercado.get('nota', 'sin cuotas')}")
     lineas += ["", f"Cómo se calcula: {pron.get('como_se_calcula', '')}",
                f"Lo que no dice: {pron.get('lo_que_no_dice', '')}", ""]
+    return lineas
+
+
+def _texto_mercado(pron: dict) -> list[str]:
+    """El mercado, en su propio apartado.
+
+    Iba dentro del pronóstico, en una línea que empezaba por «MERCADO:». Es lo
+    que hay que contrastar con todo lo demás, así que va aparte y con su nombre:
+    un apartado se cita, una línea perdida en otro no.
+    """
+    mercado = pron.get("mercado") or {}
+    lineas = [f"## 3. {APARTADOS[2]}"]
+    if not mercado.get("disponible"):
+        lineas += [mercado.get("nota", "No hay cuotas guardadas de este partido."),
+                   "Sin cuotas no hay con qué contrastar el cálculo: dilo si es "
+                   "relevante para tu lectura.", ""]
+        return lineas
+    suyas = mercado["mercado"]
+    lineas += [
+        "Probabilidades implícitas en las cuotas, ya sin el margen de la casa:",
+        f"  Local {suyas.get('local', 0):.0%} · Empate {suyas.get('empate', 0):.0%} "
+        f"· Visitante {suyas.get('visitante', 0):.0%}",
+        f"Lectura: {mercado['lectura']}",
+        "El mercado sabe cosas que no están en este documento —alineaciones, "
+        "bajas, dinero—. Donde coincide con el cálculo, no hay nada que ganar; "
+        "donde no, lo más probable sigue siendo que se equivoque el cálculo.",
+        "",
+    ]
     return lineas
 
 
@@ -242,7 +333,9 @@ def _texto_equipos(prev: dict) -> list[str]:
     equipos = prev.get("equipos") or {}
     if not equipos:
         return []
-    lineas = ["## Cómo juega cada uno, comparado con su liga"]
+    lineas = [f"## 4. {APARTADOS[3]}",
+              "Cada rasgo es una diferencia contra la media de su propia "
+              "competición, con la muestra de las dos partes al lado."]
     for lado in ("local", "visitante"):
         e = equipos.get(lado) or {}
         if not e.get("disponible"):
@@ -250,20 +343,28 @@ def _texto_equipos(prev: dict) -> list[str]:
             continue
         r = e.get("resultados") or {}
         lineas.append(f"### {e['equipo']} ({lado})")
-        lineas.append(f"{e['partidos_mirados']} partidos mirados · racha "
-                      f"{r.get('racha', '?')} · {r.get('goles_favor')}-"
-                      f"{r.get('goles_contra')} · liga: {e.get('liga')}")
+        lineas.append(f"Medido sobre n={e['partidos_mirados']} partidos suyos "
+                      f"(media de su liga: n={e.get('partidos_en_la_media_de_liga', 0)})"
+                      f" · racha {r.get('racha', '?')} · goles "
+                      f"{r.get('goles_favor')}-{r.get('goles_contra')} · "
+                      f"competición: {e.get('liga')}")
         rasgos = e.get("lo_que_le_distingue") or []
         if rasgos:
             for rasgo in rasgos:
                 lineas.append(f"  · {rasgo['rasgo']} ({rasgo['cuanto']})")
+        elif e.get("aviso"):
+            # Y esto es lo que hay que decir, no «no se sale en nada»: son dos
+            # cosas distintas y confundirlas es afirmar sin muestra.
+            lineas.append(f"  · SIN MUESTRA PARA RETRATARLO: {e['aviso']}")
         else:
             lineas.append("  · no se sale de la media de su liga en nada llamativo")
         concede = e.get("concede") or {}
         lineas.append(f"  concede por partido: {concede.get('xg')} xG, "
                       f"{concede.get('tiros')} tiros, "
-                      f"{concede.get('ocasiones_claras')} ocasiones claras")
-        if e.get("aviso"):
+                      f"{concede.get('ocasiones_claras')} ocasiones claras "
+                      f"(n={e['partidos_mirados']})")
+        if e.get("aviso") and rasgos:
+            # Sin rasgos el aviso ya se ha dicho arriba, en su sitio.
             lineas.append(f"  aviso: {e['aviso']}")
 
     cruces = prev.get("donde_se_hacen_dano") or []
@@ -287,8 +388,8 @@ def _texto_equipos(prev: dict) -> list[str]:
                     for clave in ("goles", "asistencias", "tiros", "tiros_a_puerta", "xg")
                     if por.get(clave) is not None)
                 lineas.append(
-                    f"  · {j.get('jugador')} ({lado}): {j.get('partidos')} partidos, "
-                    f"nota {j.get('rating_medio')}"
+                    f"  · {j.get('jugador')} ({lado}): n={j.get('partidos')}, "
+                    f"nota media {j.get('rating_medio')}"
                     + (f" · {numeros}" if numeros else "")
                     + (f" — {rachas}" if rachas else ""))
     lineas.append("")
@@ -296,7 +397,8 @@ def _texto_equipos(prev: dict) -> list[str]:
 
 
 def _texto_ultimos(ultimos: dict, entre: dict) -> list[str]:
-    lineas = ["## Últimos partidos"]
+    lineas = [f"## 5. {APARTADOS[4]}",
+              "Del más reciente al más antiguo. Todo anterior a la fecha del partido."]
     for lado in ("local", "visitante"):
         bloque = ultimos.get(lado) or {}
         if not bloque.get("partidos"):
@@ -319,12 +421,12 @@ def _texto_ultimos(ultimos: dict, entre: dict) -> list[str]:
 def _texto_arbitro(prev: dict) -> list[str]:
     a = prev.get("arbitro") or {}
     if not a.get("disponible"):
-        return ["## Árbitro", a.get("nota", "sin datos"), ""]
+        return [f"## 6. {APARTADOS[5]}", a.get("nota", "sin datos"), ""]
     por = a.get("por_partido") or {}
     reparto = a.get("reparto_de_tarjetas") or {}
     return [
-        "## Árbitro",
-        f"{a['arbitro']} · {a['partidos_mirados']} partidos vistos",
+        f"## 6. {APARTADOS[5]}",
+        f"{a['arbitro']} · n={a['partidos_mirados']} partidos suyos vistos",
         f"Por partido: {por.get('amarillas')} amarillas, {por.get('rojas')} rojas, "
         f"{por.get('penaltis')} penaltis, {por.get('faltas')} faltas",
         f"Reparto: {reparto.get('al_local')} al local / "
@@ -338,11 +440,14 @@ def _texto_arbitro(prev: dict) -> list[str]:
 def _texto_seguro(seguro: dict) -> list[str]:
     avisos = seguro.get("avisos") or []
     if not avisos:
-        return ["## Lo que casi siempre pasa",
+        return [f"## 7. {APARTADOS[6]}",
                 "Ningún patrón medido se cumple en este partido con muestra "
                 "suficiente.", ""]
-    lineas = ["## Lo que casi siempre pasa (medido sobre "
-              f"{seguro.get('calibrado_con')} partidos guardados)"]
+    lineas = [f"## 7. {APARTADOS[6]} "
+              f"(calibrado con {seguro.get('calibrado_con')} partidos de la memoria)",
+              "Cada patrón se mide una sola vez sobre todo el historial: la "
+              "frecuencia y el suelo son del patrón, no de este partido. Lo propio "
+              "de este partido es que la condición se cumple."]
     for a in avisos:
         fuera = (a.get("fuera_de_muestra") or {}).get("veredicto") or "sin comprobar"
         lineas.append(
@@ -353,4 +458,5 @@ def _texto_seguro(seguro: dict) -> list[str]:
     return lineas
 
 
-__all__ = ["ENTRE_ELLOS", "JUGADORES", "ULTIMOS", "a_texto", "expediente"]
+__all__ = ["APARTADOS", "CLAVE_DE_LECTURA", "ENTRE_ELLOS", "JUGADORES",
+           "ULTIMOS", "a_texto", "expediente"]

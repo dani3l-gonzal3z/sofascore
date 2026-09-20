@@ -251,6 +251,30 @@ def competiciones_de(grupos: tuple[str, ...] | list[str] | None = None) -> list[
     return [COMPETICIONES[n] for n in vistos if n in COMPETICIONES]
 
 
+#: En qué orden se enseñan las competiciones cuando no hay más criterio: las
+#: cinco grandes primero, y lo demás detrás. Sin esto, «qué se juega hoy»
+#: ordenado por número de partidos abría con diez de la MLS a las dos y media de
+#: la mañana y dejaba el Atlético - Real Madrid en tercer lugar.
+ORDEN_DE_GRUPOS = ("grandes", "uefa", "europeas", "grandes_f", "uefa_f",
+                   "europeas_f", "sudamerica", "usa", "arabia", "sudamerica_f",
+                   "usa_f")
+
+
+def relevancia(nombre: str) -> int:
+    """Lo importante que es una competición, para ordenar una lista.
+
+    Cuanto más bajo, más arriba. Lo que no está en el catálogo va al final, que
+    es donde tiene que ir: son las categorías menores y los juveniles.
+    """
+    competicion = por_nombre(nombre)
+    if competicion is None:
+        return len(ORDEN_DE_GRUPOS) + 1
+    try:
+        return ORDEN_DE_GRUPOS.index(competicion.grupo)
+    except ValueError:
+        return len(ORDEN_DE_GRUPOS)
+
+
 def por_nombre(texto: str) -> Competicion | None:
     """Encuentra una competición por su nombre, un alias o algo parecido."""
     if not texto:
@@ -432,6 +456,7 @@ def resumen_catalogo(almacen=None) -> dict:
 
 
 __all__ = [
+    "ORDEN_DE_GRUPOS", "relevancia",
     "Competicion", "CATALOGO", "COMPETICIONES", "GRUPOS", "POR_DEFECTO", "ALIAS_GRUPO",
     "competiciones_de", "por_nombre", "resolver", "sin_resolver", "descubrir",
     "asegurar", "puntuar", "resumen_catalogo", "MARCAS_FEMENINO",

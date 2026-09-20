@@ -36,12 +36,43 @@ def test_el_expediente_trae_las_partes_que_importan(base, cliente):
 
 
 def test_el_texto_lleva_los_apartados_y_lo_que_no_sabe(base, cliente):
+    """Los apartados van numerados y en orden: un informe, no un volcado."""
+    from cancha.expediente import APARTADOS
+
     texto = a_texto(expediente(base, EVENT_ID, cliente=cliente))
-    for titulo in ("# Real Madrid contra Barcelona", "## Cómo juega cada uno",
-                   "## Últimos partidos", "## Árbitro",
-                   "## Lo que casi siempre pasa", "## Lo que este expediente NO sabe"):
-        assert titulo in texto, titulo
+    assert texto.startswith("EXPEDIENTE DE PARTIDO — Real Madrid vs Barcelona")
+    for numero, titulo in enumerate(APARTADOS, 1):
+        assert f"## {numero}. {titulo}" in texto, titulo
+    # Y en el orden del índice, que es lo que permite citar «el apartado 3».
+    posiciones = [texto.index(f"## {n}. {t}") for n, t in enumerate(APARTADOS, 1)]
+    assert posiciones == sorted(posiciones)
     assert "alineaciones" in texto.lower(), "tiene que decir lo que no sabe"
+
+
+def test_el_texto_explica_su_propia_notacion(base, cliente):
+    """Un modelo que no sabe qué es «n=» se inventa la interpretación."""
+    texto = a_texto(expediente(base, EVENT_ID, cliente=cliente))
+    clave = texto[:texto.index("ÍNDICE")]
+    assert "n=X es el número de partidos" in clave
+    assert "suelo" in clave and "Wilson" in clave
+    assert "fuera de muestra" in clave
+    assert "ÍNDICE" in texto, "y un índice, para poder citar apartados"
+
+
+def test_cada_cifra_de_equipo_lleva_su_muestra(base, cliente):
+    texto = a_texto(expediente(base, EVENT_ID, cliente=cliente))
+    assert "Medido sobre n=" in texto
+    assert "media de su liga: n=" in texto
+
+
+def test_el_mercado_es_un_apartado_aunque_no_haya_pronostico(base, cliente, monkeypatch):
+    """Iba dentro del pronóstico, así que sin pronóstico desaparecía."""
+    import cancha.pronostico as modulo
+
+    monkeypatch.setattr(modulo, "pronostico",
+                        lambda *a, **k: (_ for _ in ()).throw(ValueError("roto")))
+    texto = a_texto(expediente(base, EVENT_ID, cliente=cliente))
+    assert "## 3. Mercado" in texto
 
 
 def test_dice_cuanto_ocupa_antes_de_que_lo_mandes(base, cliente):
@@ -61,7 +92,7 @@ def test_una_parte_rota_no_se_lleva_el_expediente(base, cliente, monkeypatch):
     assert datos["disponible"] is True
     assert datos["pronostico"]["disponible"] is False
     assert "roto" in datos["pronostico"]["nota"]
-    assert "## Cómo juega cada uno" in a_texto(datos), "el resto sigue ahí"
+    assert "## 4. Perfil de los dos equipos" in a_texto(datos), "el resto sigue ahí"
 
 
 def test_sin_el_partido_lo_dice(base):
@@ -194,3 +225,49 @@ def test_sin_saldo_tambien_se_explica(monkeypatch):
     monkeypatch.setattr(modulo.urllib.request, "urlopen", urlopen_falso)
     with pytest.raises(modulo.OllamaNoDisponible, match="saldo"):
         Analista(api_key="sinsaldo").dictaminar("x")
+
+
+# --------------------------------------------- el prompt, como un encargo real
+
+def test_las_instrucciones_tienen_rol_metodo_reglas_y_formato():
+    """«Analiza esto» produce una redacción. Un encargo produce un informe."""
+    from cancha.analista import INSTRUCCIONES_DICTAMEN as guion
+
+    for apartado in ("ROL", "ENTRADA", "MÉTODO", "REGLAS QUE NO SE NEGOCIAN",
+                     "FORMATO DE SALIDA"):
+        assert apartado in guion, apartado
+    # El formato de salida nombra los cinco apartados de la respuesta.
+    for titulo in ("**Lectura**", "**En qué me apoyo**",
+                   "**Dónde el cálculo y el mercado no coinciden**",
+                   "**Qué me haría cambiar de opinión**", "**Confianza**"):
+        assert titulo in guion, titulo
+
+
+def test_las_instrucciones_le_prohiben_lo_que_hay_que_prohibirle():
+    from cancha.analista import INSTRUCCIONES_DICTAMEN as guion
+
+    assert "no inventes" in guion.lower()
+    assert "n<4" in guion, "el suelo de muestra, explícito"
+    assert "10-12" in guion, "el aviso del marcador más probable"
+    assert "mercado es un rival serio" in guion
+    assert "se cae" in guion, "un patrón que no aguanta no se vende como bueno"
+    assert "No des consejos de apuesta" in guion
+
+
+def test_las_instrucciones_explican_la_notacion_del_expediente():
+    """Si no sabe qué es «suelo», se lo inventa."""
+    from cancha.analista import INSTRUCCIONES_DICTAMEN as guion
+
+    assert "n=X" in guion
+    assert "Wilson" in guion
+    assert "fuera de muestra" in guion
+
+
+def test_el_expediente_dice_cuando_se_preparo_y_con_que(base, cliente):
+    """Un informe sin fecha ni fuente no es un informe."""
+    datos = expediente(base, EVENT_ID, cliente=cliente)
+    assert datos["preparado_el"]
+    assert datos["partidos_en_memoria"] == 1
+    texto = a_texto(datos)
+    assert "Preparado por cancha el" in texto
+    assert "partidos en memoria" in texto

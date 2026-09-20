@@ -142,6 +142,21 @@ Lo importante es el «sobre la media de su liga». Y esa media se calcula **sin
 contar al propio equipo**: comparar a alguien contra un promedio en el que él
 pesa suaviza justo lo que se quiere ver.
 
+### Con un partido no se dice cómo juega nadie
+
+Hacen falta **4 partidos del equipo** y **8 de su liga** para que salga un solo
+rasgo. Por debajo de eso no se publica ninguno y se dice por qué, con los números
+delante.
+
+Esto viene de una consulta real: un equipo con un partido guardado —un 4-0 con
+mucha posesión— salía descrito como «genera peligro +187 %, vive del córner
++152 %, ataca por fuera +105 %». Nada de eso era falso como cuenta, y todo era
+falso como retrato: describía el sábado, no al equipo. Los números en bruto sí se
+siguen devolviendo, marcados con `muestra_corta`, porque son ciertos.
+
+Y las lecturas de lo que se le da mal están escritas a mano, no son la de arriba
+con un «no» delante: antes salía «no su portero trabaja», que no es una frase.
+
 ## Si ha cambiado
 
 ```bash

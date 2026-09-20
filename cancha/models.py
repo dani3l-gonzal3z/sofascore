@@ -211,6 +211,22 @@ class Event:
             return None
 
     @property
+    def kickoff_local(self) -> datetime | None:
+        """La hora de inicio **en la hora de este ordenador**.
+
+        Sofascore da los timestamps en UTC, y enseñarlos tal cual es un error
+        que no se ve: un partido a las 14:15 UTC sale escrito «14:15» y en
+        España se lee como las cuatro y cuarto. Quien mira la agenda desde el
+        sofá quiere la hora a la que enciende la tele.
+
+        ``astimezone()`` sin argumentos convierte a la zona del sistema, y no
+        pasa por ``fromtimestamp``, que en Windows revienta con fechas
+        anteriores a 1970.
+        """
+        cuando = self.kickoff
+        return cuando.astimezone() if cuando else None
+
+    @property
     def date(self) -> str:
         """Fecha del partido en ``AAAA-MM-DD`` (UTC)."""
         momento = self.kickoff

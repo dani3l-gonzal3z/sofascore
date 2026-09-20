@@ -89,7 +89,7 @@ def test_la_ayuda_lista_lo_que_sabe_hacer(bot):
 def test_las_ordenes_valen_con_arroba_y_en_mayusculas(bot):
     """Telegram manda /hoy@mibot en los grupos; y la gente escribe /HOY."""
     solo, _ = bot
-    assert solo.responder("/Ayuda@canchabot").startswith("Lo que sé hacer")
+    assert "Lo que sé hacer" in solo.responder("/Ayuda@canchabot")
 
 
 def test_una_orden_desconocida_va_al_analista(bot, monkeypatch):

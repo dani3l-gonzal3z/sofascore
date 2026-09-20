@@ -20,32 +20,71 @@ from typing import Any
 from .almacen import Almacen
 
 #: Las dimensiones con las que se describe a un equipo, y de qué salen.
-#: Cada una es (clave de la API, cómo se lee cuando está alta).
-DIMENSIONES: dict[str, tuple[str, str]] = {
-    "posesion": ("ballPossession", "tiene el balón"),
-    "tiros": ("totalShotsOnGoal", "tira mucho"),
-    "xg": ("expectedGoals", "genera peligro"),
-    "ocasiones_claras": ("bigChanceCreated", "llega a ocasiones claras"),
-    "pases": ("passes", "toca mucho el balón"),
-    "pases_largos": ("accurateLongBalls", "juega en largo"),
-    "centros": ("accurateCross", "ataca por fuera"),
-    "corners": ("cornerKicks", "vive del córner"),
-    "entradas_ultimo_tercio": ("finalThirdEntries", "llega arriba con frecuencia"),
-    "toques_en_area": ("touchesInOppBox", "se mete en el área"),
-    "recuperaciones": ("ballRecovery", "recupera mucho"),
-    "entradas": ("totalTackle", "entra fuerte"),
-    "intercepciones": ("interceptionWon", "corta líneas de pase"),
-    "despejes": ("totalClearance", "despeja mucho"),
-    "faltas": ("fouls", "hace faltas"),
-    "amarillas": ("yellowCards", "ve tarjetas"),
-    "kilometros": ("kilometersCovered", "corre"),
-    "sprints": ("numberOfSprints", "aprieta"),
-    "paradas": ("goalkeeperSaves", "su portero trabaja"),
+#: Cada una es (clave de la API, cómo se lee **alta**, cómo se lee **baja**).
+#:
+#: Las dos lecturas están escritas a mano porque la de abajo no es la de arriba
+#: con un «no» delante. Eso era lo que hacía antes y salían cosas como «no su
+#: portero trabaja», que no es castellano ni dice nada.
+DIMENSIONES: dict[str, tuple[str, str, str]] = {
+    "posesion": ("ballPossession", "tiene el balón", "le dejan el balón al rival"),
+    "tiros": ("totalShotsOnGoal", "tira mucho", "tira poco"),
+    "xg": ("expectedGoals", "genera peligro", "genera poco peligro"),
+    "ocasiones_claras": ("bigChanceCreated", "llega a ocasiones claras",
+                         "no llega a ocasiones claras"),
+    "pases": ("passes", "toca mucho el balón", "toca poco el balón"),
+    "pases_largos": ("accurateLongBalls", "juega en largo", "no juega en largo"),
+    "centros": ("accurateCross", "ataca por fuera", "no ataca por fuera"),
+    "corners": ("cornerKicks", "vive del córner", "saca pocos córners"),
+    "entradas_ultimo_tercio": ("finalThirdEntries", "llega arriba con frecuencia",
+                               "le cuesta llegar arriba"),
+    "toques_en_area": ("touchesInOppBox", "se mete en el área",
+                       "se queda fuera del área"),
+    "recuperaciones": ("ballRecovery", "recupera mucho", "recupera poco"),
+    "entradas": ("totalTackle", "entra fuerte", "entra poco"),
+    "intercepciones": ("interceptionWon", "corta líneas de pase",
+                       "no corta líneas de pase"),
+    "despejes": ("totalClearance", "despeja mucho", "despeja poco"),
+    "faltas": ("fouls", "hace faltas", "hace pocas faltas"),
+    "amarillas": ("yellowCards", "ve tarjetas", "ve pocas tarjetas"),
+    "kilometros": ("kilometersCovered", "corre", "corre poco"),
+    "sprints": ("numberOfSprints", "aprieta", "no aprieta"),
+    "paradas": ("goalkeeperSaves", "su portero trabaja", "su portero no trabaja"),
 }
 
 #: A partir de qué distancia sobre la media de la liga una diferencia es
 #: digna de mención. En proporción, no en valor absoluto.
 UMBRAL_RASGO = 0.18
+#: Con menos partidos que esto **no se dice cómo juega un equipo**. Con uno,
+#: cualquier cosa que hiciera ese día sale como si fuera su manera de ser: un
+#: 4-0 con dos córners a favor daba «+187% genera peligro, vive del córner», y
+#: eso no es un retrato, es el partido del sábado. Los números en bruto sí se
+#: devuelven —son ciertos—, pero marcados como muestra corta.
+MINIMO_PARA_RASGOS = 4
+#: Y lo mismo por el otro lado: una media de liga hecha con cuatro partidos no
+#: es la media de la liga. Sin esto, el porcentaje se compara contra nada.
+MINIMO_EN_LA_LIGA = 8
+
+
+def _aviso_de_muestra(suyos: int, en_liga: int, hay_media: bool) -> str | None:
+    """Por qué no se puede decir cómo juega un equipo, si es que no se puede.
+
+    En palabras y con los números delante, porque «no hay muestra» a secas no
+    dice si falta barrer la liga o el equipo, que llevan a cosas distintas.
+    """
+    if not hay_media:
+        return ("Sin media de liga con la que comparar: los números están solos. "
+                "Barre más partidos de esa competición.")
+    if suyos < MINIMO_PARA_RASGOS:
+        return (f"Solo hay {suyos} "
+                f"partido{'s' if suyos != 1 else ''} suyo{'s' if suyos != 1 else ''} "
+                f"guardado{'s' if suyos != 1 else ''}: con eso no se puede decir cómo "
+                f"juega, así que no se dice. Hacen falta {MINIMO_PARA_RASGOS}. "
+                "Tráelos con: cancha equipo <nombre> --abastecer")
+    if en_liga < MINIMO_EN_LA_LIGA:
+        return (f"Su liga solo tiene {en_liga} partidos guardados: la media contra "
+                f"la que se compara no es todavía la de la liga. Hacen falta "
+                f"{MINIMO_EN_LA_LIGA}. Barre esa competición.")
+    return None
 
 
 def _medias(filas: list[dict], equipo_id: int | None = None,
@@ -138,33 +177,45 @@ def estilo_de_equipo(
     )
     medias_liga = referencia.get("medias", {})
 
+    # ¿Hay con qué retratarlo? Las dos muestras tienen que dar: la suya y la de
+    # la liga contra la que se le compara.
+    suyos = len(partidos)
+    en_liga = referencia.get("partidos", 0)
+    basta = suyos >= MINIMO_PARA_RASGOS and en_liga >= MINIMO_EN_LA_LIGA
+
     dimensiones = {}
     rasgos = []
-    for nombre, (clave, lectura) in DIMENSIONES.items():
+    for nombre, (clave, alta, baja) in DIMENSIONES.items():
         valor = propias.get(clave)
         if valor is None:
             continue
         media = medias_liga.get(clave)
-        bloque: dict[str, Any] = {"clave": clave, "valor": round(valor, 2)}
+        bloque: dict[str, Any] = {"clave": clave, "valor": round(valor, 2),
+                                  "partidos": suyos}
         if media:
             diferencia = (valor - media) / media
             bloque["media_liga"] = round(media, 2)
             bloque["diferencia"] = round(diferencia, 3)
-            if abs(diferencia) >= UMBRAL_RASGO:
+            bloque["partidos_liga"] = en_liga
+            bloque["muestra_corta"] = not basta
+            if basta and abs(diferencia) >= UMBRAL_RASGO:
                 rasgos.append({
-                    "rasgo": lectura if diferencia > 0 else f"no {lectura}",
+                    "rasgo": alta if diferencia > 0 else baja,
                     "dimension": nombre,
-                    "cuanto": f"{diferencia:+.0%} sobre la media de su liga",
+                    "diferencia": round(diferencia, 3),
+                    "partidos": suyos,
+                    "cuanto": f"{diferencia:+.0%} sobre la media de su liga "
+                              f"({suyos} partidos suyos, {en_liga} de la liga)",
                 })
         dimensiones[nombre] = bloque
 
-    rasgos.sort(key=lambda r: -abs(float(r["cuanto"].split("%")[0].replace("+", ""))))
+    rasgos.sort(key=lambda r: -abs(r["diferencia"]))
 
     # La mitad defensiva del retrato, medida con la misma vara. Hace falta
     # entera: para decir que a alguien le entran los centros no basta con
     # saber que el rival los tira, hay que haber mirado lo que le entra.
     concede_dimensiones = {}
-    for nombre, (clave, _lectura) in DIMENSIONES.items():
+    for nombre, (clave, _alta, _baja) in DIMENSIONES.items():
         valor = rivales.get(clave)
         if valor is None:
             continue
@@ -195,9 +246,8 @@ def estilo_de_equipo(
             "ocasiones_claras": round(rivales.get("bigChanceCreated", 0), 1),
         },
         "concede_dimensiones": concede_dimensiones,
-        "aviso": None if medias_liga else
-                 "Sin media de liga con la que comparar: los números están solos. "
-                 "Barre más partidos de esa competición.",
+        "muestra_suficiente": basta,
+        "aviso": _aviso_de_muestra(suyos, en_liga, bool(medias_liga)),
     }
 
 
@@ -262,7 +312,7 @@ def evolucion_de_estilo(
 
     cambios = []
     dimensiones = {}
-    for nombre, (clave, lectura) in DIMENSIONES.items():
+    for nombre, (clave, alta, _baja) in DIMENSIONES.items():
         reciente, previo = ahora["propias"].get(clave), antes["propias"].get(clave)
         if reciente is None or previo is None:
             continue
@@ -272,7 +322,9 @@ def evolucion_de_estilo(
         if cambio is not None and abs(cambio) >= UMBRAL_CAMBIO:
             cambios.append({
                 "dimension": nombre,
-                "lectura": (f"ahora {lectura} más" if cambio > 0 else f"ahora {lectura} menos"),
+                # Aquí se usa siempre la lectura alta: lo que cambia es el «más»
+                # o el «menos» del final, no la dimensión.
+                "lectura": f"ahora {alta} {'más' if cambio > 0 else 'menos'}",
                 "cambio": f"{cambio:+.0%}",
                 "ahora": round(reciente, 2),
                 "antes": round(previo, 2),
@@ -535,5 +587,5 @@ def perfil_de_arbitro(almacen: Almacen, nombre: str, ultimos: int = 20) -> dict:
 __all__ = [
     "estilo_de_equipo", "evolucion_de_estilo", "forma_de_jugador", "rachas",
     "perfil_de_arbitro", "medias_de_liga", "DIMENSIONES", "METRICAS_JUGADOR",
-    "UMBRAL_RASGO", "UMBRAL_CAMBIO",
+    "MINIMO_EN_LA_LIGA", "MINIMO_PARA_RASGOS", "UMBRAL_RASGO", "UMBRAL_CAMBIO",
 ]
