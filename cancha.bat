@@ -29,13 +29,30 @@ if errorlevel 1 (
   set "PY=py -3"
 )
 
+rem  Lo que tiene que haber dentro del entorno. Si cambia, se completa solo:
+rem  el que ya tuviera el entorno hecho de antes no se queda sin lo nuevo.
+set "SELLO=curl+tls"
+set "MARCA=.venv\.cancha-extras"
+
 if not exist ".venv\Scripts\python.exe" (
   echo   Primera vez: preparando el entorno. Esto tarda un minuto.
   %PY% -m venv .venv || goto :fallo
   ".venv\Scripts\python.exe" -m pip install --quiet --upgrade pip || goto :fallo
-  ".venv\Scripts\python.exe" -m pip install --quiet -e ".[curl]" || goto :fallo
+)
+
+set "PUESTO="
+if exist "%MARCA%" set /p PUESTO=<"%MARCA%"
+if not "%PUESTO%"=="%SELLO%" (
+  echo   Completando el entorno. Un momento.
+  ".venv\Scripts\python.exe" -m pip install --quiet -e ".[curl,tls]" || goto :fallo
+  > "%MARCA%" echo %SELLO%
   echo   Listo.
 )
+
+rem  OJO con instalar cosas a mano: `pip install algo` desde PowerShell va al
+rem  Python del sistema, no a este entorno, y entonces cancha no lo ve. Aqui
+rem  dentro se hace asi:
+rem      .venv\Scripts\python.exe -m pip install algo
 
 rem  Si el primer argumento es un comando (no empieza por guion) se pasa tal
 rem  cual; si no, se supone que quieres arrancarlo todo. Cada linea por

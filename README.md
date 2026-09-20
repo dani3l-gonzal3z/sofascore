@@ -11,7 +11,8 @@ instala en Windows y en el iPhone.
 
 ```bash
 cancha arrancar                # todo: interfaz, guardia nocturna y bot de Telegram
-                               # (en Windows: doble clic en cancha.bat)
+                               # (en Windows: doble clic en cancha.bat, o
+                               #  .\cancha.bat arrancar desde PowerShell)
 cancha web --lan               # solo la interfaz: QR en el terminal, y al móvil
 cancha briefing --barrer       # el documento de la mañana: todos los partidos del día
 cancha seguro                  # lo que casi siempre pasa, con el número que lo sostiene
@@ -78,7 +79,7 @@ partido.available()            # secciones con datos
 - **Y si no hay muestra, lo dice.** «Contra bloque bajo tira la mitad» solo sale
   si la diferencia no cabe en lo que explica el azar; con tres partidos, la
   respuesta es *no se sabe*.
-- **Probado sin red.** 1.000 tests en menos de quince segundos, y un modo de grabar
+- **Probado sin red.** 1.009 tests en menos de quince segundos, y un modo de grabar
   respuestas reales para comprobar que la API devuelve lo que aquí se supone.
 
 ---
@@ -92,6 +93,24 @@ pip install -e ".[pandas]"   # además, informe.frames() devuelve DataFrames
 pip install -e ".[dev]"      # además, pytest para los tests
 pip install truststore       # si un antivirus o un proxy abre tu HTTPS: ver abajo
 ```
+
+### En Windows, cómo se escribe cada comando
+
+Aquí los comandos se escriben `cancha esto y lo otro`, que es como se llaman. En
+Windows hay tres formas de decírselo y las tres valen:
+
+```powershell
+.\cancha.bat doctor --tls          # PowerShell (el .\ es obligatorio)
+cancha.bat doctor --tls            # símbolo del sistema
+python -m cancha doctor --tls      # en cualquier sitio
+```
+
+PowerShell no ejecuta nada de la carpeta en la que estás si no se lo pides con
+`.\`, y cuando falta dice «El término 'cancha' no se reconoce…», que suena a que
+no está instalado. Y ojo con instalar cosas: un `pip install algo` en PowerShell
+va al Python del sistema, no al entorno que se hace `cancha.bat`; ahí dentro es
+`.\.venv\Scripts\python.exe -m pip install algo`. Está contado en
+**[Dejarlo funcionando](docs/dejarlo-funcionando.md)**.
 
 ### Si nada se conecta y el error habla de certificados
 

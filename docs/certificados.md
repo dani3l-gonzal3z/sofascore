@@ -26,11 +26,16 @@ Los sospechosos habituales son tres:
 cancha doctor --tls
 ```
 
+En Windows, con PowerShell, eso se escribe `.\cancha.bat doctor --tls` —el `.\`
+es obligatorio— o `python -m cancha doctor --tls`. Está explicado en
+[Dejarlo funcionando](dejarlo-funcionando.md#cómo-se-escribe-cada-comando).
+
 Se asoma al certificado que te están presentando y saca el nombre de quien lo
 firma. Casi siempre es el nombre del programa, tal cual:
 
 ```
   api.telegram.org
+    python        C:\...\sofascore\.venv\Scripts\python.exe
     certificados  los que trae Python
     🚫 Quien firma el certificado se llama «Kaspersky Anti-Virus Personal Root».
        Eso es lo que está abriendo tu HTTPS.
@@ -51,6 +56,18 @@ De mejor a peor.
 ```bash
 pip install truststore        # o: pip install "cancha[tls]"
 ```
+
+**En Windows, si usas `cancha.bat`, no lo instales así.** El `.bat` tiene su
+propio entorno en `.venv`, y un `pip install` a secas va al Python del sistema:
+`cancha` no lo vería. Dentro del entorno es
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install truststore
+```
+
+aunque normalmente no hace falta ni eso: desde la 0.12.2 el `.bat` lo instala
+solo, y completa el entorno que ya tuvieras hecho. Para saber qué Python está
+mirando, `cancha doctor` lo dice en su primera línea.
 
 Es el arreglo bueno en Windows y en macOS, y casi siempre el único que hace
 falta. Hace que Python use el **almacén de certificados del sistema**, que es

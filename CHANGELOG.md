@@ -4,6 +4,50 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.12.2
+
+Tres cosas que no eran errores del programa pero se comportaban como si lo
+fueran.
+
+### Arreglos
+
+- **`python cancha doctor` reventaba con una traza.** Es lo que sale escribir
+  cuando tienes la carpeta del proyecto delante, y Python entonces ejecuta
+  `cancha/__main__.py` suelto, sin paquete alrededor: el import relativo moría
+  con «attempted relative import with no known parent package», que no dice nada
+  de lo que hay que hacer. Ahora funciona: si no hay paquete, se añade la carpeta
+  que lo contiene y se importa por su nombre. `python -m cancha`,
+  `python cancha` y `python cancha/__main__.py` hacen lo mismo.
+
+- **`cancha.bat` no traía `truststore`, que es justo lo que arregla el HTTPS
+  interceptado en Windows.** Y peor: el `.bat` se hace un entorno propio en
+  `.venv`, así que un `pip install truststore` escrito en PowerShell va al Python
+  del sistema y el programa **no lo ve**. Dos personas distintas tendrían el
+  mismo problema y las dos creerían haberlo instalado.
+
+  Ahora el `.bat` instala `".[curl,tls]"`, y lleva un sello dentro del entorno
+  para **completar el que ya estuviera hecho**: quien tenga el `.venv` de antes
+  no se queda sin lo nuevo sin enterarse. También avisa, por escrito, de que ahí
+  dentro se instala con `.venv\Scripts\python.exe -m pip install`.
+
+- **`cancha doctor` dice ahora con qué Python está funcionando**, en su primera
+  línea, y `--tls` también. «Instalar algo en Python» y «que lo vea este Python»
+  no son lo mismo, y sin verlo no hay manera de darse cuenta.
+
+### Documentación
+
+- **Cómo se escribe cada comando en Windows**, que faltaba y provocó el
+  «El término 'cancha' no se reconoce como nombre de un cmdlet». En PowerShell
+  hace falta `.\cancha.bat doctor --tls` —el `.\` es obligatorio, porque
+  PowerShell no ejecuta nada de la carpeta en la que estás—; en el símbolo del
+  sistema vale `cancha.bat doctor --tls`; y `python -m cancha doctor --tls` vale
+  en cualquier parte. Está en el README y en
+  [Dejarlo funcionando](docs/dejarlo-funcionando.md), con el aviso de a qué
+  Python va un `pip install`.
+
+- La explicación del HTTPS interceptado lleva cada orden **en su propia línea y
+  sin partir**: antes el ancho la cortaba por la mitad y no se podía copiar.
+
 ## 0.12.1
 
 Un error que no se entendía leyéndolo, y que no era de este programa.

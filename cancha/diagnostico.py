@@ -9,6 +9,7 @@ pide aparte porque tarda.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +82,11 @@ def estado_tls(ajustes: Any = None) -> dict:
                    "—antivirus, proxy de empresa, VPN— no vas a poder conectarte: "
                    "pip install truststore lo arregla casi siempre.")
     return {"ca_bundle": bundle, "sin_verificar": flojo,
-            "truststore": hay_truststore(), "variable": ENV_CA, "lectura": lectura}
+            "truststore": hay_truststore(), "variable": ENV_CA, "lectura": lectura,
+            # Cuál Python es, porque instalar algo «en Python» y que lo vea
+            # **este** Python no es lo mismo: en Windows, con el entorno que
+            # hace cancha.bat, un `pip install` a secas va a otro sitio.
+            "python": sys.executable}
 
 
 def probar_tls(host: str = "api.telegram.org", ajustes: Any = None) -> dict:
@@ -123,6 +128,7 @@ def diagnostico(cliente=None, cache_dir: str | Path | None = None,
         "cache": estado_cache(cache_dir),
         "grabaciones": estado_grabaciones(carpeta_grabaciones),
         "tls": estado_tls(getattr(cliente, "settings", None)),
+        "python": sys.executable,
     }
     if cliente is not None:
         en_uso = type(cliente.transport).__name__

@@ -8,16 +8,52 @@ cancha arrancar                 # la interfaz, la guardia nocturna y el bot
 
 En Windows, con el proyecto descargado, abre esa carpeta y:
 
-```bat
-cancha.bat doctor                     :: ¿con qué pide, y contesta Sofascore?
-cancha.bat ajustes ligas=grandes      :: empieza por poco; luego amplías
-cancha.bat guardia --una-vez          :: la primera carga, mirándola
-cancha.bat                            :: y ya: déjalo con esto abierto
+```powershell
+.\cancha.bat doctor                    # ¿con qué pide, y contesta Sofascore?
+.\cancha.bat ajustes ligas=grandes     # empieza por poco; luego amplías
+.\cancha.bat guardia --una-vez         # la primera carga, mirándola
+.\cancha.bat                           # y ya: déjalo con esto abierto
 ```
 
 El `.bat` se encarga del entorno la primera vez (tarda un minuto) y luego
 arranca directo. Sin argumentos hace `arrancar`; con un comando delante, lo
 ejecuta —así no tienes que saber dónde vive el entorno—.
+
+### Cómo se escribe cada comando
+
+En esta documentación los comandos se escriben `cancha esto y lo otro`, que es
+como se llaman. En tu ordenador hay que decírselo de una de estas tres formas, y
+las tres hacen lo mismo:
+
+| Dónde | Cómo |
+| --- | --- |
+| **Windows, PowerShell** | `.\cancha.bat doctor --tls` |
+| **Windows, símbolo del sistema** | `cancha.bat doctor --tls` |
+| **Cualquier sitio** | `python -m cancha doctor --tls` |
+
+Ese `.\` de PowerShell no es un adorno: PowerShell **no ejecuta nada de la
+carpeta en la que estás** si no se lo pides así, y lo que dice cuando te falta
+es «El término 'cancha' no se reconoce como nombre de un cmdlet…», que suena a
+que no está instalado cuando lo está.
+
+`cancha` a secas (sin `.bat` y sin `.\`) funciona solo si instalaste el paquete
+con `pip install -e .` **y** la carpeta de scripts de tu Python está en el PATH.
+En Windows, con una instalación de usuario, normalmente no lo está, y por eso
+está el `.bat`.
+
+### Instalar algo dentro del entorno
+
+`cancha.bat` se hace un entorno propio en `.venv`, y esto es importante: un
+`pip install algo` escrito en PowerShell va al **Python del sistema**, no a ese
+entorno, así que `cancha` no lo verá. Dentro del entorno se instala así:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install algo
+```
+
+Casi nunca hace falta: el `.bat` instala lo que el proyecto necesita —y lo
+completa solo si en una versión nueva hace falta algo más—. Y si dudas de qué
+Python está usando, `.\cancha.bat doctor` lo dice en su primera línea.
 
 **`doctor` primero, siempre.** Si dice `UrllibTransport` en vez de
 `CurlTransport`, instala `curl_cffi` antes de nada o Sofascore te va a

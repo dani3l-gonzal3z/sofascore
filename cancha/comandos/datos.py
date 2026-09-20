@@ -113,7 +113,8 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         imprimir("Transportes disponibles:")
         for t in d["transportes"]:
             imprimir(f"  {'✓' if t['disponible'] else '·'} {t['nombre']:<8} {t['para_que']}")
-        imprimir(f"\nEn uso: {d['en_uso']}")
+        imprimir(f"\nPython: {d['python']}")
+        imprimir(f"En uso: {d['en_uso']}")
         if d.get("aviso"):
             imprimir(f"  ⚠  {d['aviso']}")
         imprimir(f"Credenciales Plus: {d['credenciales']}")
@@ -150,6 +151,7 @@ def _doctor_tls(args: argparse.Namespace) -> int:
         d = probar_tls(host.strip(), ajustes)
         imprimir("")
         imprimir(f"  {host.strip()}")
+        imprimir(f"    python        {d['python']}")
         imprimir(f"    certificados  {d['lectura']}")
         if d["interceptado"] is None:
             imprimir(f"    ⚠  {d['nota']}")

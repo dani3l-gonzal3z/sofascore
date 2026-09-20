@@ -205,34 +205,48 @@ def explicar(host: str = "", ancho: int = 72) -> str:
     """Qué ha pasado y qué hacer, ya partido en líneas que se pueden leer.
 
     Va partido aquí, y no en cada sitio que lo imprime, porque lo imprimen
-    tres: el terminal, la página y un mensaje de Telegram. Partirlo en cada
-    uno acababa con la numeración descolocada.
+    tres: el terminal, la página y un mensaje de Telegram. Partirlo en cada uno
+    acababa con la numeración descolocada.
+
+    Las órdenes van en su propia línea y **sin** partir: una orden cortada por
+    la mitad no se puede copiar, y esto está para copiarlo.
     """
     donde = f" con {host}" if host else ""
-    parrafos: list[tuple[str, str]] = [
+    #: (sangría, texto, ¿se puede partir?)
+    partes: list[tuple[str, str, bool]] = [
         ("", f"Algo está abriendo tu HTTPS{donde}: se pone en medio, descifra y te "
              "presenta un certificado suyo, y Python no conoce a quien lo firma. "
              "Suele ser un antivirus que «revisa webs seguras», el proxy de una "
-             "empresa o de un colegio, o un cliente de VPN."),
-        ("", "Para saber quién es:    cancha doctor --tls"),
-        ("", "Y para que funcione, de mejor a peor:"),
-        ("  1. ", "pip install truststore — hace que Python use el almacén de "
-                  "certificados del sistema, que es donde esos programas dejan el "
-                  "suyo al instalarse. Suele arreglarlo sin tocar nada más."),
-        ("  2. ", "Exporta ese certificado a un fichero .pem y di dónde está: "
-                  "cancha ajustes red.ca_bundle=C:\\ruta\\al\\certificado.pem"),
+             "empresa o de un colegio, o un cliente de VPN.", True),
+        ("", "Para saber quién es:", True),
+        ("  ", "cancha doctor --tls", False),
+        ("  ", "en Windows:  .\\cancha.bat doctor --tls", False),
+        ("", "Y para que funcione, de mejor a peor:", True),
+        ("  1. ", "pip install truststore", False),
+        ("     ", "Hace que Python use el almacén de certificados del sistema, que "
+                  "es donde esos programas dejan el suyo al instalarse. Suele "
+                  "arreglarlo sin tocar nada más.", True),
+        ("  2. ", "Exporta el certificado de quien firma a un fichero .pem y di "
+                  "dónde está:", True),
+        ("     ", "cancha ajustes red.ca_bundle=C:\\ruta\\al\\certificado.pem", False),
         ("  3. ", "En tu antivirus, quita la revisión de webs seguras: suele "
-                  "llamarse «análisis HTTPS» o «escaneo SSL»."),
-        ("  4. ", "Si no hay otra y sabes lo que es: cancha ajustes "
-                  "red.sin_verificar=si — deja de comprobar con quién hablas, y "
-                  "eso incluye a quien se ponga en medio. Va con aviso cada vez."),
+                  "llamarse «análisis HTTPS» o «escaneo SSL».", True),
+        ("  4. ", "Si no hay otra y sabes lo que hay en medio:", True),
+        ("     ", "cancha ajustes red.sin_verificar=si", False),
+        ("     ", "Deja de comprobar con quién hablas, y eso incluye a quien se "
+                  "ponga en medio. Va con aviso cada vez.", True),
     ]
     lineas: list[str] = []
-    for sangria, texto in parrafos:
-        if lineas:
+    for sangria, texto, se_parte in partes:
+        # Un apartado nuevo empieza sin sangría, o con el número de la lista.
+        # Lo que va sangrado a secas es continuación del anterior y va pegado.
+        if lineas and (sangria == "" or sangria.endswith(". ")):
             lineas.append("")
-        lineas += textwrap.wrap(texto, ancho, initial_indent=sangria,
-                                subsequent_indent=" " * len(sangria)) or [""]
+        if se_parte:
+            lineas += textwrap.wrap(texto, ancho, initial_indent=sangria,
+                                    subsequent_indent=" " * len(sangria)) or [""]
+        else:
+            lineas.append(sangria + texto)
     return "\n".join(lineas)
 
 
