@@ -276,12 +276,17 @@ def vigilar(cliente: SofascoreClient, almacen: Almacen, a_las: str = HORA_POR_DE
             maximo_peticiones: int = 0, carpeta_briefings: str = "datos/briefings",
             registro: str | Path | None = REGISTRO_POR_DEFECTO,
             ahora: bool = False, vueltas: int = 0,
-            en_pantalla: bool = True, dormir=time.sleep) -> dict:
+            en_pantalla: bool = True, dormir=time.sleep,
+            releer: Callable[[], dict] | None = None) -> dict:
     """Se queda esperando y prepara el día siguiente cada noche.
 
     ``vueltas`` limita cuántas hace y luego sale; ``0`` es para siempre.
     ``ahora`` hace una en cuanto arranca, sin esperar a la hora, que es como se
     comprueba que funciona sin quedarse hasta las tres de la mañana.
+
+    ``releer`` devuelve los ajustes actuales y se consulta mientras espera. Es
+    lo que hace que cambiar la hora desde el móvil valga para algo: sin esto,
+    el ajuste no se miraría hasta la vuelta siguiente, que es dentro de un día.
     """
     decir = Diario(ruta=registro, en_pantalla=en_pantalla)
     hechas: list[dict] = []
@@ -295,10 +300,20 @@ def vigilar(cliente: SofascoreClient, almacen: Almacen, a_las: str = HORA_POR_DE
                 if ahora and not hechas:
                     pendiente = 0.0
                 else:
+                    a_las, dias_vista = _relectura(releer, a_las, dias_vista)
                     pendiente = segundos_hasta(a_las)
                     decir(f"Siguiente vuelta en {_legible(pendiente)} "
                           f"(a las {a_las}).")
-                _dormir_a_trozos(pendiente, dormir)
+                    # Las variables se atan aquí a propósito: una lambda que
+                    # cierre sobre la variable del bucle mira el valor de la
+                    # última vuelta, no el de esta.
+                    def _la_han_cambiado(puesta=a_las, dias=dias_vista) -> bool:
+                        return _relectura(releer, puesta, dias)[0] != puesta
+
+                    if _dormir_a_trozos(pendiente, dormir, cambiado=_la_han_cambiado):
+                        a_las, dias_vista = _relectura(releer, a_las, dias_vista)
+                        decir(f"La hora ha cambiado a las {a_las}; recalculo.")
+                        continue
                 fecha = (datetime.now() + timedelta(days=dias_vista)).strftime("%Y-%m-%d")
                 decir.errores.clear()
                 hechas.append(preparar_dia(
@@ -316,6 +331,18 @@ def vigilar(cliente: SofascoreClient, almacen: Almacen, a_las: str = HORA_POR_DE
     return {"vueltas": hechas, "cuantas": len(hechas)}
 
 
+def _relectura(releer, hora: str, dias: int) -> tuple[str, int]:
+    """La hora y los días que digan los ajustes ahora mismo, si hay quien lo diga."""
+    if releer is None:
+        return (hora, dias)
+    try:
+        frescos = releer() or {}
+        suya = (frescos.get("guardia") or {})
+        return (suya.get("hora") or hora, suya.get("dias", dias))
+    except Exception:  # noqa: BLE001 - unos ajustes rotos no paran la guardia
+        return (hora, dias)
+
+
 def segundos_hasta(hora: str, desde: datetime | None = None) -> float:
     """Cuánto falta para la próxima vez que sean las ``HH:MM``, en local."""
     ahora = desde or datetime.now()
@@ -329,12 +356,22 @@ def segundos_hasta(hora: str, desde: datetime | None = None) -> float:
     return (objetivo - ahora).total_seconds()
 
 
-def _dormir_a_trozos(segundos: float, dormir=time.sleep, trozo: float = 5.0) -> None:
-    """Dormir en trozos para que Ctrl+C responda al momento y no dentro de ocho horas."""
+def _dormir_a_trozos(segundos: float, dormir=time.sleep, trozo: float = 5.0,
+                     cambiado: Callable[[], bool] | None = None) -> bool:
+    """Dormir en trozos, mirando de reojo si algo ha cambiado.
+
+    Dos razones para no dormir de una sentada: que Ctrl+C responda al momento
+    y no dentro de ocho horas, y que cambiar la hora de la guardia desde el
+    móvil sirva de algo. Si `cambiado` dice que sí, se despierta y devuelve
+    True para que quien llama vuelva a calcular cuándo toca.
+    """
     restante = segundos
     while restante > 0:
         dormir(min(trozo, restante))
         restante -= trozo
+        if cambiado is not None and cambiado():
+            return True
+    return False
 
 
 def _legible(segundos: float) -> str:

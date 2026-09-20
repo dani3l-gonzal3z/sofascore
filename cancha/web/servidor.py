@@ -42,7 +42,8 @@ class Servidor:
 
     def __init__(self, sesion: Sesion | None = None, ruta_almacen: str = "datos/cancha.db",
                  clave: str = "", carpeta_briefings: str = "datos/briefings",
-                 modelo: str = "", ollama: str = "") -> None:
+                 modelo: str = "", ollama: str = "",
+                 ruta_ajustes: str | None = None) -> None:
         from ..analista import MODELO_POR_DEFECTO, URL_OLLAMA
 
         self.sesion = sesion or Sesion(ruta_almacen=ruta_almacen)
@@ -50,6 +51,7 @@ class Servidor:
         self.carpeta_briefings = carpeta_briefings
         self.modelo = modelo or MODELO_POR_DEFECTO
         self.ollama = ollama or URL_OLLAMA
+        self.ruta_ajustes = ruta_ajustes
         self._analistas: dict[str, Any] = {}
         #: Los rellena ``arrancar``; la página los usa para el QR de la wifi.
         self.puerto = 8765
@@ -138,6 +140,69 @@ class Servidor:
                 return calibrar_patrones(self.sesion.almacen)
             return avisos(self.sesion.almacen, self.sesion.cliente, fecha=fecha,
                           grupos=grupos, umbral=umbral)
+
+    # --- ajustes ---
+
+    def ajustes(self) -> dict:
+        """Los ajustes, con el catálogo de ligas para poder elegirlas de una lista."""
+        from ..ajustes import cargar, revisar, sin_secretos
+        from ..ligas import CATALOGO, GRUPOS
+
+        guardados = cargar(self.ruta_ajustes)
+        return {
+            "ajustes": sin_secretos({k: v for k, v in guardados.items()
+                                     if not k.startswith("_")}),
+            "error": guardados.get("_error"),
+            "problemas": revisar(guardados),
+            "grupos": [{"grupo": g, "competiciones": len(n)} for g, n in GRUPOS.items()],
+            "competiciones": [
+                {"nombre": c.nombre, "grupo": c.grupo, "genero": c.genero,
+                 "pais": c.pais, "alias": list(c.alias)} for c in CATALOGO],
+            "modelos": self._modelos_instalados(),
+        }
+
+    def _modelos_instalados(self) -> list[str]:
+        """Qué modelos tiene Ollama, para elegir de una lista en vez de a ciegas."""
+        try:
+            estado = self.estado_analista()
+        except Exception:  # noqa: BLE001 - sin Ollama la página sigue funcionando
+            return []
+        # `modelos` es una lista de diccionarios con nombre y tamaño; aquí solo
+        # hacen falta los nombres, para pintar un desplegable.
+        return [m.get("nombre") or "" for m in (estado.get("modelos") or [])
+                if m.get("nombre")]
+
+    def poner_ajustes(self, cambios: dict) -> dict:
+        """Guarda lo que llegue de la página. Solo claves conocidas.
+
+        Devuelve lo guardado y qué hace falta reiniciar: la hora de la guardia
+        se coge al vuelo, pero el puerto o el token no, y decirlo ahorra el
+        «no me funciona» de dentro de un rato.
+        """
+        from ..ajustes import aplicar_desde_fuera, cargar, guardar, revisar, sin_secretos
+
+        antes = cargar(self.ruta_ajustes)
+        nuevos = aplicar_desde_fuera(antes, cambios)
+        problemas = revisar(nuevos)
+        if problemas:
+            return {"guardado": False, "problemas": problemas}
+        destino = guardar(nuevos, self.ruta_ajustes)
+        # Lo que no se puede cambiar en caliente, dicho por su nombre.
+        en_frio = [
+            nombre for nombre, camino in (
+                ("el puerto", ("web", "puerto")),
+                ("abrirlo a la wifi", ("web", "lan")),
+                ("la clave", ("web", "clave")),
+                ("el bot de Telegram", ("telegram", "token")),
+                ("los chats del bot", ("telegram", "chats")),
+            ) if antes[camino[0]][camino[1]] != nuevos[camino[0]][camino[1]]
+        ]
+        return {
+            "guardado": True, "fichero": str(destino), "problemas": [],
+            "ajustes": sin_secretos({k: v for k, v in nuevos.items()
+                                     if not k.startswith("_")}),
+            "hace_falta_reiniciar": en_frio,
+        }
 
     # --- diagnóstico y mantenimiento ---
 
@@ -400,6 +465,8 @@ class Manejador(BaseHTTPRequestHandler):
             return self._json(self.app.diagnostico(con_red=con_red))
         if ruta == "/api/red":
             return self._json(self.app.red())
+        if ruta == "/api/ajustes":
+            return self._json(self.app.ajustes())
         if ruta.startswith("/api/briefing/"):
             fecha = ruta.rsplit("/", 1)[-1]
             datos = self.app.briefing(fecha)
@@ -431,6 +498,8 @@ class Manejador(BaseHTTPRequestHandler):
                 umbral=float(cuerpo.get("umbral") or 0.65)))
         if ruta == "/api/analista":
             return self._analista(cuerpo)
+        if ruta == "/api/ajustes":
+            return self._json(self.app.poner_ajustes(cuerpo))
         if ruta == "/api/cache":
             return self._json(self.app.limpiar_cache())
         if ruta == "/api/ligas":

@@ -465,3 +465,70 @@ def test_el_directo_no_se_queda_pidiendo_cuando_te_vas_de_la_vista():
     trozo = html[desde:hasta]
     assert trozo.count("location.hash !== mio") >= 1
     assert trozo.count("location.hash === mio") >= 2
+
+
+# ------------------------------------------------------------------ ajustes
+
+def test_los_ajustes_se_leen_con_el_catalogo_de_ligas(servidor, tmp_path):
+    servidor.ruta_ajustes = str(tmp_path / "aj.json")
+    estado, _, cuerpo = _pedir(servidor, "GET", "/api/ajustes")
+    assert estado == 200
+    assert cuerpo["ajustes"]["guardia"]["hora"] == "03:00"
+    assert len(cuerpo["competiciones"]) == 71, "para poder elegirlas de una lista"
+    assert {"grupo", "competiciones"} <= set(cuerpo["grupos"][0])
+    assert cuerpo["problemas"] == []
+
+
+def test_los_ajustes_se_guardan_desde_la_pagina(servidor, tmp_path):
+    ruta = tmp_path / "aj2.json"
+    servidor.ruta_ajustes = str(ruta)
+    estado, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes", {
+        "guardia": {"hora": "02:15", "partidos": 4},
+        "ligas": ["grandes", "uefa"], "modelo": "qwen2.5:7b"})
+    assert estado == 200 and cuerpo["guardado"] is True
+    assert ruta.is_file()
+
+    from cancha.ajustes import cargar
+
+    guardados = cargar(ruta)
+    assert guardados["guardia"]["hora"] == "02:15"
+    assert guardados["ligas"] == ["grandes", "uefa"]
+    assert guardados["modelo"] == "qwen2.5:7b"
+
+
+def test_unos_ajustes_imposibles_no_se_guardan_y_se_explican(servidor, tmp_path):
+    ruta = tmp_path / "aj3.json"
+    servidor.ruta_ajustes = str(ruta)
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes",
+                          {"guardia": {"hora": "a las tres"}})
+    assert cuerpo["guardado"] is False
+    assert any("03:00" in p for p in cuerpo["problemas"])
+    assert not ruta.is_file(), "no puede quedarse escrito algo que no vale"
+
+
+def test_se_dice_qué_cambios_necesitan_reiniciar(servidor, tmp_path):
+    """La hora se coge al vuelo; el puerto no. Callárselo es el «no me funciona»."""
+    servidor.ruta_ajustes = str(tmp_path / "aj4.json")
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/ajustes",
+                          {"web": {"puerto": 9100}, "guardia": {"hora": "01:00"}})
+    assert cuerpo["guardado"] is True
+    assert "el puerto" in cuerpo["hace_falta_reiniciar"]
+    assert not any("hora" in x for x in cuerpo["hace_falta_reiniciar"])
+
+
+def test_el_token_del_bot_no_sale_por_la_api(servidor, tmp_path):
+    ruta = tmp_path / "aj5.json"
+    servidor.ruta_ajustes = str(ruta)
+    _pedir(servidor, "POST", "/api/ajustes", {"telegram": {"token": "123:SECRETISIMO"}})
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/ajustes")
+    assert "SECRETISIMO" not in json.dumps(cuerpo)
+    assert cuerpo["ajustes"]["telegram"]["token_puesto"] is True
+
+
+def test_la_pagina_tiene_el_panel_de_ajustes(servidor):
+    html = _pagina()
+    assert "tarjetaAjustes" in html
+    assert "/api/ajustes" in html
+    for pieza in ("a qué hora", "Ligas que sigues", "modelo de ollama",
+                  "token del bot de telegram"):
+        assert pieza in html, pieza

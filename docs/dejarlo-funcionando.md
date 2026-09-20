@@ -23,6 +23,11 @@ Eso levanta tres cosas en un solo proceso, y Ctrl+C se las lleva todas:
   telegram     «cancha» · https://t.me/tubot
 ```
 
+Todo eso sale de tus **[ajustes](ajustes.md)** —la hora, las ligas, el modelo,
+el puerto y el bot— que se cambian desde la pestaña Ajustes de la interfaz,
+también desde el móvil, o con `cancha ajustes`. Lo que escribas en la línea de
+comandos gana a lo guardado.
+
 ## La guardia nocturna
 
 Cada noche a su hora hace cuatro cosas, en este orden:
@@ -36,11 +41,15 @@ Cada noche a su hora hace cuatro cosas, en este orden:
    instantáneo en vez de contar miles de partidos en ese momento.
 
 ```bash
-cancha guardia                        # a las 03:00, prepara mañana
+cancha guardia                        # a la hora de tus ajustes (de fábrica, 03:00)
 cancha guardia --ahora                # y hace una vuelta ya, para verlo funcionar
 cancha guardia --una-vez              # una vuelta y sale
-cancha guardia --a-las 02:30 --partidos 20 --max 4000
+cancha guardia --a-las 02:30 --partidos 20 --max 4000   # solo esta vez
+cancha ajustes guardia.hora=02:30                      # a partir de ahora
 ```
+
+La hora **se coge al vuelo**: la guardia mira los ajustes mientras espera, así
+que cambiarla desde el móvil a las once de la noche vale para esa misma noche.
 
 Todo lo que hace queda en `datos/guardia.log`, con los errores marcados para
 que se vean de un vistazo entre cien líneas:

@@ -138,6 +138,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [La memoria](docs/memoria.md) | Barrido diario, estilo de equipo, rachas de jugador, árbitros, previas |
 | [La interfaz](docs/interfaz.md) | `cancha web`: una página que se instala en Windows y en iOS |
 | [Dejarlo funcionando](docs/dejarlo-funcionando.md) | `cancha arrancar`: la guardia nocturna y el bot de Telegram |
+| [Ajustes](docs/ajustes.md) | La hora, las ligas, el modelo: decidirlo una vez |
 | [Casi seguro](docs/seguro.md) | Lo que se repite, medido: frecuencia, suelo de Wilson y elevación |
 | [El pronóstico](docs/pronostico.md) | Marcador exacto, córners y tarjetas, calculados y contra el mercado |
 | [El analista local](docs/analista.md) | Ollama con Hermes, y el adaptador a LangChain |

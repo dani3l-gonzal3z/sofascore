@@ -49,6 +49,8 @@ La interfaz y las otras fuentes:
 cancha web [--lan] [--abrir] [--clave X]   # la página, instalable como app
 cancha pronostico "A vs B" [--abastecer]  # marcador, córners y tarjetas
 cancha arrancar                        # todo junto: web + guardia + bot
+cancha ajustes [clave=valor ...]       # la hora, las ligas, el modelo
+cancha ajustes --ligas                 # qué ligas se pueden elegir
 cancha guardia [--ahora] [--una-vez]   # prepara el día siguiente cada noche
 cancha telegram --token X --chat N     # el bot, para preguntar desde fuera
 cancha noticias laliga [--equipo X]        # titulares de ESPN

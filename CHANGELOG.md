@@ -4,6 +4,55 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.11.0
+
+Decidirlo una vez: la hora de la guardia, las ligas y el modelo, desde donde
+tengas la mano.
+
+### Novedades
+
+- **Ajustes de verdad, en `datos/ajustes.json`.** La hora y los días de la
+  guardia, cuántos partidos abastece, el tope de peticiones, las ligas que
+  sigues, el modelo de Ollama, el puerto, la clave y el bot. Tres sitios para
+  tocarlo y es el mismo fichero: la **pestaña Ajustes de la interfaz —también
+  desde el móvil—**, `cancha ajustes clave=valor`, o el fichero a mano.
+
+  El orden manda: **línea de comandos > fichero > fábrica**. Así
+  `cancha guardia --a-las 02:00` es «solo esta vez» y
+  `cancha ajustes guardia.hora=02:00` es «a partir de ahora».
+
+- **La hora se coge al vuelo.** La guardia mira los ajustes mientras espera, en
+  trozos de cinco segundos, así que cambiarla desde el móvil a las once de la
+  noche vale para esa misma noche. Un ajuste que no surte efecto hasta mañana
+  es papel mojado. Lo que no se puede cambiar en caliente —el puerto, la clave,
+  el bot— la interfaz te lo dice por su nombre al guardar, en vez de dejarte
+  con el «no me funciona» de dentro de un rato.
+
+- **Elegir ligas, de verdad.** Grupos (`grandes`, `uefa`, `femenino`…), atajos
+  (`todo`, `europa`, `america`) o las **71 competiciones una a una**, por
+  nombre o alias. En la interfaz son botones; en el terminal,
+  `cancha ajustes --ligas` las lista todas. Elegir menos hace las noches mucho
+  más cortas.
+
+- **El modelo, de una lista.** La pestaña Ajustes pregunta a Ollama qué tienes
+  instalado y te lo ofrece en un desplegable; si Ollama no está, deja escribir
+  el nombre igualmente para cuando lo arranques.
+
+- **Documentación para portátiles ARM64** (Surface Laptop y demás Copilot+), que
+  se comportan distinto en tres cosas: `curl_cffi` puede no tener versión y sin
+  él llueven los 403, Ollama no usa la NPU, y la tapa cerrada manda sobre
+  cualquier cosa que haga el programa.
+
+### Detalles que importan
+
+- **El token del bot no se devuelve nunca.** Se escribe desde la interfaz pero
+  vuelve tapado, y si lo dejas como está no se toca. Sin eso, abrir los ajustes
+  y darle a guardar te habría borrado el bot.
+- **Un fichero de ajustes roto no te deja sin programa**: se avisa y se sigue
+  con lo de fábrica, que es lo que hace falta para poder entrar a arreglarlo.
+- **Las claves inventadas no se guardan.** Un ajuste que nadie lee es peor que
+  no tenerlo, porque parece que hace algo.
+
 ## 0.10.0
 
 El pronóstico completo de un partido —marcador exacto, córners, tarjetas— y un

@@ -18,12 +18,31 @@ poder leerse de un vistazo y decir qué hacer, no volcar una traza.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import threading
 
-from ..guardia import ABASTECER_POR_DEFECTO, HORA_POR_DEFECTO, REGISTRO_POR_DEFECTO
+from .. import ajustes as modulo_ajustes
 from . import comun
 from .comun import envolver, imprimir
+
+
+def _ajustes(args: argparse.Namespace) -> dict:
+    """Los ajustes guardados, avisando si el fichero está roto."""
+    cargados = modulo_ajustes.cargar(getattr(args, "ajustes", None))
+    if cargados.get("_error"):
+        _problema(cargados["_error"], "Bórralo o arréglalo y vuelve a arrancar.")
+    for problema in modulo_ajustes.revisar(cargados):
+        imprimir(f"  ⚠ {problema}")
+    return cargados
+
+
+def _ligas(args: argparse.Namespace, guardados: dict) -> list[str] | None:
+    """Las ligas: las de la línea de comandos si las hay, si no las guardadas."""
+    if getattr(args, "grupos", None):
+        return args.grupos.split(",")
+    return modulo_ajustes.grupos_de(guardados)
+
 
 #: Variables de entorno, para no tener que escribir el token cada vez.
 ENV_TOKEN = "CANCHA_TELEGRAM_TOKEN"
@@ -40,8 +59,9 @@ def _problema(titulo: str, *consejos: str) -> None:
     imprimir("")
 
 
-def _chats(args: argparse.Namespace) -> tuple[int, ...]:
-    crudo = args.chat or os.environ.get(ENV_CHAT, "")
+def _chats(args: argparse.Namespace, guardados: dict | None = None) -> tuple[int, ...]:
+    crudo = (args.chat or os.environ.get(ENV_CHAT, "")
+             or ((guardados or {}).get("telegram", {}).get("chats") or []))
     if isinstance(crudo, str):
         crudo = [x for x in crudo.replace(";", ",").split(",") if x.strip()]
     salida = []
@@ -62,29 +82,38 @@ def cmd_guardia(args: argparse.Namespace) -> int:
     from ..almacen import Almacen
     from ..guardia import preparar_dia, vigilar
 
+    guardados = _ajustes(args)
+    suya = guardados["guardia"]
+    valor = modulo_ajustes.valor
+
     cliente = comun.construir_cliente(args)
-    almacen = Almacen(args.db or "datos/cancha.db")
-    grupos = args.grupos.split(",") if args.grupos else None
+    almacen = Almacen(valor(args, "db", guardados["memoria"]))
+    grupos = _ligas(args, guardados)
+    registro = None if args.sin_registro else valor(args, "registro", suya["registro"])
+    briefings = valor(args, "briefings", guardados["briefings"])
+    comunes = {
+        "grupos": grupos,
+        "ultimos": valor(args, "ultimos", suya["ultimos"]),
+        "abastecer_partidos": valor(args, "partidos", suya["partidos"]),
+        "maximo_peticiones": valor(args, "max", suya["max"]),
+        "carpeta_briefings": briefings,
+    }
     try:
         if args.una_vez:
             from ..guardia import Diario
 
-            diario = Diario(ruta=None if args.sin_registro else args.registro)
+            diario = Diario(ruta=registro)
             try:
-                preparar_dia(cliente, almacen, fecha=args.date, grupos=grupos,
-                             ultimos=args.ultimos, abastecer_partidos=args.partidos,
-                             maximo_peticiones=args.max,
-                             carpeta_briefings=args.briefings or "datos/briefings",
-                             diario=diario)
+                preparar_dia(cliente, almacen, fecha=args.date, diario=diario, **comunes)
             finally:
                 diario.cerrar()
             return 0
-        vigilar(cliente, almacen, a_las=args.a_las, dias_vista=args.dias,
-                grupos=grupos, ultimos=args.ultimos, abastecer_partidos=args.partidos,
-                maximo_peticiones=args.max,
-                carpeta_briefings=args.briefings or "datos/briefings",
-                registro=None if args.sin_registro else args.registro,
-                ahora=args.ahora)
+        vigilar(cliente, almacen,
+                a_las=valor(args, "a_las", suya["hora"]),
+                dias_vista=valor(args, "dias", suya["dias"]),
+                registro=registro, ahora=args.ahora,
+                releer=lambda: modulo_ajustes.cargar(getattr(args, "ajustes", None)),
+                **comunes)
         return 0
     finally:
         almacen.close()
@@ -98,7 +127,9 @@ def cmd_telegram(args: argparse.Namespace) -> int:
     from ..sesion import Sesion
     from ..telegrama import Bot, TelegramNoDisponible
 
-    token = args.token or os.environ.get(ENV_TOKEN, "")
+    guardados = _ajustes(args)
+    token = (args.token or os.environ.get(ENV_TOKEN, "")
+             or (guardados["telegram"]["token"] or ""))
     if not token:
         _problema("Falta el token del bot.",
                   "Abre Telegram, habla con @BotFather, manda /newbot y te dará "
@@ -108,8 +139,10 @@ def cmd_telegram(args: argparse.Namespace) -> int:
         return 2
 
     cliente = comun.construir_cliente(args)
-    sesion = Sesion(cliente=cliente, ruta_almacen=args.db or "datos/cancha.db")
-    bot = Bot(token=token, permitidos=_chats(args), sesion=sesion, modelo=args.modelo or "")
+    sesion = Sesion(cliente=cliente,
+                    ruta_almacen=modulo_ajustes.valor(args, "db", guardados["memoria"]))
+    bot = Bot(token=token, permitidos=_chats(args, guardados), sesion=sesion,
+              modelo=args.modelo or guardados["modelo"] or "")
     try:
         quien = bot.comprobar()
     except TelegramNoDisponible as exc:
@@ -133,6 +166,56 @@ def cmd_telegram(args: argparse.Namespace) -> int:
         return 0
     finally:
         bot.close()
+
+
+# ------------------------------------------------------------------- ajustes
+
+def cmd_ajustes(args: argparse.Namespace) -> int:
+    """Ver y cambiar lo que se decide una vez: hora, ligas, modelo, puerto."""
+    from ..ligas import CATALOGO, GRUPOS
+
+    if args.ligas:
+        imprimir("Grupos (valen en --grupos y en el ajuste «ligas»):\n")
+        for grupo, nombres in GRUPOS.items():
+            imprimir(f"  {grupo:<14} {len(nombres)} competiciones")
+        imprimir("\nAtajos:  todo · masculino · femenino · europa · america\n")
+        imprimir("Competiciones sueltas (vale el nombre o cualquier alias):\n")
+        for competicion in CATALOGO:
+            alias = f"  ({', '.join(competicion.alias)})" if competicion.alias else ""
+            imprimir(f"  {competicion.nombre}{alias}")
+        return 0
+
+    guardados = modulo_ajustes.cargar(args.ajustes)
+    if guardados.get("_error"):
+        _problema(guardados["_error"])
+
+    if args.cambios:
+        for cambio in args.cambios:
+            if "=" not in cambio:
+                _problema(f"«{cambio}» no es un cambio.",
+                          "Se escribe clave=valor, por ejemplo guardia.hora=02:30.")
+                return 2
+            clave, _, crudo = cambio.partition("=")
+            try:
+                guardados = modulo_ajustes.poner(guardados, clave, crudo)
+            except modulo_ajustes.AjusteDesconocido as exc:
+                _problema(str(exc))
+                return 2
+        problemas = modulo_ajustes.revisar(guardados)
+        for problema in problemas:
+            imprimir(f"  ⚠ {problema}")
+        destino = modulo_ajustes.guardar(guardados, args.ajustes)
+        imprimir(f"Guardado en {destino}.")
+        imprimir("")
+
+    imprimir(json.dumps(modulo_ajustes.sin_secretos(
+        {k: v for k, v in guardados.items() if not k.startswith("_")}),
+        ensure_ascii=False, indent=2))
+    if not args.cambios:
+        imprimir("")
+        imprimir("Para cambiar algo:  cancha ajustes guardia.hora=02:30 modelo=qwen2.5:7b")
+        imprimir("Las ligas que hay:  cancha ajustes --ligas")
+    return 0
 
 
 # ------------------------------------------------------------------ arrancar
@@ -249,19 +332,25 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
 
 def registrar(sub, comun_p, informe, listado) -> None:
     """Añade los comandos de dejarlo funcionando."""
+    # Todo por defecto a None a propósito: así se distingue «no lo has dicho»
+    # de «lo has dicho y coincide con lo de fábrica», y los ajustes guardados
+    # pueden ganar sin pisar lo que sí has escrito tú.
+    de_fabrica = modulo_ajustes.POR_DEFECTO
     guardia_base = argparse.ArgumentParser(add_help=False)
-    guardia_base.add_argument("--a-las", default=HORA_POR_DEFECTO,
-                              help=f"Hora local de la guardia (por defecto {HORA_POR_DEFECTO}).")
-    guardia_base.add_argument("--dias", type=int, default=1,
-                              help="Qué día preparar: 1 es mañana (por defecto).")
-    guardia_base.add_argument("--grupos", help="Grupos de competiciones, separados por comas.")
-    guardia_base.add_argument("--partidos", type=int, default=ABASTECER_POR_DEFECTO,
-                              help=f"Cuántos partidos abastecer a fondo (por defecto "
-                                   f"{ABASTECER_POR_DEFECTO}). 0 para ninguno.")
-    guardia_base.add_argument("--max", type=int, default=0,
+    guardia_base.add_argument("--ajustes", help=f"Fichero de ajustes (por defecto: "
+                                                f"{modulo_ajustes.RUTA_POR_DEFECTO}).")
+    guardia_base.add_argument("--a-las", help="Hora local de la guardia. Por defecto, la "
+                                              "de tus ajustes (de fábrica, "
+                                              f"{de_fabrica['guardia']['hora']}).")
+    guardia_base.add_argument("--dias", type=int,
+                              help="Qué día preparar: 1 es mañana.")
+    guardia_base.add_argument("--grupos", help="Ligas o grupos, separados por comas. Por "
+                                               "defecto, los de tus ajustes.")
+    guardia_base.add_argument("--partidos", type=int,
+                              help="Cuántos partidos abastecer a fondo. 0 para ninguno.")
+    guardia_base.add_argument("--max", type=int,
                               help="Tope de peticiones por vuelta (0 = sin tope).")
-    guardia_base.add_argument("--registro", default=REGISTRO_POR_DEFECTO,
-                              help="Dónde se escribe lo que va haciendo.")
+    guardia_base.add_argument("--registro", help="Dónde se escribe lo que va haciendo.")
     guardia_base.add_argument("--briefings", help="Carpeta de los briefings.")
     guardia_base.add_argument("--db", help="Fichero de la memoria.")
 
@@ -279,7 +368,7 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_guardia.add_argument("--una-vez", action="store_true",
                            help="Una vuelta y salir. Para el programador de tareas.")
     p_guardia.add_argument("--date", help="Preparar esta fecha concreta (AAAA-MM-DD).")
-    p_guardia.add_argument("--ultimos", type=int, default=6,
+    p_guardia.add_argument("--ultimos", type=int,
                            help="Partidos recientes por equipo en el barrido.")
     p_guardia.add_argument("--sin-registro", action="store_true",
                            help="No escribir el fichero de registro.")
@@ -303,6 +392,21 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_telegram.add_argument("--db", help="Fichero de la memoria.")
     p_telegram.set_defaults(func=cmd_telegram)
 
+    p_ajustes = sub.add_parser(
+        "ajustes",
+        help="Ver y cambiar la hora de la guardia, las ligas, el modelo…",
+        description="Lo que se decide una vez y no se vuelve a escribir. Vive en "
+                    "datos/ajustes.json y se puede tocar también desde la pestaña "
+                    "Ajustes de la interfaz, incluido el móvil. Lo que escribas en la "
+                    "línea de comandos gana a lo guardado, y lo guardado a lo de "
+                    "fábrica.")
+    p_ajustes.add_argument("cambios", nargs="*",
+                           help="clave=valor. Ej: guardia.hora=02:30 modelo=qwen2.5:7b")
+    p_ajustes.add_argument("--ajustes", help="Otro fichero de ajustes.")
+    p_ajustes.add_argument("--ligas", action="store_true",
+                           help="Listar los grupos y competiciones que se pueden elegir.")
+    p_ajustes.set_defaults(func=cmd_ajustes)
+
     p_arrancar = sub.add_parser(
         "arrancar", parents=[comun_p, guardia_base, bot_base],
         help="Todo a la vez: la interfaz, la guardia nocturna y el bot.",
@@ -311,7 +415,7 @@ def registrar(sub, comun_p, informe, listado) -> None:
                     "guardia a preparar el día siguiente y, si le das token, el "
                     "bot de Telegram. Ctrl+C lo cierra todo.",
     )
-    p_arrancar.add_argument("--port", type=int, default=8765, help="Puerto de la interfaz.")
+    p_arrancar.add_argument("--port", type=int, help="Puerto de la interfaz.")
     p_arrancar.add_argument("--solo-local", action="store_true",
                             help="No abrir la interfaz a la wifi.")
     p_arrancar.add_argument("--clave", help="Clave para la interfaz (recomendable con wifi).")

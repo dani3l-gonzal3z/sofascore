@@ -348,6 +348,7 @@ table.tb td:first-child, table.tb th:first-child { white-space: normal; min-widt
 .sug { border: 1px solid var(--linea-2); background: var(--cal); border-radius: 999px;
        padding: 5px 11px; font-size: 13px; cursor: pointer; text-align: left; }
 .sug:hover { background: var(--cal-2); }
+.sug.on { background: var(--cesped); border-color: var(--cesped); color: #fff; }
 
 .registro { font: 12.5px/1.45 var(--mono); background: var(--cal-2); border-radius: var(--r-s);
             padding: 10px 12px; max-height: 240px; overflow: auto; white-space: pre-wrap; }
@@ -1865,6 +1866,7 @@ V.memoria = async (raiz) => {
         + "de estadística válidas. Es el mapa completo, el mismo que ve la IA."), volcado(d)];
     })));
 
+  raiz.append(tarjetaAjustes());
   raiz.append(tarjetaRed());
   raiz.append(tarjetaDiagnostico());
   raiz.append(tarjetaConsola());
@@ -2016,6 +2018,170 @@ function tarjetaConsola() {
   });
   cuerpo.append(espera("Pidiendo la lista de herramientas…"));
   return tarjeta("Consola de herramientas", cuerpo);
+}
+
+/* ── ajustes ─────────────────────────────────────────────────────── */
+/* La hora de la guardia, las ligas, el modelo y el bot. Se guardan en el
+   ordenador, así que cambiarlo desde el móvil lo cambia para todo. */
+function tarjetaAjustes() {
+  const cuerpo = el("div", { class: "bloque" });
+  const avisoAjustes = el("div", { class: "bloque" });
+  api.get("/api/ajustes").then((d) => {
+    const err = fallo(d);
+    if (err) { poner(cuerpo, err); return; }
+    const a = d.ajustes, g = a.guardia, w = a.web, t = a.telegram;
+    const campos = {};
+    const campo = (clave, etiquetaTexto, attrs, ayuda) => {
+      campos[clave] = el("input", { class: "campo", ...attrs });
+      return el("label", { class: "bloque", style: "gap:4px" },
+        el("span", { class: "mini" }, etiquetaTexto), campos[clave],
+        ayuda ? el("span", { class: "peq gris" }, ayuda) : null);
+    };
+
+    /* Las ligas: los grupos como botones y las 71 sueltas dentro de un
+       plegable, porque elegir de una lista de 71 sin buscar es un castigo. */
+    const elegidas = new Set((a.ligas || []).map((x) => String(x).toLowerCase()));
+    const pinta = () => {
+      for (const nodo of cuerpo.querySelectorAll("[data-liga]"))
+        nodo.className = "sug" + (elegidas.has(nodo.dataset.liga) ? " on" : "");
+      resumenLigas.textContent = elegidas.size
+        ? `${elegidas.size} elegidas` : "todo el catálogo";
+    };
+    const alterna = (clave) => {
+      if (elegidas.has(clave)) elegidas.delete(clave);
+      else elegidas.add(clave);
+      pinta();
+    };
+    const resumenLigas = el("span", { class: "gris peq" });
+    const botonLiga = (clave, texto) => el("button", {
+      class: "sug", "data-liga": clave, type: "button",
+      onclick: () => alterna(clave) }, texto);
+
+    const porGrupo = {};
+    for (const c of d.competiciones || []) (porGrupo[c.grupo] ||= []).push(c);
+
+    poner(cuerpo,
+      el("div", { class: "bloque" },
+        el("div", { class: "titular" }, el("h3", {}, "Guardia nocturna"), resumenLigas),
+        el("div", { class: "fila" },
+          el("label", { class: "fila peq", style: "gap:6px" },
+            campos.activa = el("input", { type: "checkbox", checked: g.activa }),
+            el("span", {}, "encendida"))),
+        campo("hora", "a qué hora", { type: "time", value: g.hora },
+          "Hora local. Se coge al vuelo: no hace falta reiniciar."),
+        el("div", { class: "fila" },
+          el("label", { class: "bloque", style: "gap:4px;flex:1 1 120px" },
+            el("span", { class: "mini" }, "qué día"),
+            campos.dias = el("select", { class: "campo" },
+              ...[[0, "hoy"], [1, "mañana"], [2, "pasado mañana"]].map(([v, x]) =>
+                el("option", { value: v, selected: v === g.dias }, x)))),
+          el("label", { class: "bloque", style: "gap:4px;flex:1 1 110px" },
+            el("span", { class: "mini" }, "partidos a fondo"),
+            campos.partidos = el("input", { class: "campo", type: "number", min: 0,
+              value: g.partidos })),
+          el("label", { class: "bloque", style: "gap:4px;flex:1 1 110px" },
+            el("span", { class: "mini" }, "tope peticiones"),
+            campos.max = el("input", { class: "campo", type: "number", min: 0,
+              value: g.max }))),
+        nota("Con 0 en el tope no hay límite. Los partidos a fondo son los que se "
+          + "abastecen enteros: es lo caro y lo que llena la memoria.")),
+
+      el("hr", { class: "hr" }),
+      el("div", { class: "bloque" },
+        el("h3", {}, "Ligas que sigues"),
+        el("div", { class: "fila" },
+          ...(d.grupos || []).map((x) => botonLiga(x.grupo, `${x.grupo} (${x.competiciones})`)),
+          ...["todo", "masculino", "femenino", "europa", "america"].map((x) => botonLiga(x, x))),
+        el("details", {}, el("summary", {}, "O una a una"),
+          ...Object.entries(porGrupo).map(([grupo, lista]) =>
+            el("div", { class: "bloque" }, el("span", { class: "mini" }, grupo),
+              el("div", { class: "fila" }, ...lista.map((c) =>
+                botonLiga((c.alias[0] || c.nombre).toLowerCase(), c.nombre)))))),
+        el("button", { class: "btn plano s", style: "justify-self:start", type: "button",
+          onclick: () => { elegidas.clear(); pinta(); } }, "Quitar todas"),
+        nota("Sin ninguna elegida se sigue el catálogo entero: 71 competiciones. "
+          + "Elegir menos hace las noches mucho más cortas.")),
+
+      el("hr", { class: "hr" }),
+      el("div", { class: "bloque" },
+        el("h3", {}, "Analista"),
+        el("label", { class: "bloque", style: "gap:4px" },
+          el("span", { class: "mini" }, "modelo de ollama"),
+          campos.modelo = (d.modelos || []).length
+            ? el("select", { class: "campo" },
+                ...((d.modelos.indexOf(a.modelo) < 0 && a.modelo)
+                  ? [el("option", { value: a.modelo, selected: true },
+                      `${a.modelo} (no instalado)`)] : []),
+                ...d.modelos.map((m) => el("option", { value: m, selected: m === a.modelo }, m)))
+            : el("input", { class: "campo", value: a.modelo,
+                placeholder: "hermes3" })),
+          (d.modelos || []).length
+            ? nota(`${d.modelos.length} instalados en Ollama.`)
+            : nota("No veo Ollama. Escribe el nombre igualmente: se usará cuando lo "
+                + "arranques."),
+        campo("ollama", "dónde escucha ollama", { value: a.ollama })),
+
+      el("hr", { class: "hr" }),
+      el("div", { class: "bloque" },
+        el("h3", {}, "Interfaz y bot"),
+        el("div", { class: "fila" },
+          el("label", { class: "bloque", style: "gap:4px;flex:1 1 110px" },
+            el("span", { class: "mini" }, "puerto"),
+            campos.puerto = el("input", { class: "campo", type: "number",
+              value: w.puerto })),
+          el("label", { class: "fila peq", style: "gap:6px" },
+            campos.lan = el("input", { type: "checkbox", checked: w.lan }),
+            el("span", {}, "abrir a la wifi"))),
+        campo("clave", "clave de la interfaz", { type: "password", value: w.clave },
+          "Recomendable si la abres a la wifi. Va dentro del QR."),
+        campo("token", "token del bot de telegram",
+          { type: "password", value: t.token, placeholder: "123456:AAE…" },
+          t.token_puesto ? "Hay uno guardado. Déjalo como está para no tocarlo."
+            : "Te lo da @BotFather en Telegram con /newbot."),
+        campo("chats", "chats permitidos", { value: (t.chats || []).join(", ") },
+          "Números separados por comas. Sin esto el bot no contesta a nadie."),
+        nota("El puerto, la clave y el bot se cogen al arrancar: cámbialos y "
+          + "reinicia.")),
+
+      el("hr", { class: "hr" }),
+      avisoAjustes,
+      el("button", { class: "btn", type: "button", onclick: async (ev) => {
+        const boton = ev.currentTarget;
+        boton.disabled = true;
+        const cambios = {
+          ligas: [...elegidas],
+          modelo: campos.modelo.value.trim(),
+          ollama: campos.ollama.value.trim(),
+          guardia: { activa: campos.activa.checked, hora: campos.hora.value,
+            dias: Number(campos.dias.value), partidos: Number(campos.partidos.value),
+            max: Number(campos.max.value) },
+          web: { puerto: Number(campos.puerto.value), lan: campos.lan.checked,
+            clave: campos.clave.value },
+          telegram: { token: campos.token.value,
+            chats: campos.chats.value.split(",").map((x) => x.trim()).filter(Boolean)
+              .map(Number) },
+        };
+        const r = await api.post("/api/ajustes", cambios);
+        boton.disabled = false;
+        if (fallo(r)) { poner(avisoAjustes, fallo(r)); return; }
+        if (!r.guardado) {
+          poner(avisoAjustes, ...r.problemas.map((x) => msg(x, "mal")));
+          return;
+        }
+        poner(avisoAjustes, msg("Guardado."),
+          (r.hace_falta_reiniciar || []).length
+            ? msg("Para que valga " + r.hace_falta_reiniciar.join(", ")
+                + ", reinicia cancha. La hora de la guardia sí se coge al vuelo.", "ojo")
+            : null);
+      } }, "Guardar ajustes"),
+      (d.problemas || []).length
+        ? el("div", { class: "bloque" }, ...d.problemas.map((x) => msg(x, "ojo"))) : null,
+      nota(`Se guardan en el ordenador, así que cambiarlo desde aquí lo cambia para `
+        + `todo: la guardia, el bot y el terminal.`));
+    pinta();
+  });
+  cuerpo.append(espera("Leyendo los ajustes…"));
+  return tarjeta("Ajustes", cuerpo);
 }
 
 function ajustes(e) {

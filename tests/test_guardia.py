@@ -160,3 +160,33 @@ def test_la_guardia_de_arrancar_no_comparte_cliente_con_la_web():
     dentro = fuente[fuente.index("def correr_guardia"):fuente.index("hilo = threading.Thread")]
     assert "construir_cliente" in dentro, "la guardia tiene que hacerse su cliente"
     assert "vigilar(suyo" in dentro, "y usar el suyo, no el de la web"
+
+
+def test_cambiar_la_hora_mientras_espera_la_coge_al_vuelo(tmp_path, cliente):
+    """Un ajuste que no surte efecto hasta mañana es papel mojado."""
+    ajustes = {"guardia": {"hora": "03:00", "dias": 1}}
+    vueltas = {"n": 0}
+
+    def releer():
+        vueltas["n"] += 1
+        if vueltas["n"] > 3:                    # a la cuarta mirada, la cambian
+            return {"guardia": {"hora": "04:00", "dias": 1}}
+        return ajustes
+
+    with Almacen(tmp_path / "g6.db") as base:
+        vigilar(cliente, base, a_las="03:00", vueltas=1, abastecer_partidos=0,
+                carpeta_briefings=str(tmp_path / "b6"), registro=None,
+                en_pantalla=False, dormir=lambda _s: None, releer=releer)
+    # Lo importante es que haya vuelto a consultar mientras dormía.
+    assert vueltas["n"] > 3, "no ha mirado los ajustes durante la espera"
+
+
+def test_unos_ajustes_rotos_no_paran_la_guardia(tmp_path, cliente):
+    def releer():
+        raise ValueError("el fichero está a medio escribir")
+
+    with Almacen(tmp_path / "g7.db") as base:
+        salida = vigilar(cliente, base, ahora=True, vueltas=1, abastecer_partidos=0,
+                         carpeta_briefings=str(tmp_path / "b7"), registro=None,
+                         en_pantalla=False, dormir=lambda _s: None, releer=releer)
+    assert salida["cuantas"] == 1
