@@ -252,6 +252,63 @@ esta forma:
 """
 
 
+#: Lo que se le añade al director en su primera vuelta. Sin esto, el modelo bueno
+#: gasta su turno caro empezando un análisis que va a continuar otro: lo que se le
+#: pide es que **dirija**, y dirigir es decir qué falta y por qué.
+INSTRUCCIONES_DIRECTOR = """
+
+ESTA VUELTA ES PARA DIRIGIR, NO PARA CONCLUIR
+Todavía no cierres nada. En este turno haces dos cosas:
+
+1. Dices en pocas frases qué ves en el expediente y **qué te falta** para poder
+   afirmarlo: qué dato concreto cambiaría tu lectura, y por qué.
+2. Pides con las herramientas lo que necesites para eso.
+
+Quien ejecute lo que pidas puede ser un modelo pequeño, así que escribe el plan
+para que se entienda solo: di **qué** hay que traer y a **qué** hay que mirarle,
+sin dar por hecho que sabe lo que tú estás pensando. Después volverás a ver todo
+lo recogido y entonces sí cerrarás.\
+"""
+
+#: El sistema del de en medio. Corto a propósito: es un recadero competente, no
+#: un analista, y cuanto menos se le invite a opinar, menos opina.
+SISTEMA_PEON = """\
+Eres el ayudante de un analista de fútbol. Tu único trabajo es **traer datos** con
+las herramientas que tienes: ni analizas, ni concluyes, ni das probabilidades. De
+lo que escribas no se va a leer una palabra; de lo que traigas, todo.
+
+Sigue el plan que te dan. Si al traer un dato se ve claramente que hace falta otro
+para que ese primero signifique algo —el árbitro designado lleva a su reparto de
+tarjetas, un equipo lleva a su rival de la última jornada—, tráelo también. Y
+cuando ya tengas lo del plan y nada evidente que falte, para y di «listo».\
+"""
+
+#: Y lo que se le pide como turno de usuario, para que arranque.
+INSTRUCCIONES_PEON = ("Trae lo que pide el plan. Cuando lo tengas todo, contesta "
+                      "solo «listo».")
+
+#: El empujón del cierre. El director vuelve a ver el expediente y los datos
+#: recogidos, y ahora sí tiene que rematar.
+INSTRUCCIONES_CIERRE = """\
+Ya tienes delante el expediente y todo lo que se ha ido a buscar por tu plan.
+Cierra el análisis ahora, con los apartados de siempre y terminando con tu bloque
+```json de números.
+
+Dos cosas: lo que se ha traído está tal cual lo devolvieron las herramientas, sin
+que nadie lo haya interpretado por ti —así que júzgalo tú—, y si algo que pediste
+no aparece es que no estaba: dilo y baja tu confianza, no rellenes el hueco.\
+"""
+
+
+def _primeras_lineas(texto: str, cuantas: int = 4) -> str:
+    """Las primeras líneas de un expediente, para identificar el partido.
+
+    Es el respaldo de `cabecera`: si a `analizar` no le dan una, se saca de aquí,
+    porque el expediente empieza justo con el partido, la competición y la fecha.
+    """
+    return "\n".join(texto.splitlines()[:cuantas])
+
+
 def extraer_numeros(texto: str) -> dict | None:
     """El último bloque JSON de una respuesta, si lo hay y si se puede leer.
 
@@ -321,6 +378,15 @@ class Analista:
     #: contexto TLS, que es otra cosa con el mismo nombre en castellano.
     contexto: int = 16384
     max_vueltas: int = MAX_VUELTAS
+    #: El modelo bueno, si quieres uno distinto para **abrir y cerrar**. Vacío =
+    #: el mismo de principio a fin, que es lo de siempre. Ver
+    #: :meth:`analizar` para qué hace cada uno y por qué ahorra tanto.
+    modelo_director: str = ""
+    #: Tope de tokens de entrada que se le deja gastar, sumando todas las
+    #: vueltas. 0 = sin tope. `max_vueltas` cuenta turnos, y seis turnos sobre
+    #: un expediente grande cuestan tres veces más que seis sobre uno pequeño:
+    #: el número de vueltas no dice nada del gasto, y esto sí.
+    techo_tokens: int = 0
     #: Con qué herramientas se le deja trabajar. Vacío = todas.
     solo_herramientas: tuple[str, ...] = ()
     #: Tope de caracteres por respuesta de herramienta. Más bajo que el de MCP:
@@ -343,6 +409,38 @@ class Analista:
         if self.sesion is None:
             self.sesion = Sesion()
             self._propia = True
+
+    # --- quién habla en cada momento ---
+
+    @property
+    def en_sandwich(self) -> bool:
+        """¿Hay un modelo director distinto del que hace el trabajo de en medio?"""
+        return bool(self.modelo_director and self.modelo_director != self.modelo)
+
+    @property
+    def modelo_de_cierre(self) -> str:
+        """Quién escribe la conclusión, y quien saca los números."""
+        return self.modelo_director or self.modelo
+
+    def _sumar_tokens(self, salida: dict, respuesta: dict) -> None:
+        """Va apuntando lo que cuesta, por modelo y en total.
+
+        Sin esto no hay forma de saber qué vale una ejecución, y el coste es
+        justo lo que estamos intentando bajar: un ahorro que no se mide es una
+        opinión.
+        """
+        cuentas = salida.setdefault("tokens", {"prompt_eval_count": 0,
+                                              "eval_count": 0, "por_modelo": {}})
+        entrada = int(respuesta.get("prompt_eval_count") or 0)
+        salidas = int(respuesta.get("eval_count") or 0)
+        cuentas["prompt_eval_count"] += entrada
+        cuentas["eval_count"] += salidas
+        suyo = cuentas["por_modelo"].setdefault(
+            respuesta.get("model") or self.modelo, {"entrada": 0, "salida": 0,
+                                                    "llamadas": 0})
+        suyo["entrada"] += entrada
+        suyo["salida"] += salidas
+        suyo["llamadas"] += 1
 
     def _tls(self):
         """El contexto TLS para hablar con la nube. ``None`` si no hay nada que decir."""
@@ -438,7 +536,8 @@ class Analista:
         return ejecutar(nombre, argumentos, sesion=self.sesion, max_chars=self.max_chars)
 
     def analizar(self, expediente: str, pregunta: str = "", instrucciones: str = "",
-                 al_paso: Callable[[Paso], None] | None = None) -> dict:
+                 al_paso: Callable[[Paso], None] | None = None,
+                 cabecera: str = "") -> dict:
         """Un agente trabajando: el expediente delante, y que pida lo que quiera.
 
         Es el bucle de herramientas de :meth:`preguntar` —ahí está lo de «voy a
@@ -446,25 +545,185 @@ class Analista:
         ya montado y con una condición: termina dando sus números. Sin números no
         se puede comparar con nadie, y un análisis que no se puede comparar es
         una opinión.
+
+        Con `modelo_director` puesto, el trabajo se reparte: ver
+        :meth:`_en_sandwich`. `cabecera` son las tres líneas que identifican el
+        partido, y solo hacen falta ahí.
         """
         sistema = (instrucciones or INSTRUCCIONES_DICTAMEN) + INSTRUCCIONES_NUMEROS
         peticion = pregunta.strip() or (
             "Analiza este partido: qué esperas que pase y por qué, qué te parece "
             "lo más aprovechable y qué te haría cambiar de opinión.")
-        # El expediente va en el mensaje del usuario, y la pregunta detrás: el
-        # bucle de `preguntar` añade la pregunta él solo, así que aquí solo se
-        # le pasa el sistema y el documento como historial.
-        salida = self.preguntar(
-            peticion,
-            historial=[{"role": "system", "content": sistema},
-                       {"role": "user", "content": expediente}],
-            al_paso=al_paso)
+        if self.en_sandwich:
+            salida = self._en_sandwich(expediente, sistema, peticion, cabecera, al_paso)
+        else:
+            # El expediente va en el mensaje del usuario, y la pregunta detrás: el
+            # bucle de `preguntar` añade la pregunta él solo, así que aquí solo se
+            # le pasa el sistema y el documento como historial.
+            salida = self.preguntar(
+                peticion,
+                historial=[{"role": "system", "content": sistema},
+                           {"role": "user", "content": expediente}],
+                al_paso=al_paso)
         numeros = extraer_numeros(salida.get("respuesta") or "")
         if numeros is None:
             numeros = self._pedir_los_numeros(salida, al_paso)
         salida["probabilidades"] = numeros
         salida["sin_numeros"] = numeros is None
         return salida
+
+    def _en_sandwich(self, expediente: str, sistema: str, peticion: str,
+                     cabecera: str = "", al_paso=None) -> dict:
+        """El modelo bueno abre y cierra; el de casa hace los recados de en medio.
+
+        El bucle normal reenvía **el historial entero** en cada vuelta, así que el
+        expediente se paga otra vez en cada turno. Con seis vueltas eso son seis
+        expedientes; aquí se pagan dos —el primero y el último—, y las vueltas de
+        en medio, que son las de ir a buscar datos, las hace el modelo local
+        gratis. En un expediente de doce mil tokens eso baja el gasto como dos
+        tercios.
+
+        Tres decisiones que no son detalles:
+
+        **El medio aporta datos, no razonamiento.** Lo que el modelo local escribe
+        se tira. Si se le devolviera al director, este lo leería con
+        ``role: "assistant"`` —o sea, como algo que había dicho él— y los modelos
+        se anclan a lo que creen que ya dijeron: habrías pagado por un modelo
+        bueno para que defienda el razonamiento de uno peor. Al director vuelven
+        los resultados de las herramientas y su propio plan, nada más.
+
+        **El medio no recibe el expediente.** Su trabajo es traer lo que el plan
+        pide, y para eso le basta saber qué partido es. Además evita el fallo
+        silencioso: un modelo local con ventana de 16k al que le metes doce mil
+        tokens y encima van creciendo los resultados hace que Ollama recorte por
+        lo viejo —que es donde están las instrucciones— sin avisar a nadie.
+
+        **Si el director no pide nada, no hay medio.** Cuando en su primera vuelta
+        contesta sin llamar a ninguna herramienta, ya tiene lo que necesita: se
+        devuelve eso y se ahorra todo lo demás.
+        """
+        avisar = al_paso or (lambda _p: None)
+        herramientas = self._esquemas()
+        salida: dict = {}
+
+        # --- 1. Abre el director: qué ve y qué va a necesitar.
+        avisar(Paso("aviso", texto=f"Abre {self.modelo_director}."))
+        mensajes = [
+            {"role": "system", "content": sistema + INSTRUCCIONES_DIRECTOR},
+            {"role": "user", "content": f"{expediente}\n\n---\n\n{peticion}"},
+        ]
+        respuesta = self.pedir("/api/chat", {
+            "model": self.modelo_director, "messages": mensajes, "stream": False,
+            "tools": herramientas,
+            "options": {"temperature": self.temperatura, "num_ctx": self.contexto},
+        }) or {}
+        self._sumar_tokens(salida, respuesta)
+        apertura = respuesta.get("message") or {}
+        plan = (apertura.get("content") or "").strip()
+        encargos = apertura.get("tool_calls") or []
+        pasos = [Paso("respuesta", texto=plan)] if plan else []
+        for paso in pasos:
+            avisar(paso)
+
+        if not encargos:
+            # No ha pedido nada: con el expediente le bastaba, y esto ya es la
+            # respuesta. Nos ahorramos el medio y el cierre enteros.
+            return {**salida, "respuesta": plan, "pasos": [p.as_dict() for p in pasos],
+                    "vueltas": 1, "modelo": self.modelo_director,
+                    "historial": mensajes, "sandwich": True, "sin_recados": True}
+
+        # --- 2. El medio: ejecuta lo pedido y sigue buscando si hace falta.
+        recogido: list[dict] = []
+        pasos += self._recados(encargos, recogido, avisar)
+        if self.max_vueltas > 2:
+            avisar(Paso("aviso", texto=f"Sigue buscando {self.modelo} "
+                                       f"({self.max_vueltas - 2} vueltas)."))
+            del_medio = Analista(
+                sesion=self.sesion, modelo=self.modelo, url=self.url,
+                temperatura=self.temperatura, contexto=self.contexto,
+                max_vueltas=self.max_vueltas - 1, techo_tokens=self.techo_tokens,
+                solo_herramientas=self.solo_herramientas, max_chars=self.max_chars,
+                pedir=self.pedir, _contexto_tls=self._contexto_tls)
+            suyo = del_medio.preguntar(
+                INSTRUCCIONES_PEON,
+                historial=[{"role": "system", "content": SISTEMA_PEON},
+                           {"role": "user", "content":
+                               (cabecera or _primeras_lineas(expediente))
+                               + "\n\nEl plan del analista jefe:\n\n" + plan},
+                           *[{"role": "tool", "name": d["nombre"],
+                              "tool_name": d["nombre"], "content": d["texto"]}
+                             for d in recogido]],
+                al_paso=al_paso, modelo=self.modelo)
+            # Del medio se guardan sus pasos —para poder ver qué buscó— y sus
+            # resultados. Su prosa no: ver el docstring.
+            for paso in suyo.get("pasos") or []:
+                if paso.get("tipo") == "resultado":
+                    recogido.append({"nombre": paso.get("nombre") or "",
+                                     "texto": json.dumps(paso.get("datos"),
+                                                         ensure_ascii=False,
+                                                         default=str)})
+                if paso.get("tipo") != "respuesta":
+                    pasos.append(Paso(paso["tipo"], nombre=paso.get("nombre") or "",
+                                      argumentos=paso.get("argumentos") or {},
+                                      texto=paso.get("texto") or "",
+                                      caracteres=paso.get("caracteres") or 0))
+            for clave, valor in (suyo.get("tokens") or {}).get("por_modelo", {}).items():
+                suyos = salida.setdefault("tokens", {}).setdefault(
+                    "por_modelo", {}).setdefault(clave, {"entrada": 0, "salida": 0,
+                                                         "llamadas": 0})
+                for campo in ("entrada", "salida", "llamadas"):
+                    suyos[campo] += valor[campo]
+
+        # --- 3. Cierra el director, con todo delante y sin herramientas.
+        avisar(Paso("aviso", texto=f"Cierra {self.modelo_director} con "
+                                   f"{len(recogido)} datos recogidos."))
+        cierre = [
+            {"role": "system", "content": sistema},
+            {"role": "user", "content": f"{expediente}\n\n---\n\n{peticion}"},
+            {"role": "assistant", "content": plan},
+            *[{"role": "tool", "name": d["nombre"], "tool_name": d["nombre"],
+               "content": d["texto"]} for d in recogido],
+            {"role": "user", "content": INSTRUCCIONES_CIERRE},
+        ]
+        respuesta = self.pedir("/api/chat", {
+            "model": self.modelo_director, "messages": cierre, "stream": False,
+            "options": {"temperature": self.temperatura, "num_ctx": self.contexto},
+        }) or {}
+        self._sumar_tokens(salida, respuesta)
+        texto = ((respuesta.get("message") or {}).get("content") or "").strip()
+        final = Paso("respuesta", texto=texto)
+        pasos.append(final)
+        avisar(final)
+        return {**salida, "respuesta": texto, "pasos": [p.as_dict() for p in pasos],
+                "vueltas": len([p for p in pasos if p.tipo == "herramienta"]) + 2,
+                "modelo": self.modelo_director, "historial": cierre,
+                "sandwich": True, "datos_recogidos": len(recogido)}
+
+    def _recados(self, encargos: list[dict], recogido: list[dict],
+                 avisar) -> list[Paso]:
+        """Ejecuta las herramientas que ha pedido alguien. Sin modelo por medio.
+
+        Cuando el plan no se ramifica, esto es todo lo que hace falta: no se
+        necesita un modelo para ejecutar una lista, y el que no se usa no cuesta
+        ni tokens ni segundos ni puede desviarse.
+        """
+        pasos = []
+        for encargo in encargos:
+            funcion = encargo.get("function") or {}
+            nombre = funcion.get("name") or ""
+            argumentos = funcion.get("arguments") or {}
+            paso = Paso("herramienta", nombre=nombre,
+                        argumentos=argumentos if isinstance(argumentos, dict) else {})
+            pasos.append(paso)
+            avisar(paso)
+            resultado = self._ejecutar(nombre, argumentos)
+            texto = json.dumps(resultado, ensure_ascii=False, default=str)
+            hecho = Paso("resultado", nombre=nombre, datos=resultado,
+                         caracteres=len(texto))
+            pasos.append(hecho)
+            avisar(hecho)
+            recogido.append({"nombre": nombre, "texto": texto})
+        return pasos
 
     def _pedir_los_numeros(self, salida: dict, al_paso=None) -> dict | None:
         """Una segunda oportunidad, y solo una.
@@ -473,20 +732,32 @@ class Analista:
         le pide otra vez, a secas. Si vuelve a fallar se guarda lo que ha
         escrito y se marca que no puntúa: insistir en bucle cuesta dinero y no
         convence a un modelo que no sabe hacerlo.
+
+        Y se le manda **solo su propio análisis**, no el historial entero. Antes
+        iba el expediente completo y todos los resultados de herramienta otra vez,
+        que en un partido con seis vueltas son decenas de miles de tokens pagados
+        para extraer seis números. Los números salen del análisis, no de los datos
+        crudos: si no están en lo que ha escrito, tampoco los va a sacar de volver
+        a leerse las tablas.
         """
         avisar = al_paso or (lambda _p: None)
         avisar(Paso("aviso", texto="No ha dado los números; se los pido otra vez."))
-        mensajes = list(salida.get("historial") or [])
-        mensajes.append({
-            "role": "user",
-            "content": ("Te has dejado los números. Contesta **solo** con el bloque "
-                        f"```json de antes, nada más:\n\n{ESQUEMA_NUMEROS}")})
+        escrito = (salida.get("respuesta") or "").strip()
+        mensajes = [
+            {"role": "system", "content": "Devuelves JSON y nada más."},
+            {"role": "user", "content":
+                "Este es un análisis de un partido de fútbol:\n\n"
+                f"{escrito}\n\n---\n\nSaca de ahí las probabilidades y "
+                "contesta **solo** con el bloque ```json, sin una palabra "
+                f"alrededor:\n\n{ESQUEMA_NUMEROS}"},
+        ]
         respuesta = self.pedir("/api/chat", {
-            "model": self.modelo, "messages": mensajes, "stream": False,
+            "model": self.modelo_de_cierre, "messages": mensajes, "stream": False,
             "options": {"temperature": 0, "num_ctx": self.contexto},
         }) or {}
         texto = ((respuesta.get("message") or {}).get("content") or "").strip()
         salida["reparado"] = True
+        self._sumar_tokens(salida, respuesta)
         return extraer_numeros(texto)
 
     def dictaminar(self, expediente: str, pregunta: str = "",
@@ -524,11 +795,17 @@ class Analista:
         }
 
     def preguntar(self, pregunta: str, historial: list[dict] | None = None,
-                  al_paso: Callable[[Paso], None] | None = None) -> dict:
+                  al_paso: Callable[[Paso], None] | None = None,
+                  modelo: str = "") -> dict:
         """Contesta usando las herramientas que haga falta.
 
-        Devuelve la respuesta, los pasos que ha dado y el historial de mensajes
-        para poder seguir la conversación en la siguiente pregunta.
+        Devuelve la respuesta, los pasos que ha dado, lo que ha costado en
+        tokens y el historial de mensajes para poder seguir la conversación en
+        la siguiente pregunta.
+
+        ``modelo`` deja pedir explícitamente con otro modelo del configurado, que
+        es lo que usa :meth:`analizar` para repartir las vueltas entre el director
+        y el de en medio.
         """
         avisar = al_paso or (lambda _p: None)
         mensajes: list[dict] = list(historial or [])
@@ -538,9 +815,10 @@ class Analista:
 
         pasos: list[Paso] = []
         herramientas = self._esquemas()
+        salida: dict = {}
         for vuelta in range(self.max_vueltas):
             cuerpo = {
-                "model": self.modelo,
+                "model": modelo or self.modelo,
                 "messages": mensajes,
                 "stream": False,
                 "options": {"temperature": self.temperatura, "num_ctx": self.contexto},
@@ -551,6 +829,7 @@ class Analista:
                 cuerpo["tools"] = herramientas
 
             respuesta = self.pedir("/api/chat", cuerpo) or {}
+            self._sumar_tokens(salida, respuesta)
             mensaje = respuesta.get("message") or {}
             llamadas = mensaje.get("tool_calls") or []
             mensajes.append({k: v for k, v in mensaje.items() if k in
@@ -562,10 +841,11 @@ class Analista:
                 pasos.append(paso)
                 avisar(paso)
                 return {
+                    **salida,
                     "respuesta": texto,
                     "pasos": [p.as_dict() for p in pasos],
                     "vueltas": vuelta + 1,
-                    "modelo": self.modelo,
+                    "modelo": modelo or self.modelo,
                     "historial": mensajes,
                     "peticiones": (self.sesion.cliente.stats.as_dict()
                                    if self.sesion and self.sesion.cliente else {}),
@@ -589,14 +869,35 @@ class Analista:
                 mensajes.append({"role": "tool", "name": nombre, "tool_name": nombre,
                                  "content": texto})
 
+            # El techo de tokens, comprobado **después** de una vuelta completa y
+            # no en medio: cortar entre la petición de una herramienta y su
+            # resultado dejaría el historial en un estado que el modelo no
+            # entiende. Vale para las dos cosas que se quieren evitar: una
+            # factura que se dispara y un modelo local que se atasca en bucle.
+            gastado = (salida.get("tokens") or {}).get("prompt_eval_count", 0)
+            if self.techo_tokens and gastado >= self.techo_tokens:
+                aviso = Paso("aviso", texto=(
+                    f"Se ha quedado sin presupuesto: {gastado} tokens de entrada, "
+                    f"y el techo está en {self.techo_tokens}."))
+                pasos.append(aviso)
+                avisar(aviso)
+                ultimo = next((m.get("content") for m in reversed(mensajes)
+                               if m.get("role") == "assistant" and m.get("content")), "")
+                return {**salida,
+                        "respuesta": ultimo or "Me he quedado sin presupuesto.",
+                        "pasos": [p.as_dict() for p in pasos], "vueltas": vuelta + 1,
+                        "modelo": modelo or self.modelo, "historial": mensajes,
+                        "sin_presupuesto": True}
+
         aviso = Paso("aviso", texto=f"Se ha quedado sin vueltas ({self.max_vueltas}).")
         pasos.append(aviso)
         avisar(aviso)
         ultimo = next((m.get("content") for m in reversed(mensajes)
                        if m.get("role") == "assistant" and m.get("content")), "")
-        return {"respuesta": ultimo or "No he llegado a una conclusión.",
+        return {**salida, "respuesta": ultimo or "No he llegado a una conclusión.",
                 "pasos": [p.as_dict() for p in pasos], "vueltas": self.max_vueltas,
-                "modelo": self.modelo, "historial": mensajes, "agotado": True}
+                "modelo": modelo or self.modelo, "historial": mensajes,
+                "agotado": True}
 
     def conversar(self, preguntas: Iterator[str]) -> Iterator[dict]:
         """Varias preguntas seguidas, guardando el hilo entre ellas."""

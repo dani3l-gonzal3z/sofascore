@@ -10,7 +10,15 @@ from __future__ import annotations
 import pytest
 
 from cancha.sesion import Sesion
-from cancha.telegrama import LIMITE, Bot, TelegramNoDisponible, _trozos
+from cancha.telegrama import (
+    COMANDOS,
+    LIMITE,
+    MENU,
+    Bot,
+    TelegramNoDisponible,
+    _trozos,
+    teclado,
+)
 
 
 class Falso:
@@ -37,6 +45,14 @@ class Falso:
 def _mensaje(identificador: int, chat: int, texto: str) -> dict:
     return {"update_id": identificador,
             "message": {"chat": {"id": chat}, "text": texto}}
+
+
+def _toque(identificador: int, chat: int, datos: str) -> dict:
+    """Alguien tocando un botón del menú, tal y como lo manda Telegram."""
+    return {"update_id": identificador,
+            "callback_query": {"id": "cb1", "data": datos,
+                               "from": {"first_name": "Dani"},
+                               "message": {"chat": {"id": chat}}}}
 
 
 @pytest.fixture
@@ -523,3 +539,189 @@ def test_lo_que_contesta_no_manda_reiniciar(cliente, tmp_path):
     assert "y reinicia cancha" not in respuesta
     assert "no hace falta reiniciar" in respuesta
     assert "777" in respuesta
+
+
+# ------------------------------------------------------------------- el menú
+
+def test_al_abrirlo_sale_el_menu_con_botones(bot):
+    """Es la idea del apartado: abrirlo y ver qué hay, sin acordarse de nada."""
+    solo, falso = bot
+    solo.atender(42, "/start")
+    ultimo = falso.enviados[-1]
+    teclas = ultimo["reply_markup"]["inline_keyboard"]
+    etiquetas = [b["text"] for fila in teclas for b in fila]
+    assert any("Hoy" in x for x in etiquetas)
+    assert any("directo" in x.lower() for x in etiquetas)
+    assert any("Clasificación" in x for x in etiquetas)
+
+
+def test_una_orden_que_no_existe_ensena_el_menu_y_no_va_al_modelo(bot, monkeypatch):
+    """Quien escribe «/» está buscando una orden, no hablando con un analista."""
+    import cancha.telegrama as modulo
+
+    def no(*_a, **_k):
+        raise AssertionError("esto no tenía que llegar al analista")
+
+    monkeypatch.setattr(modulo, "_analista", no)
+    respuesta = bot[0].atender(42, "/loquesea")
+    assert "No conozco" in respuesta
+    assert bot[1].enviados[-1]["reply_markup"]["inline_keyboard"], "y con botones"
+
+
+def test_el_texto_sin_barra_sigue_yendo_al_analista(bot, monkeypatch):
+    """Lo que no es una orden es una pregunta: eso no cambia."""
+    import cancha.telegrama as modulo
+
+    monkeypatch.setattr(modulo, "_analista", lambda _b, texto: f"analista: {texto}")
+    assert bot[0].atender(42, "¿cómo llega el Girona?").startswith("analista:")
+
+
+def test_tocar_un_boton_es_lo_mismo_que_escribir_la_orden(bot):
+    """Un solo camino: si el botón hiciera otra cosa, con el tiempo se separarían."""
+    solo, falso = bot
+    falso.actualizaciones = [_toque(1, 42, "o:memoria")]
+    atendidos = solo.una_tanda()
+    assert atendidos[0]["texto"] == "/memoria"
+    assert atendidos[0]["boton"] is True
+    assert "partidos" in falso.enviados[-1]["text"]
+
+
+def test_al_tocar_un_boton_se_le_contesta_a_telegram_antes_de_trabajar(bot):
+    """Si no, el botón se queda con el reloj girando y parece que no va.
+
+    Y tiene que ser **antes**: una orden lenta tarda minutos y el reloj se agota
+    en segundos.
+    """
+    solo, falso = bot
+    falso.actualizaciones = [_toque(1, 42, "o:memoria")]
+    solo.una_tanda()
+    assert "answerCallbackQuery" in falso.llamadas
+    assert (falso.llamadas.index("answerCallbackQuery")
+            < falso.llamadas.index("sendMessage"))
+
+
+def test_un_boton_con_basura_no_hace_nada(bot):
+    solo, falso = bot
+    falso.actualizaciones = [_toque(1, 42, "algo-raro")]
+    assert solo.una_tanda() == []
+
+
+def test_el_boton_de_una_liga_pide_sus_partidos(bot):
+    """Los botones de competición llevan la orden con su argumento dentro."""
+    solo, falso = bot
+    solo.grupos = ("laliga", "premier")
+    solo.atender(42, "/ligas")
+    teclas = falso.enviados[-1]["reply_markup"]["inline_keyboard"]
+    datos = [b["callback_data"] for fila in teclas for b in fila]
+    assert "o:hoy laliga" in datos
+    assert "o:menu" in datos, "y siempre una salida"
+
+
+def test_sin_competiciones_elegidas_se_dice(bot):
+    solo, _ = bot
+    solo.grupos = ()
+    assert "no estoy siguiendo" in solo.responder("/ligas").lower()
+
+
+def test_cada_respuesta_deja_una_salida_al_menu(bot):
+    """Nunca dejar a nadie en un callejón: es lo que hace que se pueda usar."""
+    solo, falso = bot
+    solo.atender(42, "/memoria")
+    datos = [b["callback_data"] for fila in
+             falso.enviados[-1]["reply_markup"]["inline_keyboard"] for b in fila]
+    assert datos == ["o:menu"]
+
+
+def test_los_botones_van_solo_en_el_ultimo_trozo(bot, monkeypatch):
+    """Un mensaje partido en cuatro dejaría cuatro teclados en la pantalla."""
+    import cancha.telegrama as modulo
+
+    monkeypatch.setitem(modulo.ORDENES, "largo",
+                        lambda _b, _r: "x" * (LIMITE * 2 + 10))
+    solo, falso = bot
+    solo.atender(42, "/largo")
+    assert len(falso.enviados) >= 3
+    assert "reply_markup" not in falso.enviados[-2]
+    assert "reply_markup" in falso.enviados[-1]
+
+
+# ------------------------------------------------ las órdenes que Telegram ve
+
+def test_las_ordenes_se_le_dicen_a_telegram_una_vez(bot):
+    """Para que salga la lista al teclear «/» y no haya que recordarlas."""
+    solo, falso = bot
+    assert solo.presentar_ordenes() is True
+    assert "setMyCommands" in falso.llamadas
+    assert solo.presentar_ordenes() is False, "una vez por arranque, no una por vuelta"
+
+
+def test_todas_las_ordenes_anunciadas_existen_de_verdad():
+    """Anunciar una orden que no existe es peor que no anunciarla."""
+    from cancha.telegrama import ORDENES
+
+    for nombre, descripcion in COMANDOS:
+        assert nombre in ORDENES, nombre
+        assert descripcion and descripcion[0].isupper(), nombre
+
+
+def test_todos_los_botones_del_menu_son_ordenes_de_verdad():
+    """Un botón que no hace nada es lo peor que puede tener un menú."""
+    from cancha.telegrama import ORDENES
+
+    for fila in MENU:
+        for dato, etiqueta in fila:
+            assert dato.partition(" ")[0] in ORDENES, dato
+            assert etiqueta.strip()
+
+
+def test_el_dato_de_un_boton_nunca_pasa_del_tope_de_telegram():
+    """Telegram rechaza **el mensaje entero** si se pasa de 64 bytes."""
+    largo = "x" * 200
+    teclas = teclado(((("hoy " + largo, "etiqueta"),),))
+    for fila in teclas["inline_keyboard"]:
+        for boton in fila:
+            assert len(boton["callback_data"].encode("utf-8")) <= 64
+
+
+# --------------------------------------------------------------- el resumen
+
+def test_el_resumen_junta_el_dia_en_un_mensaje(bot):
+    """Para abrirlo por la mañana y no tener que preguntar tres veces."""
+    respuesta = bot[0].responder("/resumen")
+    assert "El día" in respuesta or "No tengo nada" in respuesta
+
+
+def test_el_resumen_aguanta_que_algo_falle(bot, monkeypatch):
+    """Si los patrones revientan, el resumen sale con lo demás y no se cae."""
+    import cancha.telegrama as modulo
+
+    def revienta(*_a, **_k):
+        raise RuntimeError("los patrones han fallado")
+
+    monkeypatch.setattr(modulo, "_seguro", revienta)
+    respuesta = bot[0].responder("/resumen")
+    assert "los patrones han fallado" not in respuesta
+
+
+# ------------------------------------------------------- avisar de lo lento
+
+def test_antes_de_una_orden_lenta_se_avisa(bot, monkeypatch):
+    """Escribes /dictamen y el bot calla tres minutos: parece roto.
+
+    Es la misma queja que ya arreglamos una vez, por otro camino.
+    """
+    import cancha.telegrama as modulo
+
+    monkeypatch.setitem(modulo.ORDENES, "dictamen", lambda _b, _r: "el dictamen")
+    solo, falso = bot
+    solo.atender(42, "/dictamen Girona vs Osasuna")
+    assert "⏳" in falso.enviados[0]["text"]
+    assert falso.enviados[-1]["text"] == "el dictamen"
+    assert "sendChatAction" in falso.llamadas
+
+
+def test_una_orden_rapida_no_avisa_de_nada(bot):
+    """Un aviso que sale siempre deja de leerse."""
+    solo, falso = bot
+    solo.atender(42, "/memoria")
+    assert not any("⏳" in e["text"] for e in falso.enviados)

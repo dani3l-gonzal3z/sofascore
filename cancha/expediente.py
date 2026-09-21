@@ -297,6 +297,28 @@ CRUDO_TABLA = (
 )
 
 
+def cabecera(datos: dict) -> str:
+    """Las cuatro líneas que identifican el partido, sin nada más.
+
+    Es lo que necesita un modelo que va a **buscar datos** y no a analizar: qué
+    partido es, cuándo y quién lo pita. Mandarle el expediente entero para eso es
+    pagar —o, con un modelo local de ventana pequeña, provocar que Ollama recorte
+    por lo viejo y se lleve las instrucciones sin decir nada.
+    """
+    if not datos.get("disponible"):
+        return datos.get("nota", "No hay expediente.")
+    p = datos.get("partido") or {}
+    hora = p.get("hora_local") or p.get("hora_utc") or ""
+    # Todo con `get`: esto se monta a partir de lo que haya, y un campo que falte
+    # no puede tumbar un análisis entero por tres líneas de encabezado.
+    return "\n".join([
+        f"{p.get('local') or '?'} vs {p.get('visitante') or '?'}",
+        " · ".join(x for x in (p.get("competicion"), p.get("fecha"), hora) if x),
+        (f"Árbitro designado: {p['arbitro']}" if p.get("arbitro")
+         else "Árbitro: no consta"),
+    ])
+
+
 def a_texto(datos: dict) -> str:
     """El expediente como documento para un modelo: ordenado, fechado y con su n.
 
@@ -650,4 +672,4 @@ def _texto_seguro(seguro: dict) -> list[str]:
 
 
 __all__ = ["APARTADOS", "CLAVE_DE_LECTURA", "ENTRE_ELLOS", "JUGADORES",
-           "ULTIMOS", "a_texto", "expediente"]
+           "ULTIMOS", "a_texto", "cabecera", "expediente"]

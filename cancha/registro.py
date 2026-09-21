@@ -489,6 +489,7 @@ def tabla(almacen: Almacen, desde: str | None = None, hasta: str | None = None,
             "clv": (suyo.get("clv") or {}).get("proporcion_a_favor"),
             "desde": suyo["desde"], "hasta": suyo["hasta"],
             **_a_que_distancia(almacen, autor, desde, hasta),
+            **_lo_que_cuesta(almacen, autor),
         }
         (clasificados if suyo["casos"] >= minimo else sin_muestra).append(fila)
 
@@ -541,6 +542,38 @@ def _a_que_distancia(almacen: Almacen, autor: str, desde: str | None,
     }
 
 
+def _lo_que_cuesta(almacen: Almacen, autor: str) -> dict:
+    """Lo que cuesta de media un análisis de este autor, en tokens y en segundos.
+
+    Va en la tabla porque el coste decide en la práctica: un agente que gana por
+    0,002 de Brier y tarda ocho minutos por partido pierde contra uno que va casi
+    igual en veinte segundos. Y con una clave de la nube puesta, los tokens de
+    entrada son dinero.
+
+    El cálculo y el mercado no cuestan nada —son aritmética—, así que ahí no hay
+    nada que enseñar y se devuelve vacío en vez de un cero que parecería un mérito.
+    """
+    if autor in (AUTOR_CALCULO, AUTOR_MERCADO):
+        return {"tokens_por_analisis": None, "segundos_por_analisis": None,
+                "sin_numeros": None}
+    filas = almacen.consulta(
+        "SELECT tokens_prompt, segundos, sin_numeros FROM dictamenes "
+        "WHERE agente = ?", (autor,))
+    if not filas:
+        return {"tokens_por_analisis": None, "segundos_por_analisis": None,
+                "sin_numeros": None}
+    tokens = [f["tokens_prompt"] for f in filas if f["tokens_prompt"]]
+    segundos = [f["segundos"] for f in filas if f["segundos"]]
+    return {
+        "tokens_por_analisis": round(sum(tokens) / len(tokens)) if tokens else None,
+        "segundos_por_analisis": (round(sum(segundos) / len(segundos), 1)
+                                  if segundos else None),
+        # Cuántas veces no cerró con probabilidades. Es un defecto del agente, no
+        # un accidente: esconderlo sería adornarlo.
+        "sin_numeros": sum(1 for f in filas if f["sin_numeros"]),
+    }
+
+
 #: Por debajo de esta distancia media al mercado, un autor no está analizando:
 #: está copiando el precio con otro decorado.
 DISTANCIA_DE_COPIAR = 0.02
@@ -587,7 +620,8 @@ def texto_tabla(datos: dict) -> list[str]:
                       "resueltos, que es lo mínimo para ordenar a alguien.")
     else:
         lineas.append(f"{'#':<3}{'quién':<20}{'casos':>7}{'ventaja':>10}"
-                      f"{'brier':>8}{'dist.mdo':>10}{'h.antes':>9}")
+                      f"{'brier':>8}{'dist.mdo':>10}{'h.antes':>9}"
+                      f"{'tokens':>9}{'seg':>6}{'s/num':>7}")
         for puesto, fila in enumerate(filas, 1):
             lineas.append(
                 f"{puesto:<3}{nombre_de_autor(fila['autor'])[:19]:<20}"
@@ -595,7 +629,10 @@ def texto_tabla(datos: dict) -> list[str]:
                 f"{_pinta(fila['ventaja_sobre_el_mercado'], '+.2%'):>10}"
                 f"{_pinta(fila['brier'], '.4f'):>8}"
                 f"{_pinta(fila.get('distancia_al_mercado'), '.3f'):>10}"
-                f"{_pinta(fila.get('horas_antes_media'), '.0f'):>9}")
+                f"{_pinta(fila.get('horas_antes_media'), '.0f'):>9}"
+                f"{_pinta(fila.get('tokens_por_analisis'), ',d'):>9}"
+                f"{_pinta(fila.get('segundos_por_analisis'), '.0f'):>6}"
+                f"{_pinta(fila.get('sin_numeros'), 'd'):>7}")
     verdes = datos.get("todavia_sin_muestra") or []
     if verdes:
         lineas += ["", "Todavía sin muestra —se enseñan, pero no tienen puesto:"]

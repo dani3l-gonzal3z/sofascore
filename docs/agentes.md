@@ -60,6 +60,8 @@ En la pestaña **Agentes → Quiénes son**, o a mano en `datos/agentes.json`:
 | --- | --- |
 | `instrucciones` | Su forma de mirar un partido. Es lo único imprescindible: sin esto es el analista de siempre con otro nombre |
 | `modelo` | Vacío = el de los ajustes. Puede ser uno de la nube |
+| `modelo_director` | El modelo bueno, si quieres que **abra y cierre** él y que el de casa haga el medio. Ver más abajo |
+| `techo_tokens` | Tope de tokens de entrada para toda la ejecución. 0 = sin tope |
 | `vueltas` | Cuántas veces puede parar a pedir datos. Cada una es una llamada al modelo, así que esto es el presupuesto |
 | `crudo` | Con cuánto detalle arranca su expediente: `todo`, `tabla` o `no` |
 | `herramientas` | A cuáles de las 45 llega. Vacío = a todas |
@@ -91,14 +93,82 @@ no sabe hacerlo.
 
 Y que eso le pase a menudo a un agente es, en sí mismo, información sobre él.
 
+## Repartir el trabajo entre dos modelos
+
+El bucle de herramientas reenvía **el historial entero** en cada vuelta, así que
+el expediente se paga otra vez en cada turno. Con seis vueltas son seis
+expedientes. De ahí sale la idea: que el modelo bueno **abra y cierre**, y que las
+vueltas de en medio —que son las de ir a buscar datos— las haga el de casa.
+
+```bash
+cancha agente el-esceptico "Girona vs Osasuna" --director gpt-oss:120b-cloud
+```
+
+| | Todo en el bueno | Con reparto |
+| --- | --- | --- |
+| Llamadas que paga el bueno | 4 | 2 |
+| Tokens de entrada que paga | ~13.900 | ~5.700 |
+
+Eso está medido sobre un expediente real en `tests/test_sandwich.py`, y sale un
+**59 % menos**. Con más vueltas, más.
+
+### Qué hace cada uno
+
+1. **Abre el bueno.** Ve el expediente entero y en esa vuelta **no concluye**:
+   dice qué ve, qué le falta para poder afirmarlo, y pide con las herramientas lo
+   que necesite. Eso es dirigir, y pide un prompt distinto: si se le deja el de
+   siempre, gasta su turno caro empezando un análisis que va a continuar otro.
+2. **El medio ejecuta.** Lo que pidió el director lo ejecuta el programa —para
+   correr una lista no hace falta un modelo— y a partir de ahí el modelo local
+   sigue buscando lo que evidentemente falte.
+3. **Cierra el bueno**, con el expediente y todo lo recogido delante, sin
+   herramientas, y obligado a terminar con sus números.
+
+Si en su primera vuelta el director no pide nada, ya tiene lo que necesita: se
+devuelve eso y no se gasta ni el medio ni el cierre.
+
+### Tres decisiones que no son detalles
+
+**El medio aporta datos, no razonamiento.** Lo que el modelo local escribe **se
+tira**. Si se le devolviera al que cierra, este lo leería como algo que había
+dicho él —en el historial va con el papel de `assistant`— y los modelos se anclan
+a lo que creen que ya dijeron: habrías pagado por un modelo bueno para que
+defienda el razonamiento de uno peor.
+
+**Al medio no se le manda el expediente**, solo qué partido es y el plan. Su
+trabajo es traer lo que se le pide. Y además evita un fallo que no avisa: a un
+modelo local con ventana de 16k al que le metes doce mil tokens que encima van
+creciendo, Ollama le recorta por lo viejo —que es donde están las
+instrucciones— y se queda trabajando sin ellas sin que nadie se entere.
+
+**No es gratis en calidad, y no se promete que lo sea.** El trozo que se delega
+es justo el que un modelo pequeño hace peor: llamar herramientas con los
+argumentos correctos. Puede salir muy bien o puede que el medio traiga basura y
+el bueno cierre con basura bien escrita.
+
+Por eso el reparto entra en la **huella**: un agente con reparto no es el mismo
+analista, y su fila no puede mezclarse con la del mismo agente pagándolo todo. Se
+corren los dos y se comparan:
+
+```bash
+cancha clasificacion --comparar el-esceptico el-esceptico-barato
+```
+
+### El techo de tokens
+
+`vueltas` cuenta turnos, y un turno sobre un expediente grande cuesta tres veces
+más que uno sobre uno pequeño: el número de vueltas no dice nada del gasto.
+`techo_tokens` sí, y corta cuando se pasa —al final de una vuelta completa, nunca
+entre una herramienta y su resultado—.
+
 ## La clasificación, y por qué no ordena por lo que parece
 
 ```
-#  quién                 casos   ventaja   brier  dist.mdo  h.antes
-1  el-esceptico             80    +0.04%  0.2610     0.006        0
-2  el mercado               80    +0.00%  0.2614     0.000       14
-3  el cálculo               80    -1.47%  0.2761     0.066       14
-4  el-del-crudo             80    -2.20%  0.2834     0.104        0
+#  quién                 casos   ventaja   brier  dist.mdo  h.antes   tokens   seg  s/num
+1  el-esceptico             80    +0.04%  0.2610     0.006        0    5,816    40      1
+2  el mercado               80    +0.00%  0.2614     0.000       14        —     —      —
+3  el cálculo               80    -1.47%  0.2761     0.066       14        —     —      —
+4  el-del-crudo             80    -2.20%  0.2834     0.104        0        —     —      —
 ```
 
 **No ordena por acierto.** Es la cifra que mejor se vende y la que menos informa:
@@ -132,6 +202,17 @@ mano, a lo mejor media hora antes del saque. El que llega más tarde sabe más
 cosas —quién juega, cómo se ha movido la cuota—, así que tiene **más
 información, no más talento**. Cuando la diferencia pasa de seis horas, la tabla
 avisa de que eso no es una comparación limpia.
+
+### Y las tres del final: lo que cuesta
+
+`tokens` y `seg` son la media por análisis. Están porque el coste decide en la
+práctica: un agente que gana por 0,002 de Brier y tarda ocho minutos por partido
+pierde contra uno que va casi igual en veinte segundos. El cálculo y el mercado
+no tienen coste que enseñar —son aritmética—, y ahí va un guion y no un cero,
+porque un cero parecería un mérito.
+
+`s/num` es cuántas veces no cerró con probabilidades. Es un defecto del agente, y
+esconderlo sería adornarlo.
 
 ### Dos, cara a cara
 

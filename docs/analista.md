@@ -121,3 +121,26 @@ cuenta.
 ---
 
 [← Volver al índice](../README.md)
+
+## Repartir el trabajo entre dos modelos
+
+El bucle reenvía el historial entero en cada vuelta, así que el expediente se
+paga otra vez en cada turno: con seis vueltas, seis expedientes. `Analista`
+acepta un `modelo_director` para que el modelo bueno **abra y cierre** y el de
+casa haga las vueltas de en medio, que son las de ir a buscar datos. Sobre un
+expediente real eso baja lo que paga el caro un 59 %.
+
+```python
+Analista(modelo="hermes3", modelo_director="gpt-oss:120b-cloud",
+         techo_tokens=40000)
+```
+
+Lo que escribe el modelo de en medio **se tira**: al que cierra solo le vuelven
+los datos recogidos y su propio plan. Si le llegara la prosa del pequeño la
+leería como algo que había dicho él, y los modelos se anclan a lo que creen que
+ya dijeron. El detalle completo, con lo que esto **no** promete, está en
+[Agentes](agentes.md#repartir-el-trabajo-entre-dos-modelos).
+
+`techo_tokens` es un tope de gasto para toda la ejecución. `max_vueltas` cuenta
+turnos, y un turno sobre un expediente grande cuesta tres veces más que uno sobre
+uno pequeño: las vueltas no dicen nada del gasto y esto sí.

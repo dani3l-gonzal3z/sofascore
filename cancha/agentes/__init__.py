@@ -30,6 +30,7 @@ import json
 import os
 import re
 import stat
+import time
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,6 +60,12 @@ class Agente:
     instrucciones: str = ""
     #: Vacío = el modelo de los ajustes. Puede ser uno de la nube.
     modelo: str = ""
+    #: El modelo bueno, si quieres que **abra y cierre** él y que el de casa haga
+    #: las vueltas de en medio. Vacío = uno solo de principio a fin. Baja el gasto
+    #: del caro como dos tercios, pero no es gratis en calidad: ver docs/agentes.md.
+    modelo_director: str = ""
+    #: Tope de tokens de entrada que se le deja gastar en total. 0 = sin tope.
+    techo_tokens: int = 0
     vueltas: int = VUELTAS_POR_DEFECTO
     #: Con cuánto detalle arranca su expediente: ``todo``, ``tabla`` o ``no``.
     crudo: str = "tabla"
@@ -70,6 +77,8 @@ class Agente:
     def as_dict(self) -> dict:
         return {"nombre": self.nombre or self.clave,
                 "instrucciones": self.instrucciones, "modelo": self.modelo,
+                "modelo_director": self.modelo_director,
+                "techo_tokens": self.techo_tokens,
                 "vueltas": self.vueltas, "crudo": self.crudo,
                 "herramientas": list(self.herramientas),
                 "temperatura": self.temperatura, "activo": self.activo}
@@ -164,6 +173,8 @@ def construir(clave: str, datos: dict) -> Agente:
         nombre=str(datos.get("nombre") or clave),
         instrucciones=str(datos.get("instrucciones") or ""),
         modelo=str(datos.get("modelo") or ""),
+        modelo_director=str(datos.get("modelo_director") or ""),
+        techo_tokens=max(0, _entero_libre(datos.get("techo_tokens"), 0)),
         vueltas=_entero(datos.get("vueltas"), VUELTAS_POR_DEFECTO),
         crudo=(datos.get("crudo") if datos.get("crudo") in ("todo", "tabla", "no")
                else "tabla"),
@@ -176,6 +187,14 @@ def construir(clave: str, datos: dict) -> Agente:
 def _entero(valor: Any, si_no: int) -> int:
     try:
         return max(1, min(VUELTAS_MAXIMAS, int(valor)))
+    except (TypeError, ValueError):
+        return si_no
+
+
+def _entero_libre(valor: Any, si_no: int) -> int:
+    """Un entero sin el tope de las vueltas: el techo de tokens es de otro orden."""
+    try:
+        return int(valor)
     except (TypeError, ValueError):
         return si_no
 
@@ -206,7 +225,8 @@ def huella(agente: Agente) -> str:
     """
     materia = json.dumps([agente.instrucciones, agente.modelo, agente.vueltas,
                           agente.crudo, sorted(agente.herramientas),
-                          round(agente.temperatura, 3)],
+                          round(agente.temperatura, 3), agente.modelo_director,
+                          agente.techo_tokens],
                          ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(materia.encode("utf-8")).hexdigest()[:8]
 
@@ -280,9 +300,10 @@ def correr(almacen, cliente, agente: Agente, partido: Any,
     cuatro veces de cada diez es un agente malo, y esconderlo sería adornarlo.
     """
     from ..analista import MODELO_POR_DEFECTO, Analista
-    from ..expediente import a_texto, expediente
+    from ..expediente import a_texto, cabecera, expediente
     from ..registro import anotar
 
+    empezo = time.monotonic()
     datos = expediente(almacen, partido, cliente=cliente, crudo=agente.crudo)
     if not datos.get("disponible"):
         return {"disponible": False, "agente": agente.clave,
@@ -292,14 +313,16 @@ def correr(almacen, cliente, agente: Agente, partido: Any,
     analista = Analista(
         sesion=_sesion_de(almacen, cliente),
         modelo=agente.modelo or modelo_por_defecto or MODELO_POR_DEFECTO,
+        modelo_director=agente.modelo_director, techo_tokens=agente.techo_tokens,
         api_key=api_key, temperatura=agente.temperatura, max_vueltas=agente.vueltas,
         solo_herramientas=agente.herramientas, ca_bundle=ca_bundle,
         sin_verificar=sin_verificar, **({"url": url} if url else {}))
     salida = analista.analizar(documento, instrucciones=agente.instrucciones,
-                               al_paso=al_paso)
+                               al_paso=al_paso, cabecera=cabecera(datos))
 
     partido_id = datos["partido"]["id"]
     pasos = salida.get("pasos") or []
+    segundos = round(time.monotonic() - empezo, 1)
     apuntadas: dict = {}
     if guardar_todo:
         almacen.guardar_dictamen(
@@ -307,7 +330,8 @@ def correr(almacen, cliente, agente: Agente, partido: Any,
             modelo=salida.get("modelo") or agente.modelo, expediente=documento,
             en_la_nube=bool(api_key), tokens=salida.get("tokens"),
             agente=agente.clave, pasos=pasos,
-            sin_numeros=bool(salida.get("sin_numeros")))
+            sin_numeros=bool(salida.get("sin_numeros")), segundos=segundos,
+            en_sandwich=bool(salida.get("sandwich")))
         if salida.get("probabilidades"):
             # El pronóstico se le pasa hecho: el expediente ya lo calculó, y sin
             # él `anotar` volvería a calcularlo para lo único que necesita de
@@ -330,6 +354,9 @@ def correr(almacen, cliente, agente: Agente, partido: Any,
         "pasos": pasos,
         "vueltas": salida.get("vueltas"),
         "modelo": salida.get("modelo"),
+        "en_sandwich": bool(salida.get("sandwich")),
+        "tokens": salida.get("tokens") or {},
+        "segundos": segundos,
         "expediente": datos["tamano"],
         "apuntadas": apuntadas.get("guardadas", 0),
         "herramientas_pedidas": [p.get("nombre") for p in pasos

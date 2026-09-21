@@ -142,6 +142,78 @@ def _trozos(texto: str, limite: int = LIMITE) -> list[str]:
     return salida
 
 
+#: El menú, en filas de dos. Cada botón **es una orden escrita**: lo que lleva
+#: dentro se mete por el mismo sitio que si lo hubieras teclado. Eso es a
+#: propósito y es lo que impide que el menú y las órdenes se separen con el
+#: tiempo: no hay dos caminos que mantener, hay uno.
+MENU = (
+    (("hoy", "⚽ Hoy"), ("directo", "🔴 En directo")),
+    (("resumen", "☕ Resumen del día"), ("manana", "📅 Mañana")),
+    (("ligas", "🏆 Por competición"), ("seguro", "🛡 Casi seguro")),
+    (("resultados", "📊 Cómo acierto"), ("clasificacion", "🥇 Clasificación")),
+    (("agentes", "🧠 Mis agentes"), ("memoria", "📚 La memoria")),
+    (("ayuda", "❓ Todo lo que sé hacer"),),
+)
+
+#: Lo que se le dice a Telegram para que salga la lista al teclear «/». Sin esto
+#: hay que acordarse de las órdenes, que es justo lo que no queremos.
+COMANDOS = (
+    ("menu", "El menú de botones"),
+    ("resumen", "El día en un mensaje: agenda, patrones y lo de ayer"),
+    ("hoy", "Qué se juega hoy"),
+    ("directo", "Lo que se está jugando ahora"),
+    ("manana", "Los partidos de mañana"),
+    ("seguro", "Los patrones que se cumplen hoy, con su número"),
+    ("pronostico", "Marcador, córners y tarjetas: /pronostico Girona vs Osasuna"),
+    ("previa", "Cómo llegan los dos: /previa Girona vs Osasuna"),
+    ("dictamen", "El expediente entero a un modelo grande"),
+    ("agentes", "Tus analistas, cada uno con su estilo"),
+    ("agente", "Que uno lo analice: /agente el-esceptico Girona vs Osasuna"),
+    ("clasificacion", "Quién acierta más: ellos, el cálculo y el mercado"),
+    ("resultados", "Cómo va acertando el cálculo"),
+    ("equipo", "Cómo juega un equipo: /equipo Girona"),
+    ("jugador", "Forma y rachas: /jugador Vinicius"),
+    ("memoria", "Qué hay guardado"),
+    ("ayuda", "Todo lo que sé hacer"),
+)
+
+#: Las órdenes que tardan de verdad —hablan con un modelo— y por las que hay que
+#: avisar antes de ponerse. Sin esto escribes /dictamen y el bot se queda mudo
+#: tres minutos, que es indistinguible de estar roto.
+LENTAS = {"dictamen": "Monto el expediente y se lo mando al modelo. Tarda un rato.",
+          "agente": "Lo pongo a mirar el partido. Va a pedir datos por su cuenta, "
+                    "así que esto tarda.",
+          "analista": "Déjame mirarlo."}
+
+
+def teclado(filas) -> dict:
+    """Un teclado de botones para colgar de un mensaje.
+
+    ``filas`` son grupos de ``(dato, etiqueta)``. El dato es lo que vuelve cuando
+    alguien lo toca, y Telegram lo limita a 64 bytes: lo que no quepa se recorta
+    aquí, porque si se pasa, Telegram rechaza **el mensaje entero** y te quedas
+    sin respuesta sin saber por qué.
+    """
+    return {"inline_keyboard": [
+        [{"text": etiqueta, "callback_data": ("o:" + dato).encode("utf-8")[:64]
+          .decode("utf-8", "ignore")} for dato, etiqueta in fila]
+        for fila in filas if fila]}
+
+
+#: El botón que lleva todo lo demás: desde cualquier respuesta, de vuelta al menú.
+VOLVER = teclado(((("menu", "⬅️ Menú"),),))
+
+
+def _menu_de_ligas(bot) -> dict:
+    """Un botón por competición seguida, para no tener que escribir el nombre."""
+    ligas = list(bot.grupos)
+    if not ligas:
+        return VOLVER
+    filas = [tuple((f"hoy {liga}", liga.replace("-", " ").title())
+                   for liga in ligas[n:n + 2]) for n in range(0, len(ligas), 2)]
+    return teclado([*filas, (("menu", "⬅️ Menú"),)])
+
+
 @dataclass
 class Bot:
     """El bot: escucha, entiende cuatro órdenes y contesta con datos."""
@@ -178,6 +250,7 @@ class Bot:
     _callado: bool = field(default=False, repr=False)
     _ultimo_error: str = field(default="", repr=False)
     _escuchando: bool = field(default=False, repr=False)
+    _ordenes_dichas: bool = field(default=False, repr=False)
     _contexto: Any = field(default=SIN_MONTAR, repr=False)
 
     def __post_init__(self) -> None:
@@ -223,8 +296,8 @@ class Bot:
                     "nadie: escríbele y te dirá tu identificador de chat.")
         return f"«{quien['nombre']}» escuchando{donde}."
 
-    def enviar(self, chat: int, texto: str) -> None:
-        """Manda el texto, partido si hace falta, con negritas si las lleva.
+    def enviar(self, chat: int, texto: str, botones: dict | None = None) -> None:
+        """Manda el texto, partido si hace falta, con negritas y botones si los lleva.
 
         Solo se pide HTML cuando el texto trae etiquetas puestas por nosotros.
         Y si Telegram lo rechaza —un nombre raro, una etiqueta a medias—, se
@@ -232,18 +305,25 @@ class Bot:
         que las negritas.
         """
         con_formato = "<b>" in texto or "<i>" in texto
-        for trozo in _trozos(texto):
+        trozos = _trozos(texto)
+        for numero, trozo in enumerate(trozos, 1):
             cuerpo = {"chat_id": chat, "text": trozo, "disable_web_page_preview": True}
             if con_formato:
                 cuerpo["parse_mode"] = "HTML"
+            # Los botones van en el **último** trozo. Si fueran en todos, un
+            # mensaje partido en cuatro dejaría cuatro teclados en la pantalla.
+            if botones and numero == len(trozos):
+                cuerpo["reply_markup"] = botones
             try:
                 self.pedir("sendMessage", cuerpo)
             except TelegramNoDisponible:
                 if not con_formato:
                     raise
-                self.pedir("sendMessage", {"chat_id": chat,
-                                           "text": _sin_etiquetas(trozo),
-                                           "disable_web_page_preview": True})
+                plano = {"chat_id": chat, "text": _sin_etiquetas(trozo),
+                         "disable_web_page_preview": True}
+                if botones and numero == len(trozos):
+                    plano["reply_markup"] = botones
+                self.pedir("sendMessage", plano)
 
     # --- escuchar ---
 
@@ -255,6 +335,12 @@ class Bot:
         atendidos = []
         for actualizacion in datos.get("result") or []:
             self._desde = max(self._desde, actualizacion.get("update_id", 0) + 1)
+            toque = actualizacion.get("callback_query")
+            if toque:
+                atendido = self._atender_boton(toque)
+                if atendido:
+                    atendidos.append(atendido)
+                continue
             mensaje = actualizacion.get("message") or actualizacion.get("edited_message")
             if not mensaje:
                 continue
@@ -270,6 +356,48 @@ class Bot:
             atendidos.append({"chat": chat, "texto": texto, "quien": quien})
             self.atender(chat, texto, quien)
         return atendidos
+
+    def _atender_boton(self, toque: dict) -> dict | None:
+        """Alguien ha tocado un botón del menú.
+
+        Lo primero es contestarle a Telegram (``answerCallbackQuery``), porque si
+        no el botón se queda con el reloj girando aunque la respuesta ya haya
+        llegado. Y se hace **antes** de trabajar: una orden lenta tardaría
+        minutos, y el reloj se agota a los pocos segundos.
+
+        Lo que lleva el botón dentro se mete por el mismo sitio que un mensaje
+        escrito, así que un botón y teclear la orden son literalmente lo mismo.
+        """
+        datos = str(toque.get("data") or "")
+        chat = ((toque.get("message") or {}).get("chat") or {}).get("id")
+        with suppress(TelegramNoDisponible):
+            self.pedir("answerCallbackQuery", {"callback_query_id": toque.get("id")})
+        if chat is None or not datos.startswith("o:"):
+            return None
+        orden = datos[2:].strip()
+        if not orden:
+            return None
+        quien = " ".join(x for x in ((toque.get("from") or {}).get("first_name"),
+                                     (toque.get("from") or {}).get("last_name"))
+                         if x) or ""
+        self.atender(chat, "/" + orden, quien)
+        return {"chat": chat, "texto": "/" + orden, "quien": quien, "boton": True}
+
+    def presentar_ordenes(self) -> bool:
+        """Le dice a Telegram la lista de órdenes, para que salga al teclear «/».
+
+        Es una llamada y se hace una vez por arranque. Si falla no importa: son
+        comodidad, no funcionalidad, y el bot contesta igual.
+        """
+        if self._ordenes_dichas or not self.token:
+            return False
+        self._ordenes_dichas = True
+        with suppress(TelegramNoDisponible, OSError):
+            self.pedir("setMyCommands", {"commands": [
+                {"command": nombre, "description": que}
+                for nombre, que in COMANDOS]})
+            return True
+        return False
 
     def escuchar(self, tandas: int = 0, avisar: Callable[[str], None] | None = None,
                  dormir: Callable[[float], None] = time.sleep) -> int:
@@ -320,6 +448,8 @@ class Bot:
         if self._callado:
             self._callado = False
             decir("telegram: " + self._presentarse())
+        if self.presentar_ordenes():
+            decir(f"telegram: {len(COMANDOS)} órdenes puestas en el menú de Telegram.")
         self._escuchando = True
         try:
             for atendido in self.una_tanda():
@@ -364,24 +494,63 @@ class Bot:
             self.enviar(chat, "No tengo nada para ti.")
             return "No tengo nada para ti."
 
+        # Las órdenes que hablan con un modelo tardan minutos. Sin decir nada
+        # antes, el bot se queda mudo y eso es indistinguible de estar roto: es
+        # exactamente la queja que arreglamos una vez ya.
+        aviso = LENTAS.get(self._orden_de(texto))
+        if aviso:
+            with suppress(TelegramNoDisponible):
+                self.pedir("sendChatAction", {"chat_id": chat, "action": "typing"})
+                self.enviar(chat, "⏳ " + aviso)
+
         try:
             respuesta = self.responder(texto)
         except SofascoreError as exc:
             respuesta = f"✗ {exc}"
         except Exception as exc:  # noqa: BLE001 - el bot no se cae por una pregunta
             respuesta = f"✗ {type(exc).__name__}: {exc}"
-        self.enviar(chat, respuesta)
+        self.enviar(chat, respuesta, self.botones_de(texto))
         return respuesta
+
+    def _orden_de(self, texto: str) -> str:
+        """La orden de un mensaje, o «analista» si no lleva ninguna."""
+        if not texto.startswith("/"):
+            return "analista"
+        return texto[1:].partition(" ")[0].lower().split("@")[0]
+
+    def botones_de(self, texto: str) -> dict:
+        """Qué botones acompañan a la respuesta de este mensaje.
+
+        La idea del apartado: **nunca dejar a nadie en un callejón**. El menú
+        entero cuando lo pides, los de las competiciones cuando estás eligiendo
+        una, y en todo lo demás la vuelta al menú, que es lo que convierte esto en
+        algo que se puede usar sin acordarse de ninguna orden.
+        """
+        orden = self._orden_de(texto)
+        if orden not in ORDENES and texto.startswith("/"):
+            return teclado(MENU)
+        if orden in ("menu", "menú", "start", "ayuda", "help"):
+            return teclado(MENU)
+        if orden == "ligas":
+            return _menu_de_ligas(self)
+        return VOLVER
 
     def responder(self, texto: str) -> str:
         """De un mensaje a una respuesta en texto. Aquí no se habla con Telegram."""
         orden, _, resto = texto.partition(" ")
+        era_orden = orden.startswith("/")
         orden = orden.lower().lstrip("/").split("@")[0]
         resto = resto.strip()
         manejador = ORDENES.get(orden)
         if manejador:
             return manejador(self, resto)
-        # Sin orden reconocida, es una pregunta para el analista.
+        # Una barra con algo que no conozco no se le manda al modelo: quien
+        # escribe «/» está buscando una orden, así que se le enseñan las que hay.
+        # Eso es también lo que hace que abrir el bot y teclear cualquier cosa
+        # sirva para empezar, en vez de tener que acordarse de la palabra exacta.
+        if era_orden:
+            return _no_la_conozco(self, orden)
+        # Texto normal, sin barra: es una pregunta para el analista.
         return _analista(self, texto)
 
     def refrescar(self) -> list[str]:
@@ -544,6 +713,75 @@ def _ayuda(bot: Bot, _resto: str) -> str:
 LIGAS_ENTERAS = 6
 #: Y cuántos partidos de cada una.
 PARTIDOS_POR_LIGA = 8
+
+
+def _menu(_bot: Bot, _resto: str = "") -> str:
+    """El menú. Es lo que sale al abrir el bot.
+
+    Los botones los cuelga `Bot.botones_de`; aquí solo va el texto que los
+    acompaña, porque esto es la parte que se puede probar sin Telegram delante.
+    """
+    return ("¿Qué quieres ver?\n\n"
+            "<i>Toca un botón, o escribe la orden. Y para un partido concreto, "
+            "escríbelo tal cual: «Girona vs Osasuna».</i>")
+
+
+def _no_la_conozco(bot: Bot, orden: str) -> str:
+    """Una barra con algo que no existe. No es un error: es la puerta de entrada.
+
+    Abres el bot por la mañana, escribes lo primero que se te ocurre y tienes
+    delante todo lo que puedes mirar, sin acordarte de nada.
+    """
+    return (f"No conozco <code>/{_escapar(orden)}</code>, pero mira lo que sí "
+            "puedo:\n\n" + _menu(bot))
+
+
+def _ligas(bot: Bot, _resto: str = "") -> str:
+    """Las competiciones que se siguen, cada una con su botón."""
+    if not bot.grupos:
+        return ("No estoy siguiendo ninguna competición en concreto, así que /hoy "
+                "trae lo que haya.\n\nSe eligen en la interfaz, en Ajustes.")
+    return ("🏆 <b>Por competición</b>\n\n"
+            f"Sigo estas {len(bot.grupos)}. Toca una para ver sus partidos de hoy.")
+
+
+def _resumen(bot: Bot, resto: str) -> str:
+    """El día en un mensaje: lo que se juega, lo que se repite y cómo fue ayer.
+
+    Es la orden para abrir el bot por la mañana y no tener que preguntar tres
+    veces. Junta lo que ya existe —la agenda, los patrones y el registro— y lo
+    corta a lo que se lee de un vistazo en un móvil, que es de lo que se trata.
+    """
+    from .registro import resolver
+
+    fecha = resto.strip() or None
+    partes = []
+
+    # 1. Lo de ayer, ya puntuado. Primero a propósito: empezar el día viendo si
+    #    lo de ayer salió o no es más honesto que empezar prometiendo lo de hoy.
+    with suppress(Exception):
+        hechas = resolver(bot.sesion.almacen)
+        if hechas["resueltas"]:
+            partes.append(f"✅ <b>De ayer</b>\n{hechas['resueltas']} predicciones ya "
+                          "tienen resultado.")
+
+    # 2. Qué se juega.
+    agenda = _hoy(bot, fecha or "").strip()
+    if agenda:
+        partes.append(agenda)
+
+    # 3. Y lo que se repite hoy, recortado: el resumen no es el /seguro entero.
+    with suppress(Exception):
+        patrones = _seguro(bot, fecha or "").strip()
+        if patrones:
+            partes.append("\n".join(patrones.splitlines()[:14]))
+
+    if not partes:
+        return ("No tengo nada del día todavía. Si la guardia no ha pasado esta "
+                "noche, prueba /hoy para traerlo ahora.")
+    return ("☕ <b>El día</b>\n\n" + "\n\n".join(partes)
+            + "\n\n<i>Para entrar en un partido, escríbelo: «Girona vs Osasuna». "
+            "Y /clasificacion dice quién va acertando.</i>")
 
 
 def _hoy(bot: Bot, resto: str, dias: int = 0) -> str:
@@ -975,7 +1213,9 @@ def _sin_analista(bot: Bot, exc: Exception) -> str:
 
 
 ORDENES: dict[str, Callable[[Bot, str], str]] = {
-    "ayuda": _ayuda, "start": _ayuda, "help": _ayuda,
+    "ayuda": _ayuda, "start": _menu, "help": _ayuda,
+    "menu": _menu, "menú": _menu, "ligas": _ligas, "competiciones": _ligas,
+    "resumen": _resumen, "briefing": _resumen,
     "hoy": _hoy, "manana": _manana, "mañana": _manana,
     "directo": _directo, "live": _directo,
     "seguro": _seguro, "previa": _previa, "pronostico": _pronostico,
@@ -994,5 +1234,5 @@ def _herramienta(bot: Bot, nombre: str, argumentos: dict) -> dict:
     return ejecutar(nombre, argumentos, sesion=bot.sesion, max_chars=200_000)
 
 
-__all__ = ["API", "NOTA_VISTOS", "ORDENES", "Bot", "TelegramNoDisponible",
-           "vistos"]
+__all__ = ["API", "COMANDOS", "LENTAS", "MENU", "NOTA_VISTOS", "ORDENES",
+           "VOLVER", "Bot", "TelegramNoDisponible", "teclado", "vistos"]

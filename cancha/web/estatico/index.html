@@ -1954,7 +1954,10 @@ V.agentes = async (raiz, [modo]) => {
            { t: "Casos", k: "casos", n: true }, { t: "Ventaja", k: "ventaja", n: true },
            { t: "Brier", k: "brier", n: true },
            { t: "Dist. mercado", k: "dist", n: true },
-           { t: "h. antes", k: "horas", n: true }],
+           { t: "h. antes", k: "horas", n: true },
+           { t: "Tokens", k: "tokens", n: true },
+           { t: "Seg", k: "seg", n: true },
+           { t: "Sin números", k: "snum", n: true }],
           filas.map((f, i) => ({ ...f, puesto: i + 1 })),
           (f, c) => c.k === "ventaja"
             ? (f.ventaja_sobre_el_mercado === null ? "—"
@@ -1962,6 +1965,9 @@ V.agentes = async (raiz, [modo]) => {
                     (f.ventaja_sobre_el_mercado > 0 ? "+" : "") + pc(f.ventaja_sobre_el_mercado, 2)))
             : c.k === "dist" ? (f.distancia_al_mercado === null ? "—" : f.distancia_al_mercado.toFixed(3))
             : c.k === "horas" ? (f.horas_antes_media === null ? "—" : f.horas_antes_media + " h")
+            : c.k === "tokens" ? (f.tokens_por_analisis === null ? "—" : f.tokens_por_analisis.toLocaleString("es"))
+            : c.k === "seg" ? (f.segundos_por_analisis === null ? "—" : f.segundos_por_analisis + " s")
+            : c.k === "snum" ? (f.sin_numeros === null ? "—" : f.sin_numeros)
             : c.k === "autor" ? el("b", {}, f.autor)
             : f[c.k])),
         ...(d.avisos || []).map((a) => msg(a, "ojo")),
@@ -1994,6 +2000,10 @@ V.agentes = async (raiz, [modo]) => {
       a ? a.instrucciones : "");
     const modelo = el("input", { class: "campo", value: a ? a.modelo : "",
       placeholder: "vacío = el de los ajustes" });
+    const director = el("input", { class: "campo", value: a ? a.modelo_director : "",
+      placeholder: "vacío = uno solo de principio a fin" });
+    const techo = el("input", { class: "campo", type: "number", min: 0, step: 1000,
+      value: a ? a.techo_tokens : 0, style: "flex:0 1 120px" });
     const vueltas = el("input", { class: "campo", type: "number", min: 1, max: 20,
       value: a ? a.vueltas : 6, style: "flex:0 1 90px" });
     const crudo = el("select", { class: "campo", style: "flex:0 1 210px" },
@@ -2020,6 +2030,20 @@ V.agentes = async (raiz, [modo]) => {
         el("label", {}, "Vueltas", vueltas),
         el("label", { style: "flex:1 1 210px" }, "Expediente", crudo),
         el("label", { class: "casilla" }, activo, "activo")),
+      el("details", {}, el("summary", {}, "Repartir el trabajo entre dos modelos"),
+        el("p", { class: "peq gris" }, "El bucle reenvía el expediente entero en "
+          + "cada vuelta, así que con seis vueltas se paga seis veces. Si pones "
+          + "aquí un modelo bueno, ese abre —dice qué ve y qué le falta— y cierra "
+          + "—con todo lo recogido delante—, y las vueltas de en medio, que son "
+          + "las de ir a buscar datos, las hace el de arriba gratis. Baja el gasto "
+          + "del caro como dos tercios."),
+        el("div", { class: "fila" },
+          el("label", { style: "flex:1 1 200px" }, "Modelo que abre y cierra", director),
+          el("label", {}, "Techo de tokens", techo)),
+        nota("Lo que escribe el modelo de en medio se tira: al que cierra solo le "
+          + "vuelven los datos. Si le devolviéramos su prosa, la leería como algo "
+          + "que había dicho él y defendería un razonamiento que no es suyo. Y el "
+          + "techo de tokens corta por gasto, que es lo que las vueltas no miden.")),
       el("details", {}, el("summary", {},
           `A qué herramientas llega (ninguna marcada = a todas las ${(d.herramientas || []).length})`),
         el("p", { class: "peq gris" }, "Esto es lo que de verdad hace distintos a dos "
@@ -2032,6 +2056,7 @@ V.agentes = async (raiz, [modo]) => {
           const r = await api.post("/api/agente", { clave: clave.value.trim(), agente: {
             nombre: nombre.value, instrucciones: instrucciones.value,
             modelo: modelo.value, vueltas: Number(vueltas.value), crudo: crudo.value,
+            modelo_director: director.value, techo_tokens: Number(techo.value),
             activo: activo.checked,
             herramientas: casillas.map((l) => l.firstChild)
               .filter((c) => c.checked).map((c) => c.dataset.nombre) } });
@@ -2062,8 +2087,10 @@ V.agentes = async (raiz, [modo]) => {
         etiqueta(a.huella, "azul"),
         el("button", { class: "btn fino", onclick: () => abrir(a) }, "Editar")),
       el("p", { class: "peq gris" }, `${a.clave} · ${a.modelo || "el modelo de los ajustes"}`
+        + (a.modelo_director ? ` · abre y cierra ${a.modelo_director}` : "")
         + ` · ${a.vueltas} vueltas · crudo: ${a.crudo} · `
-        + (a.herramientas.length ? `${a.herramientas.length} herramientas` : "todas las herramientas")),
+        + (a.herramientas.length ? `${a.herramientas.length} herramientas` : "todas las herramientas")
+        + (a.techo_tokens ? ` · techo ${a.techo_tokens} tokens` : "")),
       el("p", {}, a.instrucciones),
       ...(a.problemas || []).map((x) => msg(x, "mal"))));
   }
@@ -2110,6 +2137,11 @@ function tarjetaAgentes(consulta) {
       el("div", { class: "fila peq gris" }, etiqueta(d.nombre || d.agente, "azul"),
         el("span", {}, `${d.vueltas || 1} vuelta${d.vueltas === 1 ? "" : "s"}`),
         el("span", {}, `${(d.expediente || {}).tokens_aprox || "?"} tokens de expediente`),
+        d.en_sandwich ? etiqueta("dos modelos", "azul") : null,
+        d.segundos ? el("span", {}, `${d.segundos} s`) : null,
+        (d.tokens || {}).prompt_eval_count
+          ? el("span", {}, `${d.tokens.prompt_eval_count.toLocaleString("es")} tokens pagados`)
+          : null,
         d.sin_numeros ? etiqueta("no puntúa", "ambar")
           : etiqueta(`${d.apuntadas} predicciones apuntadas`, "verde")),
       el("div", { class: "bloque" }, ...(d.respuesta || "").split("\n\n")

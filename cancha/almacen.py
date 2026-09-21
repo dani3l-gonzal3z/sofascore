@@ -313,7 +313,8 @@ class Almacen:
         self._indices_de_predicciones()
         de_dictamenes = {f["name"] for f in self.consulta("PRAGMA table_info(dictamenes)")}
         for columna, tipo in (("agente", "TEXT"), ("pasos", "TEXT"),
-                              ("sin_numeros", "INTEGER DEFAULT 0")):
+                              ("sin_numeros", "INTEGER DEFAULT 0"),
+                              ("segundos", "REAL"), ("en_sandwich", "INTEGER DEFAULT 0")):
             if columna not in de_dictamenes:
                 self._conexion.execute(
                     f"ALTER TABLE dictamenes ADD COLUMN {columna} {tipo}")
@@ -645,7 +646,8 @@ class Almacen:
                          pregunta: str = "", expediente: str = "",
                          en_la_nube: bool = False, tokens: dict | None = None,
                          agente: str = "", pasos: Any = None,
-                         sin_numeros: bool = False) -> int:
+                         sin_numeros: bool = False, segundos: float | None = None,
+                         en_sandwich: bool = False) -> int:
         """Guarda lo que ha dicho un modelo de un partido. Devuelve su id.
 
         No sustituye al anterior: se apilan. Pedir otro dictamen es querer otra
@@ -661,13 +663,13 @@ class Almacen:
             """INSERT INTO dictamenes
                (partido_id, modelo, en_la_nube, pregunta, respuesta, expediente,
                 caracteres, tokens_prompt, tokens_respuesta, agente, pasos,
-                sin_numeros)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                sin_numeros, segundos, en_sandwich)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (partido_id, modelo, 1 if en_la_nube else 0, pregunta, respuesta,
              expediente, len(expediente or ""), cuentas.get("prompt_eval_count"),
              cuentas.get("eval_count"), agente,
              json.dumps(pasos, ensure_ascii=False) if pasos else None,
-             1 if sin_numeros else 0))
+             1 if sin_numeros else 0, segundos, 1 if en_sandwich else 0))
         self._conexion.commit()
         return int(cursor.lastrowid or 0)
 
@@ -676,7 +678,7 @@ class Almacen:
         """Los dictámenes guardados de un partido, del más reciente atrás."""
         columnas = ("id, partido_id, hecho_el, modelo, en_la_nube, pregunta, "
                     "respuesta, caracteres, tokens_prompt, tokens_respuesta, "
-                    "agente, pasos, sin_numeros"
+                    "agente, pasos, sin_numeros, segundos, en_sandwich"
                     + (", expediente" if con_expediente else ""))
         return self.consulta(
             f"""SELECT {columnas} FROM dictamenes WHERE partido_id = ?

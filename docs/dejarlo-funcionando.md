@@ -242,10 +242,58 @@ puesta no se le cuenta ni qué es esto.
 Con todo, el token es una llave: si se filtra, quien lo tenga puede hacerse
 pasar por tu bot. No lo subas a ningún sitio.
 
+### Se abre y se toca: no hay que acordarse de nada
+
+Escribe cualquier cosa con barra —`/menu`, `/hola`, `/loquesea`— y sale el menú
+con todo lo que puedes mirar, en botones:
+
+```
+[ ⚽ Hoy ]                [ 🔴 En directo ]
+[ ☕ Resumen del día ]    [ 📅 Mañana ]
+[ 🏆 Por competición ]    [ 🛡 Casi seguro ]
+[ 📊 Cómo acierto ]       [ 🥇 Clasificación ]
+[ 🧠 Mis agentes ]        [ 📚 La memoria ]
+[ ❓ Todo lo que sé hacer ]
+```
+
+**Un botón es una orden escrita.** Lo que lleva dentro entra por el mismo sitio
+que si lo hubieras teclado, así que no hay dos caminos que mantener y el menú no
+se puede separar de las órdenes con el tiempo. «Por competición» abre otro teclado
+con una por cada liga que sigas, para no tener que escribir el nombre.
+
+Y toda respuesta deja un `⬅️ Menú`: la idea es **no dejarte nunca en un
+callejón**. Una orden que no existe tampoco es un error, es la puerta: te enseña
+lo que sí hay.
+
+Al teclear `/` sale además la lista nativa de Telegram con las órdenes y lo que
+hace cada una, porque el bot se la dice al arrancar (`setMyCommands`).
+
+### `/resumen`: el día en un mensaje
+
+Para abrirlo por la mañana y no tener que preguntar tres veces. Trae, en este
+orden:
+
+1. **Lo de ayer**, ya puntuado. Primero a propósito: empezar el día viendo si lo
+   de ayer salió es más honesto que empezar prometiendo lo de hoy.
+2. **Qué se juega**, con tus competiciones y en tu hora.
+3. **Los patrones que se cumplen**, recortado a lo que se lee de un vistazo.
+
+Si algo de eso falla, el resumen sale con lo demás: un trozo roto no se lleva por
+delante el mensaje.
+
+### Las órdenes lentas avisan
+
+`/dictamen` y `/agente` hablan con un modelo y tardan minutos. Antes el bot se
+quedaba mudo todo ese rato, que es indistinguible de estar roto —la misma queja
+que ya arreglamos una vez, por otro camino—. Ahora contesta al momento con lo que
+va a hacer y pone el «escribiendo…» de Telegram.
+
 ### Qué sabe hacer
 
 | Orden | Qué |
 | --- | --- |
+| `/menu` | El menú de botones. También sale con cualquier orden que no exista |
+| `/resumen` | El día en un mensaje: lo de ayer, lo de hoy y los patrones |
 | `/hoy` | Qué se juega hoy, por competición y **en tu hora** |
 | `/hoy laliga` | Una competición entera |
 | `/hoy 2026-09-22` | Otro día |

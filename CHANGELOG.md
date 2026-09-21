@@ -4,6 +4,87 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.17.0
+
+Un bot que se abre y se toca, y dos modelos repartiéndose el trabajo para que el
+caro pague un tercio.
+
+### Novedades
+
+- **El bot ya no hay que interrogarlo.** Escribe cualquier cosa con barra
+  —`/menu`, `/hola`, `/loquesea`— y sale el menú con todo lo que puedes mirar, en
+  botones: hoy, en directo, por competición, casi seguro, cómo acierto,
+  clasificación, agentes, la memoria. Una orden que no existe tampoco es un error:
+  es la puerta, y te enseña lo que sí hay.
+
+  **Un botón es una orden escrita**: lo que lleva dentro entra por el mismo sitio
+  que si lo hubieras teclado, así que no hay dos caminos que mantener y el menú no
+  se puede separar de las órdenes con el tiempo. Hay una prueba que comprueba que
+  todos los botones y todas las órdenes anunciadas existen de verdad.
+
+  Y toda respuesta deja un `⬅️ Menú`, porque la idea es no dejarte nunca en un
+  callejón. «Por competición» abre un teclado con una por cada liga que sigas.
+
+- **`/resumen`: el día en un mensaje.** Para abrirlo por la mañana y no tener que
+  preguntar tres veces. Primero **lo de ayer ya puntuado** —empezar el día viendo
+  si lo de ayer salió es más honesto que empezar prometiendo lo de hoy—, después
+  qué se juega, y después los patrones que se cumplen, recortados a lo que se lee
+  de un vistazo. Si un trozo falla, el resumen sale con los demás.
+
+- **Al teclear «/» sale la lista de Telegram**, con cada orden y lo que hace. El
+  bot se la dice al arrancar, una vez.
+
+- **Las órdenes lentas avisan.** `/dictamen` y `/agente` tardan minutos hablando
+  con un modelo, y el bot se quedaba mudo todo ese rato: indistinguible de estar
+  roto, que es la misma queja que ya arreglamos una vez por otro camino. Ahora
+  contesta al momento con lo que va a hacer y pone el «escribiendo…».
+
+- **Repartir un análisis entre dos modelos.** El bucle de herramientas reenvía el
+  historial entero en cada vuelta, así que el expediente se paga otra vez en cada
+  turno: con seis vueltas, seis expedientes. Con `modelo_director` el modelo bueno
+  **abre** —dice qué ve y qué le falta, sin concluir— y **cierra** —con todo lo
+  recogido delante—, y las vueltas de en medio, que son las de ir a buscar datos,
+  las hace el de casa. Medido sobre un expediente real: de 13.900 tokens de
+  entrada pagados a 5.700, un **59 % menos**.
+
+  Tres cosas que no son detalles. **Lo que escribe el modelo de en medio se
+  tira**: si le llegara al que cierra, lo leería con el papel de `assistant` —o
+  sea, como algo que había dicho él— y los modelos se anclan a lo que creen que ya
+  dijeron; habrías pagado por un modelo bueno para que defienda el razonamiento de
+  uno peor. **Al medio no se le manda el expediente**, solo qué partido es y el
+  plan, porque además un modelo local con ventana de 16k al que le metes doce mil
+  tokens hace que Ollama recorte por lo viejo —las instrucciones— sin avisar. Y
+  **si el director no pide nada en su primera vuelta**, ya está: ni medio ni
+  cierre.
+
+  No se promete que sea gratis en calidad: el trozo que se delega es justo el que
+  un modelo pequeño hace peor, llamar herramientas con los argumentos correctos.
+  Por eso el reparto entra en la huella del agente y se puede comparar con
+  `cancha clasificacion --comparar`.
+
+- **Techo de tokens.** `vueltas` cuenta turnos, y un turno sobre un expediente
+  grande cuesta tres veces más que uno sobre uno pequeño: el número de vueltas no
+  dice nada del gasto. `techo_tokens` corta por gasto, al final de una vuelta
+  completa y nunca entre una herramienta y su resultado.
+
+- **Lo que cuesta cada agente, en la clasificación.** Tokens y segundos de media
+  por análisis, y cuántas veces no cerró con números. El coste decide en la
+  práctica: un agente que gana por 0,002 de Brier y tarda ocho minutos por partido
+  pierde contra uno que va casi igual en veinte segundos. El cálculo y el mercado
+  llevan un guion y no un cero, porque son aritmética y un cero parecería un
+  mérito.
+
+### Arreglos
+
+- **La llamada que sacaba los números reenviaba el expediente entero.** Era la más
+  derrochadora del sistema: decenas de miles de tokens pagados para extraer seis
+  cifras. Ahora se le manda **solo su propio análisis**, que es de donde salen los
+  números: si no están en lo que ha escrito, tampoco los va a sacar de volver a
+  leerse las tablas.
+
+- **`cabecera()` del expediente no revienta con un campo que falte.** Son tres
+  líneas de encabezado, y no pueden tumbar un análisis entero.
+
 ## 0.16.0
 
 Los agentes analistas: varios estilos mirando el mismo partido, y una tabla que

@@ -71,6 +71,8 @@ cancha agentes                             # tus analistas, cada uno con su esti
 cancha agentes --crear el-escrupuloso      # el esqueleto de uno nuevo
 cancha agente el-esceptico "Girona vs Osasuna"
 cancha agente el-esceptico "Girona vs Osasuna" --solo-expediente
+cancha agente el-esceptico "Girona vs Osasuna" --director gpt-oss:120b-cloud
+cancha agente el-esceptico "Girona vs Osasuna" --techo 40000
 cancha clasificacion                       # quién acierta más, contra el mercado
 cancha clasificacion --comparar el-esceptico calculo
 ```

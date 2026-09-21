@@ -198,7 +198,8 @@ def _agente_falso(base, monkeypatch, respuesta: str, numeros_al_reparar=None):
     from cancha import agentes as modulo
     from cancha.analista import Analista
 
-    def analizar(self, expediente, pregunta="", instrucciones="", al_paso=None):
+    def analizar(self, expediente, pregunta="", instrucciones="", al_paso=None,
+                 cabecera=""):
         from cancha.analista import extraer_numeros
 
         numeros = extraer_numeros(respuesta)
@@ -206,8 +207,9 @@ def _agente_falso(base, monkeypatch, respuesta: str, numeros_al_reparar=None):
             numeros = numeros_al_reparar
         return {"respuesta": respuesta, "probabilidades": numeros,
                 "sin_numeros": numeros is None, "modelo": "falso",
-                "vueltas": 1, "pasos": [{"tipo": "herramienta",
-                                         "nombre": "casi_seguro"}]}
+                "vueltas": 1, "tokens": {"prompt_eval_count": 120,
+                                         "eval_count": 30, "por_modelo": {}},
+                "pasos": [{"tipo": "herramienta", "nombre": "casi_seguro"}]}
 
     monkeypatch.setattr(Analista, "analizar", analizar)
 
@@ -287,3 +289,94 @@ def test_un_partido_que_no_esta_se_dice_y_no_se_gasta_nada(base, monkeypatch):
     assert not salida["disponible"]
     assert "No encuentro" in salida["nota"]
     assert base.dictamenes_de(1) == []
+
+
+# ------------------------------------------------- repartir entre dos modelos
+
+def test_el_reparto_entra_en_la_huella():
+    """Un agente con dos modelos no es el mismo analista que con uno.
+
+    Si no entrara, la tabla mezclaría en la misma fila lo que acertaba pagando el
+    modelo bueno todas las vueltas con lo que acierta pagando dos.
+    """
+    solo = Agente(clave="el-mio", instrucciones="Mira A.", modelo="local")
+    con_jefe = Agente(clave="el-mio", instrucciones="Mira A.", modelo="local",
+                      modelo_director="grande")
+    con_techo = Agente(clave="el-mio", instrucciones="Mira A.", modelo="local",
+                       techo_tokens=20000)
+    assert len({huella(solo), huella(con_jefe), huella(con_techo)}) == 3
+
+
+def test_el_reparto_se_guarda_y_se_vuelve_a_leer(tmp_path):
+    destino = tmp_path / "agentes.json"
+    guardar({"el-mio": Agente(clave="el-mio", instrucciones="x", modelo="local",
+                              modelo_director="grande", techo_tokens=30000)}, destino)
+    otra_vez = cargar(destino)["el-mio"]
+    assert otra_vez.modelo_director == "grande"
+    assert otra_vez.techo_tokens == 30000
+
+
+def test_el_techo_de_tokens_no_se_recorta_como_las_vueltas(tmp_path):
+    """Las vueltas van de 1 a 20; un techo de tokens son decenas de miles."""
+    destino = tmp_path / "agentes.json"
+    destino.write_text(json.dumps({"el-mio": {"instrucciones": "x",
+                                             "techo_tokens": 50000}}),
+                       encoding="utf-8")
+    assert cargar(destino)["el-mio"].techo_tokens == 50000
+
+
+def test_un_agente_con_reparto_llega_hasta_el_analista(base, monkeypatch):
+    """De punta a punta: que lo que se configura acabe donde tiene que acabar."""
+    import cancha.expediente as exp
+    from cancha import agentes as modulo
+    from cancha.analista import Analista
+
+    visto = {}
+
+    def espia(self, expediente, pregunta="", instrucciones="", al_paso=None,
+              cabecera=""):
+        visto["director"] = self.modelo_director
+        visto["techo"] = self.techo_tokens
+        visto["sandwich"] = self.en_sandwich
+        visto["cabecera"] = cabecera
+        return {"respuesta": "x", "probabilidades": None, "sin_numeros": True,
+                "modelo": self.modelo_de_cierre, "vueltas": 2, "pasos": [],
+                "sandwich": True, "tokens": {"prompt_eval_count": 5000}}
+
+    monkeypatch.setattr(Analista, "analizar", espia)
+    monkeypatch.setattr(exp, "expediente", lambda *a, **k: {
+        "disponible": True,
+        "partido": {"id": 1, "local": "Girona", "visitante": "Osasuna",
+                    "fecha": "2026-09-25", "competicion": "LaLiga"},
+        "tamano": {"caracteres": 10, "tokens_aprox": 2}})
+    monkeypatch.setattr(exp, "a_texto", lambda datos: "EL EXPEDIENTE")
+
+    agente = Agente(clave="el-mio", nombre="El mío", instrucciones="Mira A.",
+                    modelo="local", modelo_director="grande", techo_tokens=40000)
+    salida = modulo.correr(base, None, agente, 1)
+
+    assert visto["director"] == "grande"
+    assert visto["techo"] == 40000
+    assert visto["sandwich"] is True
+    assert "Girona vs Osasuna" in visto["cabecera"], "y su cabecera, no el expediente"
+    assert salida["en_sandwich"] is True
+    assert salida["segundos"] >= 0
+
+
+def test_lo_que_cuesta_un_agente_queda_guardado(base, monkeypatch):
+    """Sin esto, el ahorro es una opinión: la clasificación necesita el coste."""
+    modulo = _agente_falso(
+        base, monkeypatch,
+        '```json\n{"1x2": {"local": 0.5, "empate": 0.3, "visitante": 0.2}}\n```')
+    modulo.correr(base, None, cargar("/no/existe")["el-esceptico"], 1)
+    guardado = base.dictamenes_de(1)[0]
+    assert guardado["tokens_prompt"] == 120
+    assert guardado["segundos"] is not None
+
+
+def test_el_calculo_y_el_mercado_no_tienen_coste_que_ensenar(base):
+    """Son aritmética: un cero ahí parecería un mérito, y no lo es."""
+    from cancha.registro import AUTOR_CALCULO, _lo_que_cuesta
+
+    assert _lo_que_cuesta(base, AUTOR_CALCULO)["tokens_por_analisis"] is None
+    assert _lo_que_cuesta(base, "el-que-no-ha-corrido")["segundos_por_analisis"] is None

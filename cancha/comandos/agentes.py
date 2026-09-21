@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from dataclasses import replace
 
 from . import comun
 from .comun import depuracion, envolver, imprimir
@@ -123,11 +124,21 @@ def cmd_agente(args: argparse.Namespace) -> int:
                      "a su alcance")
             return 0
 
+        director = args.director or agente.modelo_director
         imprimir(f"{agente.nombre} ({args.nombre}) mirando «{args.consulta}»")
+        if director:
+            imprimir(f"Abre y cierra {director}; las vueltas de en medio las hace "
+                     f"{agente.modelo or valor(args, 'modelo', guardados['modelo'])}.")
         if clave:
             imprimir("⚠ Esto sale de tu ordenador: el expediente viaja a Ollama.")
         imprimir("")
         try:
+            # Lo que se pase por la línea de comandos manda sobre la definición:
+            # es para probar un reparto sin tener que reescribir el agente.
+            if args.director:
+                agente = replace(agente, modelo_director=args.director)
+            if args.techo:
+                agente = replace(agente, techo_tokens=args.techo)
             salida = correr(almacen, cliente, agente, args.consulta,
                             modelo_por_defecto=valor(args, "modelo",
                                                      guardados["modelo"]),
@@ -144,6 +155,14 @@ def cmd_agente(args: argparse.Namespace) -> int:
         imprimir("")
         for linea in (salida["respuesta"] or "").splitlines():
             imprimir(linea)
+        cuesta = salida.get("tokens") or {}
+        if cuesta.get("prompt_eval_count"):
+            reparto = " · ".join(
+                f"{m}: {d['entrada']:,} en {d['llamadas']}"
+                for m, d in (cuesta.get("por_modelo") or {}).items())
+            imprimir(f"({cuesta['prompt_eval_count']:,} tokens de entrada en "
+                     f"{salida.get('segundos', '?')} s" + (f" · {reparto}" if reparto else "")
+                     + ")")
         imprimir("")
         if salida["sin_numeros"]:
             for linea in envolver(
@@ -240,6 +259,11 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_agente.add_argument("--url", help="Ollama (por defecto el de los ajustes).")
     p_agente.add_argument("--api-key", default="",
                           help="Clave de la nube de Ollama. Ojo: esto se paga.")
+    p_agente.add_argument("--director", default="",
+                          help="Modelo que abre y cierra; el otro hace el medio. "
+                               "Baja mucho el gasto del caro.")
+    p_agente.add_argument("--techo", type=int, default=0,
+                          help="Tope de tokens de entrada para toda la ejecución.")
     p_agente.add_argument("--solo-expediente", action="store_true",
                           help="Enseña lo que recibiría, sin gastar una llamada.")
     p_agente.set_defaults(func=cmd_agente)
