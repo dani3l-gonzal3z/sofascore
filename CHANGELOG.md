@@ -4,6 +4,67 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.18.0
+
+Traerse la historia de golpe, el briefing que ya no se cuelga, y un `null` que
+llevaba tiempo en la pantalla.
+
+### Arreglos
+
+- **Salía la palabra «null» en la pantalla del partido.** En la tarjeta «memoria
+  de este partido», entre las cifras y la nota. `replaceChildren` convierte un
+  `null` en un nodo de texto con esa palabra, y a esa llamada llegaban tanto un
+  `x ? algo : null` como un `nota("")` —que devuelve null cuando no hay nada que
+  decir—. `el()` y `poner()` los filtraban; llamar a `replaceChildren` a pelo,
+  no, y lo hacían sesenta sitios.
+
+  Ahora pasan todos por `poner`, y hay una prueba que recorre la página y falla
+  si alguien vuelve a llamarlo directamente. Ya había un comentario avisando de
+  esto justo encima de `poner`: no bastaba.
+
+- **«Generar briefing» se colgaba.** Iba dentro de la petición HTTP, y un día
+  normal son doscientos y pico partidos de los que se monta la previa entera, la
+  evolución de los dos equipos y los duelos de sus jugadores a seguir: miles de
+  peticiones y varios minutos. El navegador se rendía mucho antes, y mientras
+  tanto el cerrojo del servidor dejaba la página entera congelada.
+
+  Ahora va en segundo plano, se ve por dónde va —«40/213 · Girona - Osasuna»— y
+  se puede **parar quedándose con lo hecho**: un briefing con ochenta partidos
+  vale mucho más que nada.
+
+### Novedades
+
+- **`cancha historia`: años de partidos de golpe.** Ir partido a partido no junta
+  muestra. Para que el perfil de un equipo signifique algo hacen falta un par de
+  temporadas, para juzgar a un árbitro más, y para que la clasificación de los
+  agentes ordene a alguien, cincuenta casos resueltos; a seis partidos por visita
+  eso son meses.
+
+  Recorre cada competición **temporada a temporada hacia atrás**. Va por
+  temporada y no por equipo porque una petición devuelve treinta partidos de toda
+  la liga: yendo equipo por equipo, cada partido se trae dos veces y hay que
+  pedir veinte calendarios para cubrir lo mismo.
+
+- **Mira antes lo que cuesta.** `cancha historia --plan` gasta una petición por
+  liga y dice cuántas temporadas, cuántos partidos y cuántas peticiones son.
+  Descubrir a mitad que son veinte mil peticiones es descubrirlo tarde.
+
+- **Elegir qué datos traer.** Cada sección es **una petición más por partido**, así
+  que es la perilla que decide si esto tarda una tarde o tres días. Se eligen en
+  Ajustes o con `--secciones`, y la interfaz dice qué trae cada una. Sin
+  `statistics` no hay tiros, ni córners, ni posesión: se puede quitar, y los
+  ajustes avisan de que entonces la memoria no sirve de mucho.
+
+- **Se corta y se sigue.** Lo que ya está guardado no se vuelve a pedir, así que
+  se deja corriendo a ratos con `--max`. Parar desde la interfaz no mata el
+  trabajo a mitad: levanta una bandera que se mira entre partido y partido, que es
+  lo que evita dejar la memoria escrita a medias.
+
+- **El briefing dice con qué ha calculado cada cosa.** Viaja dentro del propio
+  briefing: qué apartado sale de qué módulo, con qué datos y con cuánta muestra.
+  «¿Con qué ha calculado esto?» es la primera pregunta razonable ante un número, y
+  no tener la respuesta a mano convierte un análisis en un horóscopo.
+
 ## 0.17.0
 
 Un bot que se abre y se toca, y dos modelos repartiéndose el trabajo para que el

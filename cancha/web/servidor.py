@@ -106,7 +106,9 @@ class Servidor:
         return esquemas()
 
     def estado(self) -> dict:
+        from ..ajustes import cargar
         from ..briefing import guardados
+        from ..endpoints import SECTIONS
         from ..ligas import resumen_catalogo
         from ..sources import FUENTES, disponibles
 
@@ -115,6 +117,15 @@ class Servidor:
         return {
             "version": __version__,
             "memoria": memoria,
+            # Leídos a pelo y no con `self.ajustes()`, que además pregunta a
+            # Ollama qué modelos tiene: esto se pide en cada carga de la página.
+            "ajustes": {"historia": (cargar(self.ruta_ajustes).get("historia") or {})},
+            # Qué se le puede pedir a la fuente de cada partido, con lo que hace
+            # cada cosa: sin esto, elegir secciones sería elegir a ciegas.
+            "secciones": [{"nombre": nombre, "que": (seccion.description or "")}
+                          for nombre, seccion in sorted(SECTIONS.items())
+                          if "{player_id}" not in seccion.path
+                          and "{team_id}" not in seccion.path],
             "briefings": guardados(self.carpeta_briefings)[:30],
             "fuentes": sorted(FUENTES),
             "librerias": disponibles(),

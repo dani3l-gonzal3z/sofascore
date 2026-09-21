@@ -390,6 +390,9 @@ POR_OTRO_CAMINO = {
     "casi_seguro": "la página usa /api/seguro, que además permite calibrar",
     "expediente_partido": "la página usa /api/dictamen, que lo monta y además se "
                           "lo manda al modelo; el documento se enseña entero dentro",
+    "briefing_del_dia": "la página usa /api/briefing, que lo lanza en segundo plano "
+                        "y deja ver por dónde va: por la herramienta se quedaba "
+                        "colgado varios minutos y el navegador se rendía antes",
 }
 
 
@@ -925,3 +928,110 @@ def test_poner_es_el_unico_que_toca_replacechildren_con_hijos():
     cuerpo = pagina[pagina.index("function poner("):]
     cuerpo = cuerpo[:cuerpo.index("\n}")]
     assert "filter" in cuerpo and "null" in cuerpo and "undefined" in cuerpo
+
+
+# ------------------------------------------------------- trabajos largos
+
+def test_el_briefing_se_lanza_y_contesta_al_momento(servidor, monkeypatch):
+    """Antes iba dentro de la petición y por eso «no funcionaba muy bien».
+
+    Un día normal son doscientos y pico partidos, y de cada uno se monta la
+    previa entera, la evolución de los dos equipos y los duelos de sus jugadores.
+    Son miles de peticiones: el navegador se rendía mucho antes de que acabara.
+    """
+    import cancha.briefing as modulo
+
+    # Se sujeta el briefing a mitad: si la petición esperase a que acabe, esto
+    # se quedaría colgado, que es exactamente el fallo que se está arreglando.
+    suelta = threading.Event()
+
+    def lento(*a, **k):
+        suelta.wait(5)
+        return {"fecha": "2026-09-21", "total": 3, "partidos": [], "completo": True}
+
+    monkeypatch.setattr(modulo, "briefing", lento)
+    monkeypatch.setattr(modulo, "guardar", lambda *a, **k: {})
+    try:
+        estado, _, cuerpo = _pedir(servidor, "POST", "/api/briefing",
+                                   {"fecha": "2026-09-21"})
+        assert estado == 200
+        assert cuerpo["en_marcha"] is True, "contesta ya, no cuando acabe"
+    finally:
+        suelta.set()
+    servidor.esperar_tarea("briefing", 10)
+
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/tarea/briefing")
+    assert cuerpo["en_marcha"] is False
+    assert cuerpo["resumen"]["partidos"] == 3
+
+
+def test_dos_briefings_a_la_vez_no(servidor, monkeypatch):
+    """Lanzarlo dos veces duplicaría las peticiones sin traer nada nuevo."""
+    import cancha.briefing as modulo
+
+    suelta = threading.Event()
+    monkeypatch.setattr(modulo, "briefing",
+                        lambda *a, **k: (suelta.wait(5), {"fecha": "x", "total": 0,
+                                                          "partidos": []})[1])
+    monkeypatch.setattr(modulo, "guardar", lambda *a, **k: {})
+    try:
+        _pedir(servidor, "POST", "/api/briefing", {"fecha": "2026-09-21"})
+        _, _, segundo = _pedir(servidor, "POST", "/api/briefing",
+                               {"fecha": "2026-09-21"})
+        assert "Ya hay" in segundo["error"]
+    finally:
+        suelta.set()
+        servidor.esperar_tarea("briefing", 10)
+
+
+def test_un_trabajo_se_puede_parar(servidor, monkeypatch):
+    """Parar no mata el hilo: levanta una bandera que el trabajo mira.
+
+    Matarlo a mitad dejaría la memoria escrita a medias.
+    """
+    import cancha.briefing as modulo
+
+    visto = {}
+
+    def lento(*a, **k):
+        visto["podia_seguir"] = k["puede_seguir"]()
+        return {"fecha": "x", "total": 0, "partidos": [], "completo": False}
+
+    monkeypatch.setattr(modulo, "briefing", lento)
+    monkeypatch.setattr(modulo, "guardar", lambda *a, **k: {})
+    _pedir(servidor, "POST", "/api/briefing", {"fecha": "2026-09-21"})
+    servidor.esperar_tarea("briefing", 10)
+    assert visto["podia_seguir"] is True, "mientras nadie lo pare, puede seguir"
+
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/tarea/parar",
+                          {"nombre": "briefing"})
+    assert "No hay" in cuerpo["error"], "y parar lo que ya acabó se dice"
+
+
+def test_el_plan_de_la_historia_no_trae_nada(servidor, monkeypatch):
+    """Descubrir a mitad que son veinte mil peticiones es descubrirlo tarde."""
+    import cancha.historia as modulo
+
+    monkeypatch.setattr(modulo, "plan", lambda *a, **k: {
+        "ligas": 2, "temporadas": 6, "partidos_estimados": 1800,
+        "peticiones_estimadas": 9000, "por_liga": [], "aviso": "es una estimación"})
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/historia/plan",
+                          {"anos": 3, "secciones": ["statistics"]})
+    assert cuerpo["peticiones_estimadas"] == 9000
+
+
+def test_el_estado_dice_que_secciones_se_pueden_pedir(servidor):
+    """Elegir qué datos traer sin saber qué hace cada uno es elegir a ciegas."""
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/estado")
+    nombres = {s["nombre"] for s in cuerpo["secciones"]}
+    assert {"statistics", "lineups", "shotmap", "incidents"} <= nombres
+    assert all(s["que"] for s in cuerpo["secciones"]), "cada una dice qué trae"
+    # Y las que necesitan un jugador o un equipo no salen: no se piden por partido.
+    assert "player_statistics" not in nombres
+    assert cuerpo["ajustes"]["historia"]["anos"] >= 1
+
+
+def test_preguntar_por_un_trabajo_que_nunca_ha_corrido_no_revienta(servidor):
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/tarea/loquesea")
+    assert cuerpo["nunca"] is True
+    assert cuerpo["en_marcha"] is False

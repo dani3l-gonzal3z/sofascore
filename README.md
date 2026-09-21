@@ -187,6 +187,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 
 | | |
 | --- | --- |
+| [Traerse la historia](docs/historia.md) | Años de partidos de golpe, eligiendo qué datos y sabiendo antes lo que cuesta |
 | [La memoria](docs/memoria.md) | Barrido diario, estilo de equipo, rachas de jugador, árbitros, previas |
 | [La interfaz](docs/interfaz.md) | `cancha web`: una página que se instala en Windows y en iOS |
 | [Dejarlo funcionando](docs/dejarlo-funcionando.md) | `cancha arrancar`: la guardia nocturna y el bot de Telegram |

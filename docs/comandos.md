@@ -64,6 +64,9 @@ cancha dictamen "…" --api-key ...          # con un modelo grande de la nube d
 cancha dictamen "…" --crudo tabla          # menos estadísticas en crudo, para un modelo pequeño
 cancha dictamen "…" --guardados            # los que ya dijo, sin pedir otro
 cancha doctor --tls                        # ¿hay un antivirus o un proxy abriendo tu HTTPS?
+cancha historia --plan                     # qué costaría traerse años de partidos
+cancha historia --anos 3 --max 5000        # y traerlos, a tandas
+
 cancha resultados                          # el registro: calibración, Brier y CLV
 cancha resultados --mercado 1x2 --desde 2026-08-01
 

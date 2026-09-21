@@ -804,12 +804,40 @@ async function pintarDirecto(raiz) {
   return refrescar(true);
 }
 
+/* El briefing tarda: un día normal son doscientos y pico partidos y de cada uno
+   se monta la previa entera, la evolución de los dos equipos y los duelos de sus
+   jugadores. Antes iba dentro de la petición y por eso «no funcionaba»: el
+   navegador se rendía mucho antes de que acabara. Ahora va en su hilo, se ve por
+   dónde va, y se puede parar quedándose con lo que lleve hecho. */
 async function generarBriefing(fecha, raiz, boton) {
   boton.disabled = true; boton.textContent = "Generando…";
   const grupos = leer("grupos", "");
-  const d = await api.h("briefing_del_dia", { fecha, grupos: grupos || undefined, recalcular: true });
-  if (fallo(d)) { raiz.append(fallo(d)); boton.disabled = false; boton.textContent = "Generar briefing"; }
-  else ir(`#/hoy/${fecha}`, true);
+  const caja = el("div", { class: "registro", hidden: true });
+  const parar = el("button", { class: "btn fino s", onclick: async () => {
+    parar.disabled = true; parar.textContent = "Parando…";
+    await api.post("/api/tarea/parar", { nombre: "briefing" });
+  } }, "Parar y quedarse con lo hecho");
+  const marco = tarjeta("Generando el briefing",
+    el("p", { class: "peq gris" },
+      "De cada partido: cómo llegan los dos, si han cambiado, qué les pasa a sus "
+      + "jugadores contra el rival de hoy, el mercado y el árbitro. Son varias "
+      + "peticiones por partido, así que esto tarda. Puedes irte a otra pantalla."),
+    caja, el("div", { class: "fila" }, parar));
+  boton.replaceWith(marco);
+
+  const arranque = await api.post("/api/briefing", { fecha, grupos: grupos || undefined });
+  const err = fallo(arranque);
+  if (err) { marco.append(err); return; }
+  vigilarTarea("briefing", caja, null, (d) => {
+    parar.remove();
+    if (d.resumen && d.resumen.error) { marco.append(msg(d.resumen.error, "mal")); return; }
+    marco.append(el("div", { class: "fila" },
+      msg((d.resumen || {}).completo === false
+        ? `Parado con ${(d.resumen || {}).partidos || 0} partidos hechos. Se guardan igual.`
+        : "Briefing listo.", (d.resumen || {}).completo === false ? "ojo" : "bien"),
+      el("button", { class: "btn s", onclick: () => ir(`#/hoy/${fecha}`, true) },
+        "Verlo")));
+  });
 }
 
 function tarjetaPartido(p) {
@@ -1919,6 +1947,23 @@ async function pintarDuelo(raiz, jugador, rival) {
 }
 
 /* ── MEMORIA ─────────────────────────────────────────────────────── */
+/* Un trabajo largo, sondeado. El briefing de un día con doscientos partidos y
+   la traída de tres años de historia no caben en una petición: van en su hilo y
+   aquí se mira cómo van. Devuelve la caja del registro y arranca el sondeo. */
+function vigilarTarea(nombre, caja, boton, alAcabar) {
+  const mirar = async () => {
+    const d = await api.get("/api/tarea/" + nombre);
+    caja.hidden = false;
+    caja.textContent = (d.lineas || []).join("\n")
+      + (d.resumen ? "\n\n" + JSON.stringify(d.resumen, null, 1) : "");
+    caja.scrollTop = caja.scrollHeight;
+    if (boton) boton.disabled = !!d.en_marcha;
+    if (d.en_marcha) setTimeout(mirar, 2000);
+    else if (alAcabar) alAcabar(d);
+  };
+  mirar();
+}
+
 /* ═══════════════════════════════════════════════════════ agentes ═══ */
 /* Varios analistas con su propio estilo, y una tabla que dice cuál acierta.
    Lo que hace que esto sea algo más que varios prompts es la obligación de
@@ -2219,6 +2264,8 @@ V.memoria = async (raiz) => {
     reg));
   if (e.barrido && (e.barrido.en_marcha || (e.barrido.lineas || []).length)) vigilar();
 
+  raiz.append(tarjetaHistoria(e));
+
   const faltan = (cat.competiciones || 0) - (cat.identificadas || 0);
   raiz.append(tarjeta("Competiciones",
     el("div", { class: "fila" },
@@ -2337,6 +2384,94 @@ function qrNodo(matriz) {
   for (const fila of matriz)
     for (const v of fila) caja.append(el("i", v ? { class: "on" } : {}));
   return el("div", { class: "qr-marco" }, caja);
+}
+
+/* Traerse años de partidos de golpe. Ir partido a partido no junta muestra:
+   para que un perfil de equipo signifique algo hacen falta un par de temporadas,
+   y a seis partidos por visita eso son meses. */
+function tarjetaHistoria(estado) {
+  const h = (estado.ajustes || {}).historia || {};
+  const anos = el("input", { class: "campo", type: "number", min: 1, max: 15,
+    value: h.anos || 3, style: "flex:0 1 96px" });
+  const grupos = el("select", { class: "campo", style: "flex:0 1 186px" },
+    el("option", { value: "" }, "Las ligas de mis ajustes"),
+    ...GRUPOS_UI.slice(1).map((par) => el("option", { value: par[0] }, par[1])));
+  const max = el("input", { class: "campo", type: "number", min: 0,
+    value: h.max || 0, placeholder: "0 = sin tope", style: "flex:0 1 150px" });
+  const caja = el("div", { class: "registro", hidden: true });
+  const resumen = el("div", { class: "bloque" });
+  const elegidas = new Set(h.secciones || []);
+  const casillas = (estado.secciones || []).map((s) => {
+    const c = el("input", { type: "checkbox" });
+    c.checked = elegidas.has(s.nombre);
+    c.dataset.nombre = s.nombre;
+    return el("label", { class: "casilla", title: s.que || "" }, c, s.nombre);
+  });
+  const secciones = () => casillas.map((l) => l.firstChild)
+    .filter((c) => c.checked).map((c) => c.dataset.nombre);
+
+  const cuerpo = () => ({ anos: Number(anos.value), grupos: grupos.value || undefined,
+    secciones: secciones(), max: Number(max.value || 0) });
+
+  const btnPlan = el("button", { class: "btn plano", onclick: async () => {
+    btnPlan.disabled = true; btnPlan.textContent = "Calculando…";
+    const d = await api.post("/api/historia/plan", cuerpo());
+    btnPlan.disabled = false; btnPlan.textContent = "¿Qué costaría?";
+    const err = fallo(d);
+    if (err) { poner(resumen, err); return; }
+    poner(resumen,
+      cifras([[d.ligas, "competiciones"], [d.temporadas, "temporadas"],
+        [d.partidos_estimados, "partidos"], [d.peticiones_estimadas, "peticiones"]]),
+      msg(d.aviso, "ojo"),
+      el("details", {}, el("summary", {}, "Liga a liga"),
+        el("ul", { class: "lista" }, ...(d.por_liga || []).map((l) => el("li", {},
+          el("span", { style: "flex:1 1 180px" }, l.liga),
+          el("span", { class: "gris peq" },
+            l.error ? l.error : `${l.temporadas} temporadas`))))));
+  } }, "¿Qué costaría?");
+
+  const btnTraer = el("button", { class: "btn", onclick: async () => {
+    if (!secciones().length) {
+      poner(resumen, msg("Elige al menos qué datos quieres de cada partido. Sin "
+        + "ninguno se guarda el marcador y poco más.", "ojo"));
+      return;
+    }
+    btnTraer.disabled = true;
+    const d = await api.post("/api/historia", cuerpo());
+    const err = fallo(d);
+    if (err) { btnTraer.disabled = false; poner(resumen, err); return; }
+    vigilarTarea("historia", caja, btnTraer);
+  } }, "Traerlo");
+
+  const parar = el("button", { class: "btn fino", onclick: () =>
+    api.post("/api/tarea/parar", { nombre: "historia" }) }, "Parar");
+
+  vigilarTarea("historia", caja, btnTraer);
+
+  return tarjeta("Traerse la historia",
+    el("p", { class: "peq gris" },
+      "Ir partido a partido no junta muestra: para que un perfil de equipo "
+      + "signifique algo hacen falta un par de temporadas, y para juzgar a un "
+      + "árbitro más todavía. Esto recorre cada competición temporada a "
+      + "temporada hacia atrás."),
+    el("div", { class: "fila" },
+      el("label", {}, "Años", anos),
+      el("label", { style: "flex:1 1 186px" }, "Competiciones", grupos),
+      el("label", {}, "Tope de peticiones", max)),
+    el("details", { open: true }, el("summary", {},
+        `Qué traer de cada partido (${elegidas.size} de ${(estado.secciones || []).length})`),
+      el("p", { class: "peq gris" }, "Cada una es **una petición más por "
+        + "partido**, así que esto multiplica: es lo que decide si tres años "
+        + "cuestan seis mil peticiones o veinte mil. Sin «statistics» no hay "
+        + "tiros, ni córners, ni posesión, que es de donde sale casi todo lo "
+        + "que se calcula después."),
+      el("div", { class: "sugeridas" }, ...casillas)),
+    resumen,
+    el("div", { class: "fila" }, btnPlan, btnTraer, parar),
+    caja,
+    nota("Se puede cortar y seguir: lo que ya está guardado no se vuelve a "
+      + "pedir, así que la segunda vez cuesta mucho menos. Con tope, déjalo a "
+      + "ratos y vuelve a darle."));
 }
 
 function tarjetaRed() {
