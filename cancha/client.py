@@ -414,6 +414,20 @@ class SofascoreClient:
         datos = self.get(f"/unique-tournament/{int(tournament_id)}/seasons", ttl=86400)
         return (datos or {}).get("seasons", []) if isinstance(datos, dict) else []
 
+    def season_events(self, tournament_id: int, season_id: int, page: int = 0,
+                      when: str = "last") -> list[dict]:
+        """Una página de partidos de una temporada entera. ``last`` = ya jugados.
+
+        Es **la** forma barata de traerse historia: una petición devuelve treinta
+        partidos de toda la liga. Yendo equipo por equipo, cada partido lo trae
+        dos veces —una por cada lado— y hay que pedir veinte calendarios para
+        cubrir lo mismo.
+        """
+        datos = self.get(
+            f"/unique-tournament/{int(tournament_id)}/season/{int(season_id)}"
+            f"/events/{when}/{int(page)}", ttl=86400)
+        return (datos or {}).get("events", []) if isinstance(datos, dict) else []
+
     def latest_season_id(self, tournament_id: int) -> int | None:
         """Id de la temporada en curso (la primera que devuelve la API)."""
         temporadas = self.seasons(tournament_id)

@@ -50,6 +50,22 @@ POR_DEFECTO: dict[str, Any] = {
         "ultimos": 6,
         "registro": "datos/guardia.log",
     },
+    #: Cuánta historia traerse y con cuánto detalle. Hasta aquí el único modo de
+    #: llenar la memoria era ir partido a partido desde su pantalla, y con eso no
+    #: se junta muestra: se tarda semanas en tener con qué calcular nada.
+    "historia": {
+        #: Hacia atrás desde hoy. Tres temporadas es lo que hace falta para que
+        #: un perfil de equipo tenga sentido y un árbitro tenga muestra.
+        "anos": 3,
+        #: Qué se pide de cada partido. Cada sección es **una petición más por
+        #: partido**, así que esto multiplica: con cinco secciones, diez mil
+        #: partidos son cincuenta mil peticiones. Ver `cancha historia --plan`.
+        "secciones": ["statistics", "lineups", "incidents", "shotmap",
+                      "odds_featured"],
+        #: Tope de peticiones por tanda. 0 = sin tope, y entonces tarda lo que
+        #: tarde. Con tope se puede dejar corriendo a ratos y reanudar.
+        "max": 0,
+    },
     "web": {"puerto": 8765, "lan": True, "clave": ""},
     #: Cuando algo abre tu HTTPS por el camino —un antivirus que «revisa webs
     #: seguras», el proxy de una empresa, una VPN—, Python no conoce a quien
@@ -295,6 +311,37 @@ def revisar(ajustes: dict) -> list[str]:  # noqa: C901 - es una lista de avisos
     puerto = (ajustes.get("web") or {}).get("puerto")
     if not isinstance(puerto, int) or not (1 <= puerto <= 65535):
         problemas.append(f"El puerto «{puerto}» no vale.")
+    problemas += _revisar_historia(ajustes.get("historia") or {})
+    return problemas
+
+
+def _revisar_historia(historia: dict) -> list[str]:
+    """Que los años y las secciones que se piden existan y sean razonables."""
+    from .endpoints import SECTIONS
+
+    problemas = []
+    anos = historia.get("anos")
+    if not isinstance(anos, int) or not (1 <= anos <= 15):
+        problemas.append(f"Los años de historia («{anos}») van de 1 a 15. Sofascore "
+                         "tampoco guarda mucho más de las categorías pequeñas.")
+    secciones = historia.get("secciones") or []
+    if not secciones:
+        problemas.append("Sin ninguna sección elegida, un partido se guarda con el "
+                         "marcador y nada más: no hay con qué calcular.")
+    for seccion in secciones:
+        if seccion not in SECTIONS:
+            problemas.append(f"No conozco la sección «{seccion}». Las que hay salen "
+                             "con: cancha fuentes --secciones")
+    # `statistics` es de la que sale casi todo lo que se calcula después. Sin
+    # ella se pueden guardar diez mil partidos y seguir sin poder hacer nada.
+    if secciones and "statistics" not in secciones:
+        problemas.append("Sin «statistics» no hay tiros, ni córners, ni posesión: "
+                         "es de donde sale casi todo lo que se calcula. Puedes "
+                         "quitarla, pero entonces la memoria no sirve de mucho.")
+    maximo = historia.get("max")
+    if not isinstance(maximo, int) or maximo < 0:
+        problemas.append(f"El tope de peticiones («{maximo}») es un número, y 0 "
+                         "significa sin tope.")
     return problemas
 
 

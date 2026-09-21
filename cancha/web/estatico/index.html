@@ -561,11 +561,11 @@ function plegable(titulo, cargar, abierta) {
   async function traer() {
     if (pedido) return;
     pedido = true;
-    cuerpo.replaceChildren(espera());
+    poner(cuerpo, espera());
     try {
       const nodos = await cargar();
-      cuerpo.replaceChildren(...[].concat(nodos).filter(Boolean));
-    } catch (err) { cuerpo.replaceChildren(msg("Ha fallado: " + err.message, "mal")); }
+      poner(cuerpo, ...[].concat(nodos).filter(Boolean));
+    } catch (err) { poner(cuerpo, msg("Ha fallado: " + err.message, "mal")); }
   }
   caja.addEventListener("toggle", () => { if (caja.open) traer(); });
   if (abierta) traer();
@@ -586,14 +586,14 @@ function abastecer(idPartido, alTerminar) {
   boton.addEventListener("click", async () => {
     boton.disabled = true;
     boton.textContent = "Trayendo…";
-    cuerpo.replaceChildren(espera("Esto tarda: son varias peticiones a Sofascore, "
+    poner(cuerpo, espera("Esto tarda: son varias peticiones a Sofascore, "
       + "de tres en tres por segundo. Puedes irte a otra pantalla."));
     const d = await api.h("abastecer_partido", { partido: String(idPartido) });
     boton.disabled = false;
     boton.textContent = "Traer lo que falte";
     const err = fallo(d);
-    if (err) { cuerpo.replaceChildren(err); return; }
-    cuerpo.replaceChildren(
+    if (err) { poner(cuerpo, err); return; }
+    poner(cuerpo, 
       cifras([[d.guardados, "traídos ahora"], [d.ya_estaban, "ya estaban"],
         [d.sin_estadisticas || 0, "sin estadísticas"], [d.peticiones, "peticiones"]]),
       d.completo ? msg("Ya está todo el contexto de este partido en la memoria.")
@@ -604,11 +604,11 @@ function abastecer(idPartido, alTerminar) {
 
   api.h("abastecer_partido", { partido: String(idPartido), solo_plan: true }).then((plan) => {
     const err = fallo(plan);
-    if (err) { cuerpo.replaceChildren(err); boton.remove(); return; }
+    if (err) { poner(cuerpo, err); boton.remove(); return; }
     boton.disabled = plan.hay_que_pedir === 0;
     boton.textContent = plan.hay_que_pedir
       ? `Traer ${plan.hay_que_pedir} partidos` : "Nada que traer";
-    cuerpo.replaceChildren(
+    poner(cuerpo, 
       cifras([[plan.en_total, "hacen falta"], [plan.ya_estaban, "ya están"],
         [plan.hay_que_pedir, "faltan"], [plan.peticiones_estimadas, "peticiones"]]),
       el("p", { class: "peq gris" },
@@ -673,7 +673,7 @@ V.hoy = async (raiz, [fecha]) => {
   const directo = fecha === "directo";
   fecha = directo ? hoy() : (fecha || leer("fecha", hoy()));
   const grupos = leer("grupos", "");
-  raiz.replaceChildren(el("div", { class: "titular" },
+  poner(raiz, el("div", { class: "titular" },
     el("h1", {}, directo ? "En directo" : fecha === hoy() ? "Hoy" : fecha),
     el("div", { class: "resto fila" },
       el("div", { class: "seg" },
@@ -749,7 +749,7 @@ V.hoy = async (raiz, [fecha]) => {
     }
     /* Por patrón, no por aviso: los avisos del mismo patrón llevan los mismos
        números, así que cuatro avisos eran cuatro veces la misma línea. */
-    digest.replaceChildren(tarjeta(null,
+    poner(digest, tarjeta(null,
       el("div", { class: "titular" }, el("h3", {}, "Casi seguro hoy"),
         el("a", { class: "resto peq", href: `#/seguro/hoy/${fecha}` }, "ver todo →")),
       el("ul", { class: "lista" }, ...(s.por_patron || []).slice(0, 4).map((g) => el("li", {},
@@ -776,17 +776,17 @@ async function pintarDirecto(raiz) {
   async function refrescar(primera) {
     const d = await api.h("partidos", { limite: 60 });
     if (location.hash !== mio) return;            // la vista ya no está
-    if (fallo(d)) { caja.replaceChildren(fallo(d)); return; }
+    if (fallo(d)) { poner(caja, fallo(d)); return; }
     const lista = d.partidos || [];
     sello.textContent = `${lista.length} en juego · ${new Date().toLocaleTimeString().slice(0, 5)}`;
     if (!lista.length) {
-      caja.replaceChildren(vacio('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+      poner(caja, vacio('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
         "Ahora no se juega nada",
         el("p", { class: "gris peq" }, "Vuelve cuando haya partido, o mira la agenda del día.")));
     } else {
       const porLiga = {};
       for (const x of lista) (porLiga[x.competicion || "Otras"] ||= []).push(x);
-      caja.replaceChildren(...Object.entries(porLiga)
+      poner(caja, ...Object.entries(porLiga)
         .sort((a, b) => a[0].localeCompare(b[0])).map(([liga, suyos]) =>
           el("div", { class: "dia" },
             el("div", { class: "liga-tit" }, el("h3", {}, liga),
@@ -847,9 +847,9 @@ async function alternar(cabeza, p, cuerpo) {
   cabeza.setAttribute("aria-expanded", String(!abierto));
   if (abierto || cuerpo.dataset.cargado) return;
   cuerpo.dataset.cargado = "1";
-  cuerpo.replaceChildren(espera("Montando la previa…"));
+  poner(cuerpo, espera("Montando la previa…"));
   const pv = await api.h("previa_de_partido", { partido: String(p.id) });
-  cuerpo.replaceChildren(...previaDentro(pv, p).filter(Boolean));
+  poner(cuerpo, ...previaDentro(pv, p).filter(Boolean));
 }
 
 function previaDentro(pv, p) {
@@ -928,7 +928,7 @@ function previaDentro(pv, p) {
 V.seguro = async (raiz, [modo, fechaRuta]) => {
   modo = modo === "calibrar" ? "calibrar" : "hoy";
   const fecha = fechaRuta || leer("fecha", hoy());
-  raiz.replaceChildren(
+  poner(raiz, 
     el("div", { class: "titular" }, el("h1", {}, "Casi seguro"),
       el("div", { class: "resto fila" },
         modo === "hoy" ? el("input", { class: "campo", type: "date", id: "s-fecha", value: fecha,
@@ -1128,14 +1128,14 @@ V.analista = async (raiz) => {
     el("button", { class: "sug", type: "button", onclick: () => { caja.value = s; enviar(); } }, s)));
   const avisoOllama = el("div", {});
 
-  raiz.replaceChildren(el("div", { class: "titular" }, el("h1", {}, "Analista"),
+  poner(raiz, el("div", { class: "titular" }, el("h1", {}, "Analista"),
     el("span", { class: "resto gris peq", id: "modelo" }, "")),
     avisoOllama, hilo, sugeridas, el("div", { class: "redactar" }, caja, boton));
 
   const estado = await api.get("/api/analista");
   $("#modelo").textContent = (estado && estado.modelo) || "";
   if (!estado || estado.disponible === false) {
-    avisoOllama.replaceChildren(el("div", { class: "msg mal" },
+    poner(avisoOllama, el("div", { class: "msg mal" },
       el("div", {}, (estado && (estado.nota || estado.error)) || "Ollama no contesta."),
       el("div", { class: "peq", style: "margin-top:6px" }, "Instálalo desde ",
         el("a", { href: "https://ollama.com", target: "_blank", rel: "noopener" }, "ollama.com"),
@@ -1143,7 +1143,7 @@ V.analista = async (raiz) => {
       el("pre", { class: "registro", style: "margin-top:6px" }, "ollama pull hermes3")));
     boton.disabled = true;
   } else if (estado.instalado === false) {
-    avisoOllama.replaceChildren(msg(estado.nota, "ojo"));
+    poner(avisoOllama, msg(estado.nota, "ojo"));
   }
 
   let historial = leer("hilo", null);
@@ -1191,14 +1191,14 @@ V.analista = async (raiz) => {
               const ultimo = pasos.lastElementChild;
               if (ultimo) ultimo.textContent = `${p.nombre} · ${p.caracteres}c`;
             } else if (p.tipo === "aviso") pasos.append(el("span", { class: "paso" }, p.texto));
-            else if (p.tipo === "respuesta") texto.replaceChildren(p.texto || "(sin respuesta)");
+            else if (p.tipo === "respuesta") poner(texto, p.texto || "(sin respuesta)");
           }
           if (ev.fin) { historial = ev.fin.historial; guardar("hilo", historial); }
         }
       }
-      if (texto.querySelector(".espera")) texto.replaceChildren(msg("No ha llegado respuesta.", "ojo"));
+      if (texto.querySelector(".espera")) poner(texto, msg("No ha llegado respuesta.", "ojo"));
     } catch (e) {
-      texto.replaceChildren(msg(e.message, "mal"));
+      poner(texto, msg(e.message, "mal"));
     } finally {
       pasos.querySelectorAll(".vivo").forEach((n) => n.classList.remove("vivo"));
       ocupado = false; boton.disabled = false; caja.focus();
@@ -1215,7 +1215,7 @@ V.buscar = async (raiz, partes) => {
   const arg2 = partes[2] ? decodeURIComponent(partes[2]) : "";
   guardar("modo", modo);
 
-  raiz.replaceChildren(el("div", { class: "titular" }, el("h1", {}, "Buscar"),
+  poner(raiz, el("div", { class: "titular" }, el("h1", {}, "Buscar"),
     el("span", { class: "resto" }, el("div", { class: "seg" },
       ...modos.map((v) => el("button", { class: v === modo ? "on" : "",
         onclick: () => ir(`#/buscar/${v}`) }, v[0].toUpperCase() + v.slice(1)))))));
@@ -1424,9 +1424,9 @@ async function pintarPartido(raiz, consulta) {
     ...SECCIONES.map((x) => el("option", { value: x }, x)));
   raiz.append(tarjeta("Datos en crudo",
     el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
-      crudo.replaceChildren(espera());
+      poner(crudo, espera());
       const d = await api.h("seccion_partido", { partido: consulta, seccion: cual.value });
-      crudo.replaceChildren(
+      poner(crudo, 
         el("p", { class: "peq gris" }, `estado: ${d.estado || "—"} · ${d.descripcion || ""}`),
         volcado(d.datos === undefined ? d : d.datos));
     } }, cual, el("button", { class: "btn plano", type: "submit" }, "Ver")),
@@ -1437,9 +1437,9 @@ async function pintarPartido(raiz, consulta) {
   raiz.append(tarjeta("Otras fuentes", ext, el("button", { class: "btn plano s", style: "justify-self:start",
     onclick: async (e) => {
       e.currentTarget.disabled = true;
-      ext.replaceChildren(espera("Preguntando a Understat, ClubElo y football-data…"));
+      poner(ext, espera("Preguntando a Understat, ClubElo y football-data…"));
       const c = await api.h("contexto_externo", { partido: consulta });
-      if (fallo(c)) { ext.replaceChildren(fallo(c)); return; }
+      if (fallo(c)) { poner(ext, fallo(c)); return; }
       const fs = [];
       if (c.sofascore && c.sofascore.xg)
         fs.push({ nombre: "xG Sofascore", local: c.sofascore.xg.local, visitante: c.sofascore.xg.visitante });
@@ -1447,7 +1447,7 @@ async function pintarPartido(raiz, consulta) {
       const u = fuentes.understat, elo = fuentes.clubelo, fd = fuentes.futboldata;
       if (u && u.estado === "ok" && u.xg)
         fs.push({ nombre: "xG Understat", local: u.xg.local, visitante: u.xg.visitante });
-      ext.replaceChildren(
+      poner(ext, 
         fs.length ? comparar(fs, p.home.name, p.away.name) : nota(u && u.nota),
         nota(c.contraste_xg && c.contraste_xg.lectura),
         elo && elo.estado === "ok" ? el("p", { class: "peq" },
@@ -1521,14 +1521,14 @@ function tarjetaDictamen(consulta) {
   boton.addEventListener("click", async () => {
     boton.disabled = true;
     boton.textContent = "Pensando…";
-    cuerpo.replaceChildren(espera("Montando el expediente y mandándolo al modelo. "
+    poner(cuerpo, espera("Montando el expediente y mandándolo al modelo. "
       + "Con uno grande esto tarda; puedes irte a otra pantalla."));
     const d = await api.post("/api/dictamen",
       { partido: String(consulta), crudo: crudo.value });
     boton.disabled = false;
     boton.textContent = "Pedir otro";
     const err = fallo(d);
-    if (err) { cuerpo.replaceChildren(err); return; }
+    if (err) { poner(cuerpo, err); return; }
     poner(cuerpo, ...pintarUno(d, false),
       d.guardado ? nota("Guardado con el partido: mañana seguirá aquí.") : null,
       nota("Los números del expediente los calcula el programa; el modelo solo "
@@ -1690,10 +1690,10 @@ async function pintarEquipo(raiz, nombre) {
   const not = el("div", {});
   raiz.append(tarjeta("Contexto", not, el("button", { class: "btn plano s", style: "justify-self:start",
     onclick: async (e) => {
-      e.currentTarget.disabled = true; not.replaceChildren(espera("Pidiendo titulares a ESPN…"));
+      e.currentTarget.disabled = true; poner(not, espera("Pidiendo titulares a ESPN…"));
       const d = await api.h("noticias", { liga: est.liga || "", equipo: est.equipo, cuantas: 10 });
-      if (fallo(d)) { not.replaceChildren(fallo(d)); return; }
-      not.replaceChildren((d.noticias || []).length
+      if (fallo(d)) { poner(not, fallo(d)); return; }
+      poner(not, (d.noticias || []).length
         ? el("ul", { class: "lista" }, ...d.noticias.map((x) => el("li", {},
             el("span", { class: "gris peq", style: "width:76px;flex:none" }, String(x.fecha || "").slice(0, 10)),
             el("a", { href: x.enlace, target: "_blank", rel: "noopener", style: "flex:1 1 180px" }, x.titulo))))
@@ -1753,10 +1753,10 @@ async function pintarJugador(raiz, nombre) {
     if (ct.partidos_con_cuotas) {
       const d = el("div", { class: "bloque" });
       c.append(d, el("button", { class: "btn plano s", style: "justify-self:start", onclick: async (e) => {
-        e.currentTarget.disabled = true; d.replaceChildren(espera("Partiendo el análisis en dos…"));
+        e.currentTarget.disabled = true; poner(d, espera("Partiendo el análisis en dos…"));
         const rr = await api.h("sistema_o_contexto", { jugador: nombre, eje });
-        if (fallo(rr)) { d.replaceChildren(fallo(rr)); return; }
-        d.replaceChildren((rr.lectura || []).length
+        if (fallo(rr)) { poner(d, fallo(rr)); return; }
+        poner(d, (rr.lectura || []).length
           ? el("ul", { class: "lista" }, ...rr.lectura.map((f) => el("li", {},
               el("b", {}, `contra ${f.contra}, ${f.metrica.replace(/_/g, " ")}: `), f.veredicto)))
           : nota("Nada se sale de su media en ninguno de los dos desgloses."), nota(rr.como_leerlo));
@@ -1876,11 +1876,11 @@ async function pintarLiga(raiz, nombre) {
   const tempExt = el("input", { class: "campo", type: "number", value: año, style: "flex:0 1 110px" });
   raiz.append(tarjeta("Tablas de fuera (ScraperFC y soccerdata)",
     el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
-      cajaExt.replaceChildren(espera("Esto puede tardar: lo trae una librería externa…"));
+      poner(cajaExt, espera("Esto puede tardar: lo trae una librería externa…"));
       const d = await api.h("datos_externos", { que: queSel.value, liga: nombre,
         temporada: Number(tempExt.value) || undefined });
       const err = fallo(d);
-      cajaExt.replaceChildren(err || volcado(d));
+      poner(cajaExt, err || volcado(d));
     } }, queSel, tempExt, el("button", { class: "btn", type: "submit" }, "Traer")),
     cajaExt,
     nota("Necesita ScraperFC o soccerdata instalados. Si faltan, la respuesta lo dice y "
@@ -1926,7 +1926,7 @@ async function pintarDuelo(raiz, jugador, rival) {
    serían opiniones mejor o peor escritas. */
 V.agentes = async (raiz, [modo]) => {
   modo = modo === "quienes" ? "quienes" : "tabla";
-  raiz.replaceChildren(
+  poner(raiz, 
     el("div", { class: "titular" }, el("h1", {}, "Agentes"),
       el("div", { class: "resto fila" },
         el("div", { class: "seg" },
@@ -2110,7 +2110,7 @@ function tarjetaAgentes(consulta) {
     const d = await api.post("/api/agentes", {});
     if (fallo(d)) return;
     cargados = (d.agentes || []).filter((a) => a.activo && !(a.problemas || []).length);
-    quien.replaceChildren(...cargados.map((a) =>
+    poner(quien, ...cargados.map((a) =>
       el("option", { value: a.clave }, a.nombre)));
     if (!cargados.length) {
       poner(cuerpo, nota("No tienes ningún agente listo. Se crean en la pestaña "
@@ -2123,7 +2123,7 @@ function tarjetaAgentes(consulta) {
     const elegido = cargados.find((a) => a.clave === quien.value);
     boton.disabled = true;
     boton.textContent = "Mirando…";
-    cuerpo.replaceChildren(espera(`${elegido ? elegido.nombre : "El agente"} está `
+    poner(cuerpo, espera(`${elegido ? elegido.nombre : "El agente"} está `
       + "montando su expediente y pidiendo lo que le falta. Con varias vueltas esto "
       + "tarda; puedes irte a otra pantalla."));
     const d = await api.post("/api/agente/correr",
@@ -2131,7 +2131,7 @@ function tarjetaAgentes(consulta) {
     boton.disabled = false;
     boton.textContent = "Que lo vea otro";
     const err = fallo(d);
-    if (err) { cuerpo.replaceChildren(err); return; }
+    if (err) { poner(cuerpo, err); return; }
     const p = d.probabilidades || {};
     poner(cuerpo,
       el("div", { class: "fila peq gris" }, etiqueta(d.nombre || d.agente, "azul"),
@@ -2176,7 +2176,7 @@ function tarjetaAgentes(consulta) {
 }
 
 V.memoria = async (raiz) => {
-  raiz.replaceChildren(el("h1", {}, "Memoria"), espera());
+  poner(raiz, el("h1", {}, "Memoria"), espera());
   const e = await api.get("/api/estado");
   raiz.lastChild.remove();
   const err = fallo(e);
@@ -2256,11 +2256,11 @@ V.memoria = async (raiz) => {
     el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
       const boton = ev.currentTarget.querySelector("button");
       boton.disabled = true;
-      cuo.replaceChildren(espera("Pidiendo las cuotas de los partidos que no las tienen…"));
+      poner(cuo, espera("Pidiendo las cuotas de los partidos que no las tienen…"));
       const d = await api.h("rellenar_cuotas", { maximo: 40 });
       boton.disabled = false;
       const err = fallo(d);
-      cuo.replaceChildren(err || cifras([[d.rellenados ?? d.rellenadas ?? 0, "rellenados"],
+      poner(cuo, err || cifras([[d.rellenados ?? d.rellenadas ?? 0, "rellenados"],
         [d.mirados ?? d.intentados ?? 0, "mirados"], [d.sin_cuotas ?? 0, "sin cuotas"]]));
     } }, el("button", { class: "btn", type: "submit" }, "Rellenar las que falten")),
     cuo,
@@ -2273,10 +2273,10 @@ V.memoria = async (raiz) => {
   raiz.append(tarjeta("Árbitro",
     el("form", { class: "busca", onsubmit: async (ev) => { ev.preventDefault();
       if (!cajaArb.value.trim()) return;
-      arb.replaceChildren(espera());
+      poner(arb, espera());
       const a = await api.h("perfil_de_arbitro", { arbitro: cajaArb.value.trim() });
-      if (fallo(a)) { arb.replaceChildren(fallo(a)); return; }
-      arb.replaceChildren(cifras([[a.por_partido.amarillas, "amarillas"], [a.por_partido.rojas, "rojas"],
+      if (fallo(a)) { poner(arb, fallo(a)); return; }
+      poner(arb, cifras([[a.por_partido.amarillas, "amarillas"], [a.por_partido.rojas, "rojas"],
         [a.por_partido.penaltis, "penaltis"], [a.por_partido.faltas, "faltas"]]),
         el("p", { class: "peq gris" }, `${a.partidos_mirados} partidos · al local `
           + `${a.reparto_de_tarjetas.al_local}, al visitante ${a.reparto_de_tarjetas.al_visitante} · `
@@ -2343,15 +2343,15 @@ function tarjetaRed() {
   const cuerpo = el("div", { class: "bloque" });
   api.get("/api/red").then((d) => {
     const err = fallo(d);
-    if (err) { cuerpo.replaceChildren(err); return; }
+    if (err) { poner(cuerpo, err); return; }
     if (!d.abierto_a_la_red) {
-      cuerpo.replaceChildren(msg("Este servidor solo escucha en este ordenador. Arráncalo con "
+      poner(cuerpo, msg("Este servidor solo escucha en este ordenador. Arráncalo con "
         + "--lan y el móvil podrá entrar.", "ojo"),
         el("pre", { class: "registro" }, "cancha web --lan --clave loquesea"));
       return;
     }
     if (!(d.urls || []).length) {
-      cuerpo.replaceChildren(msg("No se encuentra ninguna IP de red en este ordenador.", "mal"));
+      poner(cuerpo, msg("No se encuentra ninguna IP de red en este ordenador.", "mal"));
       return;
     }
     poner(cuerpo,
@@ -2386,10 +2386,10 @@ function tarjetaDiagnostico() {
       el("pre", { class: "registro" }, d.que_hacer || ""));
   }
   async function traer(conRed) {
-    cuerpo.replaceChildren(espera(conRed ? "Preguntando a Sofascore…" : "Mirando…"));
+    poner(cuerpo, espera(conRed ? "Preguntando a Sofascore…" : "Mirando…"));
     const d = await api.get("/api/diagnostico" + (conRed ? "?red=1" : ""));
     const err = fallo(d);
-    if (err) { cuerpo.replaceChildren(err); return; }
+    if (err) { poner(cuerpo, err); return; }
     const c = d.cache || {}, g = d.grabaciones || {};
     poner(cuerpo,
       el("div", { class: "fila" }, ...(d.transportes || []).map((t) =>
@@ -2438,7 +2438,7 @@ function tarjetaConsola() {
   const salida = el("div", { class: "bloque" });
   api.get("/api/herramientas").then((lista) => {
     const err = fallo(lista);
-    if (err || !Array.isArray(lista)) { cuerpo.replaceChildren(err || msg("Sin lista.", "mal")); return; }
+    if (err || !Array.isArray(lista)) { poner(cuerpo, err || msg("Sin lista.", "mal")); return; }
     const sel = el("select", { class: "campo", style: "flex:1 1 220px" },
       ...lista.map((h) => el("option", { value: h.name }, h.name)));
     const campos = el("div", { class: "bloque" });
@@ -2448,7 +2448,7 @@ function tarjetaConsola() {
       const esquema = h.input_schema || {};
       const req = esquema.required || [];
       descripcion.textContent = h.description || "";
-      campos.replaceChildren(...Object.entries(esquema.properties || {}).map(([clave, def]) =>
+      poner(campos, ...Object.entries(esquema.properties || {}).map(([clave, def]) =>
         el("label", { class: "bloque", style: "gap:4px" },
           el("span", { class: "mini" }, clave + (req.indexOf(clave) >= 0 ? " ·" : "")),
           def.enum
@@ -2461,7 +2461,7 @@ function tarjetaConsola() {
                 placeholder: def.description || "" }),
           def.enum && def.description ? el("span", { class: "peq gris" }, def.description) : null)));
       if (!Object.keys(esquema.properties || {}).length)
-        campos.replaceChildren(nota("Esta herramienta no lleva argumentos."));
+        poner(campos, nota("Esta herramienta no lleva argumentos."));
     }
     sel.addEventListener("change", () => { montar(); salida.replaceChildren(); });
     montar();
@@ -2470,7 +2470,7 @@ function tarjetaConsola() {
         el("button", { class: "btn", onclick: async (ev) => {
           const boton = ev.currentTarget;
           boton.disabled = true;
-          salida.replaceChildren(espera("Ejecutando " + sel.value + "…"));
+          poner(salida, espera("Ejecutando " + sel.value + "…"));
           const args = {};
           for (const nodo of campos.querySelectorAll("[data-arg]")) {
             const v = nodo.value.trim();
@@ -2484,7 +2484,7 @@ function tarjetaConsola() {
           }
           const d = await api.h(sel.value, args);
           boton.disabled = false;
-          salida.replaceChildren(volcado(d));
+          poner(salida, volcado(d));
         } }, "Ejecutar")),
       descripcion, campos, salida,
       nota(`Las ${lista.length} herramientas que ve la IA, tal cual. Lo que sale es el JSON `
@@ -2818,7 +2818,7 @@ const NAV = [
   ["memoria", "Memoria", '<ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>'],
 ];
 function nav(activa) {
-  $("#nav").replaceChildren(...NAV.map((fila) =>
+  poner($("#nav"), ...NAV.map((fila) =>
     el("a", { href: "#/" + fila[0], class: fila[0] === activa ? "on" : "" },
       el("span", { html: svg(fila[2]) }), fila[1], el("span", { class: "punto" }))));
 }
@@ -2839,12 +2839,12 @@ async function pulso() {
   const e = await api.get("/api/estado");
   const nodo = $("#pulso");
   if (!e || e.error) {
-    nodo.replaceChildren(el("span", { class: "led mal" }),
+    poner(nodo, el("span", { class: "led mal" }),
       el("span", {}, e && e.sin_clave ? "hace falta la clave" : "sin servidor"));
     return;
   }
   const m = e.memoria || {};
-  nodo.replaceChildren(el("span", { class: "led " + (m.partidos ? "" : "off") }),
+  poner(nodo, el("span", { class: "led " + (m.partidos ? "" : "off") }),
     el("span", {}, m.partidos ? `${m.partidos} partidos` : "memoria vacía"));
 }
 

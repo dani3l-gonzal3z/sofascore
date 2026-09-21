@@ -771,6 +771,66 @@ def cmd_resultados(args: argparse.Namespace) -> int:
             cliente.close()
 
 
+def cmd_historia(args: argparse.Namespace) -> int:
+    """Traerse años de partidos de golpe, en vez de seis por equipo."""
+    from .. import ajustes as modulo_ajustes
+    from ..historia import plan, traer
+
+    guardados = modulo_ajustes.cargar(getattr(args, "ajustes", None))
+    suyo = guardados.get("historia") or {}
+    anos = args.anos or suyo.get("anos", 3)
+    secciones = ([s.strip() for s in args.secciones.split(",") if s.strip()]
+                 if args.secciones else list(suyo.get("secciones") or []))
+    grupos = ([g.strip() for g in args.grupos.split(",") if g.strip()]
+              if args.grupos else modulo_ajustes.grupos_de(guardados))
+    maximo = args.max if args.max is not None else suyo.get("max", 0)
+
+    almacen = _almacen(args)
+    cliente = comun.construir_cliente(args)
+    try:
+        previsto = plan(cliente, almacen, grupos, anos=anos, secciones=secciones)
+        imprimir(f"{previsto['ligas']} competiciones · {previsto['temporadas']} "
+                 f"temporadas · desde {previsto['desde']}")
+        imprimir(f"Con {', '.join(secciones) or 'las secciones de siempre'}: "
+                 f"unos {previsto['partidos_estimados']:,} partidos y "
+                 f"{previsto['peticiones_estimadas']:,} peticiones."
+                 .replace(",", "."))
+        imprimir("")
+        for linea in envolver(previsto["aviso"], 74):
+            imprimir(linea)
+        if args.plan:
+            imprimir("")
+            for liga in previsto["por_liga"]:
+                if liga.get("error"):
+                    imprimir(f"  ✗ {liga['liga']}: {liga['error']}")
+                else:
+                    imprimir(f"  {liga['liga']}: {liga['temporadas']} temporadas")
+            imprimir("")
+            imprimir("Eso es el plan. Quítale --plan para traerlo de verdad.")
+            return 0
+
+        imprimir("")
+        salida = traer(cliente, almacen, grupos, anos=anos, secciones=secciones,
+                       maximo=maximo, avisar=imprimir)
+        imprimir("")
+        imprimir(f"{salida['guardados']} traídos · {salida['ya_estaban']} ya estaban "
+                 f"· {salida['sin_estadisticas']} sin estadísticas · "
+                 f"{salida['fallos']} fallos · {salida['peticiones']} peticiones")
+        if not salida["completo"]:
+            imprimir("")
+            imprimir("Se ha parado en el tope. Vuelve a darle y sigue por donde iba: "
+                     "lo que ya está no se vuelve a pedir.")
+        imprimir("")
+        for linea in envolver(salida["como_leerlo"], 74):
+            imprimir(linea)
+        depuracion(args, cliente)
+        return 0
+    finally:
+        almacen.close()
+        if cliente is not None:
+            cliente.close()
+
+
 def registrar(sub, comun_p, informe, listado) -> None:
     """Añade los comandos de la memoria."""
     base = argparse.ArgumentParser(add_help=False)
@@ -919,6 +979,29 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_briefing.add_argument("--no-guardar", action="store_true", help="Solo por pantalla.")
     p_briefing.add_argument("--quiet", action="store_true", help="Sin volcarlo por pantalla.")
     p_briefing.set_defaults(func=cmd_briefing)
+
+    p_historia = sub.add_parser(
+        "historia", parents=[comun_p, base],
+        help="Trae años de partidos de golpe, no seis por equipo.",
+        description="La memoria se llenaba partido a partido, y así no se junta "
+                    "muestra: para que un perfil de equipo signifique algo hacen "
+                    "falta un par de temporadas. Esto recorre cada competición "
+                    "temporada a temporada hacia atrás. Se puede cortar y seguir: "
+                    "lo que ya está guardado no se vuelve a pedir, así que la "
+                    "segunda vez cuesta mucho menos. Mira antes lo que va a costar "
+                    "con --plan.",
+    )
+    p_historia.add_argument("--anos", "--años", type=int, dest="anos",
+                            help="Cuántos años hacia atrás (por defecto, los ajustes).")
+    p_historia.add_argument("--grupos", help="Competiciones, separadas por comas.")
+    p_historia.add_argument("--secciones",
+                            help="Qué pedir de cada partido, separado por comas. "
+                                 "Cada una es una petición más por partido.")
+    p_historia.add_argument("--max", type=int,
+                            help="Tope de peticiones de esta tanda. 0 = sin tope.")
+    p_historia.add_argument("--plan", action="store_true",
+                            help="Solo dice lo que costaría, sin traer nada.")
+    p_historia.set_defaults(func=cmd_historia)
 
     p_resultados = sub.add_parser(
         "resultados", parents=[comun_p, base],

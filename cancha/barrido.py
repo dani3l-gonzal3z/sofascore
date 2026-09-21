@@ -162,11 +162,16 @@ def guardar_partido(
     evento: Event,
     progreso: Progreso,
     forzar: bool = False,
+    secciones: list[str] | None = None,
 ) -> bool:
     """Trae el detalle de un partido y lo guarda. Devuelve si ha hecho falta pedirlo.
 
     Un partido ya guardado no se vuelve a pedir: es lo que hace que el barrido
     se pueda repetir y reanudar sin coste.
+
+    `secciones` elige qué se le pide a la fuente de cada partido. Vacío = las de
+    siempre. Cada sección es **una petición más por partido**, así que esto es lo
+    que decide si traerse tres años cuesta seis mil peticiones o veinte mil.
     """
     if not evento.is_finished:
         # Uno por jugar no tiene estadísticas; se guarda la cabecera y ya.
@@ -180,7 +185,7 @@ def guardar_partido(
         return False
     try:
         antes = cliente.stats.requests
-        informe = build_report(cliente, evento, sections=SECCIONES)
+        informe = build_report(cliente, evento, sections=list(secciones or SECCIONES))
         almacen.guardar_informe(informe)
         progreso.peticiones += cliente.stats.requests - antes
         if not almacen.tiene(evento.id):

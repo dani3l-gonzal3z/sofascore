@@ -85,6 +85,12 @@ class Servidor:
         self.barrido = {"en_marcha": False, "lineas": [], "resumen": None,
                         "empezado": None, "terminado": None}
         self._hilo_barrido: threading.Thread | None = None
+        #: Los trabajos largos que no caben en una petición. El briefing de un
+        #: día con doscientos partidos son miles de peticiones y varios minutos:
+        #: contestarlo de una sola vez es garantizar que el navegador se rinda
+        #: antes. Cada uno va en su hilo, apunta lo que hace y se puede parar.
+        self.tareas: dict[str, dict] = {}
+        self._hilos: dict[str, threading.Thread] = {}
 
     # --- herramientas ---
 
@@ -205,6 +211,115 @@ class Servidor:
     def borrar_dictamen(self, dictamen_id: int) -> dict:
         with self.cerrojo:
             return {"borrado": self.sesion.almacen.borrar_dictamen(int(dictamen_id))}
+
+    # --- trabajos largos ---
+
+    def estado_tarea(self, nombre: str) -> dict:
+        """Cómo va un trabajo largo. Las líneas, recortadas a las últimas."""
+        tarea = self.tareas.get(nombre)
+        if tarea is None:
+            return {"nombre": nombre, "en_marcha": False, "lineas": [],
+                    "resumen": None, "nunca": True}
+        return {k: (v[-60:] if k == "lineas" else v) for k, v in tarea.items()
+                if k != "parar"}
+
+    def parar_tarea(self, nombre: str) -> dict:
+        """Le pide a un trabajo que pare. No lo mata: le dice que se pare solo.
+
+        Matar un hilo a mitad dejaría la memoria escrita a medias. Lo que se hace
+        es levantar una bandera que el trabajo mira entre partido y partido, así
+        que parar tarda lo que tarde el que esté en marcha, y ni un paso más.
+        """
+        tarea = self.tareas.get(nombre)
+        if not tarea or not tarea["en_marcha"]:
+            return {"error": f"No hay ningún «{nombre}» en marcha."}
+        tarea["parar"].set()
+        tarea["lineas"].append("Parando en cuanto acabe lo que tiene entre manos…")
+        return self.estado_tarea(nombre)
+
+    def _lanzar(self, nombre: str, trabajo) -> dict:
+        """Arranca un trabajo en su hilo, si no hay ya uno de lo mismo.
+
+        `trabajo` recibe dos cosas: dónde escribir lo que va haciendo, y una
+        función que le dice si puede seguir. Nada más: así el trabajo no sabe
+        nada del servidor ni de HTTP, y se puede probar suelto.
+        """
+        si_hay = self.tareas.get(nombre)
+        if si_hay and si_hay["en_marcha"]:
+            return {"error": f"Ya hay un «{nombre}» en marcha.",
+                    **self.estado_tarea(nombre)}
+        parar = threading.Event()
+        tarea = {"nombre": nombre, "en_marcha": True, "lineas": [], "resumen": None,
+                 "empezado": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                 "terminado": None, "parar": parar}
+        self.tareas[nombre] = tarea
+
+        def correr() -> None:
+            try:
+                tarea["resumen"] = trabajo(tarea["lineas"].append,
+                                           lambda: not parar.is_set())
+            except Exception as exc:  # noqa: BLE001 - se enseña, no se esconde
+                tarea["lineas"].append(f"error: {exc}")
+                tarea["resumen"] = {"error": str(exc)}
+            finally:
+                tarea["en_marcha"] = False
+                tarea["terminado"] = datetime.now(timezone.utc).isoformat(
+                    timespec="seconds")
+
+        hilo = threading.Thread(target=correr, daemon=True)
+        self._hilos[nombre] = hilo
+        hilo.start()
+        return self.estado_tarea(nombre)
+
+    def esperar_tarea(self, nombre: str, segundos: float = 30) -> None:
+        """Para los tests: espera a que un trabajo acabe."""
+        hilo = self._hilos.get(nombre)
+        if hilo:
+            hilo.join(segundos)
+
+    def lanzar_briefing(self, fecha: str | None, grupos: list[str] | None) -> dict:
+        """El briefing del día, en segundo plano.
+
+        Antes iba dentro de la petición, y por eso «no funcionaba muy bien»: un
+        día normal son doscientos y pico partidos, y de **cada uno** se pide la
+        previa, la evolución de los dos equipos y los duelos de sus jugadores.
+        Eso son miles de peticiones y varios minutos; el navegador se rinde mucho
+        antes, y mientras tanto el cerrojo dejaba la página entera congelada.
+        """
+        from ..briefing import briefing, guardar
+
+        def trabajo(decir, puede_seguir):
+            with self.cerrojo:
+                datos = briefing(self.sesion.almacen, self.sesion.cliente,
+                                 fecha=fecha, grupos=grupos, avisar=decir,
+                                 puede_seguir=puede_seguir)
+            guardar(datos, self.carpeta_briefings)
+            return {"fecha": datos["fecha"], "partidos": datos["total"],
+                    "completo": datos.get("completo", True)}
+
+        return self._lanzar("briefing", trabajo)
+
+    def lanzar_historia(self, anos: int, grupos: list[str] | None,
+                        secciones: list[str] | None, maximo: int) -> dict:
+        """Traerse años de partidos, en segundo plano. Horas de trabajo."""
+        from ..historia import traer
+
+        def trabajo(decir, puede_seguir):
+            with self.cerrojo:
+                return traer(self.sesion.cliente, self.sesion.almacen, grupos,
+                             anos=anos, secciones=secciones, maximo=maximo,
+                             avisar=decir, puede_seguir=puede_seguir)
+
+        return self._lanzar("historia", trabajo)
+
+    def plan_historia(self, anos: int, grupos: list[str] | None,
+                      secciones: list[str] | None) -> dict:
+        """Lo que costaría traerse esa historia, sin traer nada."""
+        from ..historia import plan
+
+        with self.cerrojo:
+            return plan(self.sesion.cliente, self.sesion.almacen, grupos,
+                        anos=anos, secciones=secciones)
 
     # --- agentes ---
 
@@ -724,6 +839,8 @@ class Manejador(BaseHTTPRequestHandler):
             return self._json(self.app.red())
         if ruta == "/api/ajustes":
             return self._json(self.app.ajustes())
+        if ruta.startswith("/api/tarea/"):
+            return self._json(self.app.estado_tarea(ruta.rsplit("/", 1)[-1]))
         if ruta.startswith("/api/briefing/"):
             fecha = ruta.rsplit("/", 1)[-1]
             datos = self.app.briefing(fecha)
@@ -782,6 +899,22 @@ class Manejador(BaseHTTPRequestHandler):
         if ruta == "/api/clasificacion":
             return self._json(self.app.clasificacion(
                 cuerpo.get("desde") or None, cuerpo.get("hasta") or None))
+        if ruta == "/api/briefing":
+            grupos = cuerpo.get("grupos")
+            if isinstance(grupos, str):
+                grupos = [g for g in grupos.split(",") if g]
+            return self._json(self.app.lanzar_briefing(
+                cuerpo.get("fecha") or None, grupos or None))
+        if ruta == "/api/historia/plan":
+            return self._json(self.app.plan_historia(
+                int(cuerpo.get("anos") or 3), cuerpo.get("grupos") or None,
+                cuerpo.get("secciones") or None))
+        if ruta == "/api/historia":
+            return self._json(self.app.lanzar_historia(
+                int(cuerpo.get("anos") or 3), cuerpo.get("grupos") or None,
+                cuerpo.get("secciones") or None, int(cuerpo.get("max") or 0)))
+        if ruta == "/api/tarea/parar":
+            return self._json(self.app.parar_tarea(str(cuerpo.get("nombre") or "")))
         if ruta == "/api/cache":
             return self._json(self.app.limpiar_cache())
         if ruta == "/api/ligas":

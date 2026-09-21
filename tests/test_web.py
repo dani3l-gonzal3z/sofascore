@@ -8,6 +8,7 @@ y una memoria en un fichero temporal, y se le habla por HTTP con
 from __future__ import annotations
 
 import json
+import pathlib
 import threading
 from http.client import HTTPConnection
 
@@ -886,3 +887,41 @@ def test_la_clasificacion_contesta_aunque_no_haya_nadie(servidor):
     assert datos["clasificacion"] == []
     assert datos["minimo"] > 0
     assert any("CLASIFICACIÓN" in linea for linea in datos["lineas"])
+
+
+# ------------------------------------------------------- la palabra «null»
+
+def test_nadie_mete_hijos_en_el_dom_sin_filtrar_los_nulos():
+    """`replaceChildren` convierte un null en la palabra «null» en la pantalla.
+
+    Salió así: en la tarjeta «memoria de este partido» aparecía un `null` suelto
+    entre las cifras y la nota, porque un `x ? algo : null` y un `nota("")` —que
+    devuelve null cuando no hay nada que decir— llegaban tal cual. `el()` y
+    `poner()` los filtran; llamar a `replaceChildren` a pelo, no.
+
+    Esta prueba es un cepo: mientras todo pase por `poner`, no puede volver.
+    """
+    import re
+
+    pagina = (pathlib.Path("cancha/web/estatico/index.html")
+              .read_text(encoding="utf-8"))
+    sueltas = [linea.strip() for linea in pagina.splitlines()
+               if ".replaceChildren(" in linea
+               # El de dentro del propio `poner`, que es quien filtra.
+               and "nodo.replaceChildren(...hijos" not in linea
+               # Vaciar un nodo no pasa hijos, así que no hay null que colar.
+               and not re.search(r"\.replaceChildren\(\s*\)", linea)
+               # Y los comentarios, que hablan de esto precisamente.
+               and not linea.strip().startswith(("/*", "*", "//"))]
+    assert sueltas == [], (
+        "Estas llamadas meten hijos en el DOM sin filtrar los nulos; usa "
+        "`poner(nodo, ...)`:\n  " + "\n  ".join(sueltas))
+
+
+def test_poner_es_el_unico_que_toca_replacechildren_con_hijos():
+    """Y que `poner` siga filtrando, que es lo único que sostiene lo de arriba."""
+    pagina = (pathlib.Path("cancha/web/estatico/index.html")
+              .read_text(encoding="utf-8"))
+    cuerpo = pagina[pagina.index("function poner("):]
+    cuerpo = cuerpo[:cuerpo.index("\n}")]
+    assert "filter" in cuerpo and "null" in cuerpo and "undefined" in cuerpo

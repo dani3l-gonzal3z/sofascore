@@ -20,6 +20,7 @@ vez de con un análisis, que es lo honesto.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -43,12 +44,40 @@ def briefing(
     ultimos: int = 6,
     jugadores: int = 3,
     duelos_por_equipo: int = 2,
+    avisar: Callable[[str], None] | None = None,
+    puede_seguir: Callable[[], bool] | None = None,
 ) -> dict:
-    """Todo lo que se sabe de todos los partidos de un día."""
+    """Todo lo que se sabe de todos los partidos de un día.
+
+    Esto **tarda**: un día normal son doscientos y pico partidos, y de cada uno
+    se monta la previa entera, la evolución de estilo de los dos equipos y los
+    duelos de sus jugadores a seguir. Son miles de peticiones y varios minutos.
+
+    Por eso `avisar` va contando por dónde va y `puede_seguir` deja cortarlo: un
+    briefing a medias con ochenta partidos hechos vale mucho más que nada, así
+    que lo que se lleve hecho se guarda igual y queda dicho que está incompleto.
+    """
+    decir = avisar or (lambda _t: None)
+    sigue = puede_seguir or (lambda: True)
     dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    decir(f"Buscando lo que se juega el {dia}…")
     eventos = agenda(cliente, dia, grupos)
-    partidos = [_partido(almacen, cliente, evento, ultimos, jugadores, duelos_por_equipo)
-                for evento in eventos]
+    decir(f"{len(eventos)} partidos. Ahora, uno a uno: cómo llegan, si han "
+          "cambiado y qué les pasa a sus jugadores contra el rival de hoy.")
+
+    partidos, completo = [], True
+    for numero, evento in enumerate(eventos, 1):
+        if not sigue():
+            decir(f"Parado a petición tuya, con {len(partidos)} de {len(eventos)} "
+                  "hechos. Lo hecho se guarda.")
+            completo = False
+            break
+        partidos.append(_partido(almacen, cliente, evento, ultimos, jugadores,
+                                 duelos_por_equipo))
+        # Cada diez, no cada uno: doscientas líneas no son un progreso, son ruido.
+        if numero % 10 == 0 or numero == len(eventos):
+            decir(f"{numero}/{len(eventos)} · {evento.home.name} - {evento.away.name}")
+
     competiciones = sorted({p["partido"]["competicion"] for p in partidos})
     return {
         "fecha": dia,
@@ -56,13 +85,51 @@ def briefing(
         "partidos": partidos,
         "competiciones": competiciones,
         "total": len(partidos),
+        "de_cuantos": len(eventos),
+        "completo": completo,
         "memoria": almacen.resumen(),
+        "que_lleva": QUE_LLEVA,
         "lo_que_no_dice": (
             "Esto describe cómo llegan, no quién va a ganar. Las rachas son "
             "rachas, los hallazgos contra un sistema son de muestras cortas y el "
             "mercado es una previsión, no un resultado."
         ),
     }
+
+
+#: Qué trae cada partido del briefing y de dónde sale cada cosa. Está aquí, y
+#: viaja dentro del propio briefing, porque «¿con qué ha calculado esto?» es la
+#: primera pregunta razonable ante un número, y no tener respuesta a mano
+#: convierte un análisis en un horóscopo.
+QUE_LLEVA = [
+    {"apartado": "Cómo llega cada equipo",
+     "sale_de": "cancha.previa",
+     "con_que": "Los últimos partidos guardados de cada uno, de la memoria. No "
+                "se piden a la fuente: si no has barrido, sale corto y lo dice.",
+     "muestra": "«ultimos», 6 por defecto"},
+    {"apartado": "Cómo juega, comparado con su liga",
+     "sale_de": "cancha.perfiles",
+     "con_que": "Las estadísticas de esos partidos contra la media de su "
+                "competición en la memoria. Por eso una liga con pocos partidos "
+                "guardados da «sin media de liga con la que comparar todavía»."},
+    {"apartado": "Si ha cambiado",
+     "sale_de": "cancha.perfiles.evolucion_de_estilo",
+     "con_que": "Compara sus partidos recientes con los de antes y solo cuenta "
+                "lo que se mueve más de lo que se movería por azar."},
+    {"apartado": "Jugador contra sistema",
+     "sale_de": "cancha.sistemas.duelo",
+     "con_que": "Cómo rinde cada jugador a seguir contra equipos que plantean lo "
+                "mismo que el rival de hoy, con su prueba de significación. Solo "
+                "entra lo que la pasa: un briefing con cien números no se lee."},
+    {"apartado": "Lo que dice el mercado",
+     "sale_de": "las cuotas guardadas",
+     "con_que": "Las cuotas de la fuente, convertidas a probabilidad quitándoles "
+                "el margen de la casa. Es una previsión, no un resultado."},
+    {"apartado": "El árbitro",
+     "sale_de": "cancha.perfiles",
+     "con_que": "Sus partidos en la memoria: tarjetas y faltas por partido "
+                "contra la media. Sin árbitro designado todavía, se dice."},
+]
 
 
 def _partido(almacen: Almacen, cliente: SofascoreClient, evento: Event,
@@ -231,4 +298,5 @@ def cargar(fecha: str, carpeta: str | Path = CARPETA_POR_DEFECTO) -> dict[str, A
     return json.loads(fichero.read_text(encoding="utf-8"))
 
 
-__all__ = ["briefing", "a_markdown", "guardar", "guardados", "cargar", "CARPETA_POR_DEFECTO"]
+__all__ = ["CARPETA_POR_DEFECTO", "QUE_LLEVA", "a_markdown", "briefing", "cargar",
+           "guardar", "guardados"]
