@@ -299,7 +299,14 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
         imprimir("  La memoria está vacía. La guardia la llenará esta noche, o")
         imprimir("  puedes empezar ya con:  cancha guardia --una-vez")
 
-    # 2. La guardia, en segundo plano.
+    # 2. La guardia, en segundo plano. El bot se crea después, así que la
+    #    guardia publica a través de este hueco, que se rellena cuando exista.
+    publicador: dict = {"bot": None}
+
+    def publicar(dia: dict, historiales: dict) -> list:
+        return publicador["bot"].publicar_picks(dia, historiales) \
+            if publicador["bot"] is not None else []
+
     if not args.sin_guardia and suya.get("activa", True):
         def correr_guardia() -> None:
             from ..almacen import Almacen as AlmacenHilo
@@ -321,7 +328,8 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
                         carpeta_briefings=opciones["briefings"],
                         registro=opciones["registro"], en_pantalla=False,
                         releer=lambda: modulo_ajustes.cargar(
-                            getattr(args, "ajustes", None)))
+                            getattr(args, "ajustes", None)),
+                        publicar=publicar)
             finally:
                 propio.close()
                 suyo.close()
@@ -397,6 +405,7 @@ def cmd_arrancar(args: argparse.Namespace) -> int:
     # Para que la pestaña Ajustes pueda decir si el bot está escuchando de
     # verdad, en vez de dejarte adivinándolo desde el móvil.
     aplicacion.bot = bot
+    publicador["bot"] = bot
     a_la_red = guardados["web"]["lan"] and not args.solo_local
     host = "0.0.0.0" if a_la_red else "127.0.0.1"
     imprimir("")

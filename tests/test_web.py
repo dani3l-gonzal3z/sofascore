@@ -1035,3 +1035,18 @@ def test_preguntar_por_un_trabajo_que_nunca_ha_corrido_no_revienta(servidor):
     _, _, cuerpo = _pedir(servidor, "GET", "/api/tarea/loquesea")
     assert cuerpo["nunca"] is True
     assert cuerpo["en_marcha"] is False
+
+
+def test_cada_boton_de_seguro_lleva_a_un_modo_que_la_vista_acepta():
+    """«Cómo acierto» nunca se abrió: la vista solo aceptaba «calibrar» y todo lo
+    demás lo convertía en «hoy», así que el botón llevaba a la pantalla de hoy y
+    el registro de aciertos era inalcanzable desde la página."""
+    import re
+
+    pagina = _pagina()
+    destinos = set(re.findall(r'ir\("#/seguro/([a-z]+)', pagina))
+    aceptados = re.search(r"modo = \[([^\]]+)\]\.includes\(modo\)", pagina)
+    assert aceptados, "la vista de Seguro tiene que decir qué modos acepta"
+    modos = set(re.findall(r'"([a-z]+)"', aceptados.group(1))) | {"hoy"}
+    assert destinos <= modos, f"botones que llevan a ninguna parte: {destinos - modos}"
+    assert {"acierto", "picks"} <= destinos

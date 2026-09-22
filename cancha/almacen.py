@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 #: Sube cuando el esquema cambia de forma incompatible.
-VERSION_ESQUEMA = 8
+VERSION_ESQUEMA = 9
 
 #: El DDL de `predicciones`, aparte del resto del esquema y con un hueco para el
 #: nombre de la tabla, porque lo necesitan dos sitios: `ESQUEMA`, que la crea en
@@ -217,6 +217,76 @@ CREATE INDEX IF NOT EXISTS idx_ligas_id ON ligas(id);
 """
 
 _ESQUEMA_DESPUES = """
+
+-- Todos los mercados, todas las casas, **cada vez que se miran**. La tabla
+-- `cuotas` de arriba guarda un 1X2 por partido y lo sobrescribe: la cuota de
+-- apertura y la de cierre eran la misma fila. Aquí nada se pisa, así que se ve
+-- hacia dónde se mueve cada mercado y cuál era el precio de cierre, que es la
+-- vara con la que se mide si alguien sabe algo que el mercado no sabía.
+CREATE TABLE IF NOT EXISTS cuotas_mercado (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    partido_id      INTEGER NOT NULL,
+    fuente          TEXT NOT NULL,      -- sofascore, betfair, the-odds-api
+    casa            TEXT NOT NULL,      -- bet365, pinnacle, betfair-exchange…
+    mercado         TEXT NOT NULL,      -- 1x2, goles, marcador, corners…
+    linea           TEXT NOT NULL DEFAULT '',   -- 2.5, -0.5; vacío si no hay
+    seleccion       TEXT NOT NULL,      -- local, mas, si, 2-1…
+    cuota           REAL NOT NULL,
+    cuota_inicial   REAL,               -- la de apertura, si la fuente la da
+    prob            REAL,               -- sin margen, dentro de su mercado
+    margen          REAL,               -- lo que cobra la casa en ese mercado
+    visto_en        TEXT NOT NULL,
+    horas_antes     REAL,
+    UNIQUE (partido_id, fuente, casa, mercado, linea, seleccion, visto_en),
+    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cuotas_mercado_partido
+    ON cuotas_mercado(partido_id, mercado);
+
+-- Lo que se ha hablado de un partido con el modelo, pregunta a pregunta. Como
+-- los dictámenes: se vuelve mañana y la conversación sigue ahí.
+CREATE TABLE IF NOT EXISTS charlas (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    partido_id      INTEGER NOT NULL,
+    hecho_el        TEXT DEFAULT CURRENT_TIMESTAMP,
+    pregunta        TEXT NOT NULL,
+    respuesta       TEXT,
+    modelo          TEXT,
+    herramientas    TEXT,       -- las que pidió para contestar, en JSON
+    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_charlas_partido ON charlas(partido_id);
+
+-- Los picks: una selección, **el precio al que se dio** y cómo acabó. Aparte del
+-- registro porque son otra cosa: allí hay probabilidades y aquí hay apuestas con
+-- su cuota, que es lo único que deja calcular un rendimiento de verdad. Y como en
+-- el registro, lo apuntado no se toca: el primero que entra es el que cuenta.
+CREATE TABLE IF NOT EXISTS picks (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    fecha           TEXT NOT NULL,
+    nivel           TEXT NOT NULL,          -- gratis, premium
+    partido_id      INTEGER NOT NULL,
+    suceso          TEXT,                   -- «Más de 2,5 goles», para leerlo
+    mercado         TEXT NOT NULL,          -- como en el registro: mas_2_5…
+    seleccion       TEXT NOT NULL,
+    prob_nuestra    REAL NOT NULL,
+    prob_mercado    REAL,
+    cuota           REAL NOT NULL,          -- a la que se dio
+    casa            TEXT,
+    valor           REAL,                   -- prob_nuestra × cuota − 1
+    regla           TEXT,                   -- qué versión de la regla lo eligió
+    emitido_el      TEXT DEFAULT CURRENT_TIMESTAMP,
+    horas_antes     REAL,
+    resuelto        INTEGER DEFAULT 0,
+    acerto          INTEGER,
+    valor_real      TEXT,
+    beneficio       REAL,                   -- a una unidad
+    cuota_cierre    REAL,
+    resuelto_el     TEXT,
+    UNIQUE (fecha, nivel, partido_id, mercado, seleccion),
+    FOREIGN KEY (partido_id) REFERENCES partidos(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_picks_nivel ON picks(nivel, resuelto);
 
 -- Lo que ha dicho un modelo sobre un partido. Se guarda entero y para siempre:
 -- cuesta dinero (si va por la nube) y tiempo, y sobre todo es lo que dijo
@@ -501,6 +571,118 @@ class Almacen:
         ahora = datetime.now(timezone.utc).timestamp()
         return round((filas[0]["momento"] - ahora) / 3600, 2)
 
+    def guardar_mercados(self, partido_id: int, filas: list[dict],
+                         fuente: str = "sofascore") -> int:
+        """Guarda una foto de todos los mercados de un partido. Devuelve cuántas.
+
+        Es una **foto**: se apila con las anteriores, no las sustituye. Así la
+        primera que se tomó es la apertura, la última antes del saque es el
+        cierre, y lo de en medio es cómo se ha movido.
+
+        Si la foto es idéntica a la última —mismas cuotas en todo—, no se guarda:
+        mirar diez veces un mercado que no se mueve no son diez datos.
+        """
+        if not filas:
+            return 0
+        ultima = {(f["casa"], f["mercado"], f["linea"], f["seleccion"]): f["cuota"]
+                  for f in self.mercados_de(partido_id, fuente=fuente)}
+        nueva = {(f["casa"], f["mercado"], f.get("linea") or "", f["seleccion"]):
+                 f["cuota"] for f in filas}
+        if ultima and ultima == nueva:
+            return 0
+        momento = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        horas = self._horas_antes(partido_id)
+        cursor = self._conexion.executemany(
+            """INSERT OR IGNORE INTO cuotas_mercado
+               (partido_id, fuente, casa, mercado, linea, seleccion, cuota,
+                cuota_inicial, prob, margen, visto_en, horas_antes)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            [(partido_id, fuente, f["casa"], f["mercado"], f.get("linea") or "",
+              f["seleccion"], f["cuota"], f.get("cuota_inicial"), f.get("prob"),
+              f.get("margen"), momento, horas) for f in filas])
+        self._conexion.commit()
+        return cursor.rowcount or 0
+
+    def mercados_de(self, partido_id: int, fuente: str | None = None,
+                    mercado: str | None = None, cual: str = "ultima") -> list[dict]:
+        """Los mercados de un partido: la última foto de cada casa, o la primera.
+
+        ``cual`` es ``ultima`` (lo de ahora, o el cierre si ya se jugó) o
+        ``primera`` (la apertura que vimos). Cada casa tiene su propia última
+        foto: una puede haberse mirado ayer y otra hace diez minutos.
+        """
+        orden = "MAX" if cual == "ultima" else "MIN"
+        condiciones = ["c.partido_id = ?"]
+        parametros: list = [partido_id]
+        if fuente:
+            condiciones.append("c.fuente = ?")
+            parametros.append(fuente)
+        if mercado:
+            condiciones.append("c.mercado = ?")
+            parametros.append(mercado)
+        donde = " AND ".join(condiciones)
+        return self.consulta(
+            f"""SELECT c.* FROM cuotas_mercado c
+                JOIN (SELECT fuente, casa, {orden}(visto_en) AS cuando
+                      FROM cuotas_mercado WHERE partido_id = ?
+                      GROUP BY fuente, casa) u
+                  ON u.fuente = c.fuente AND u.casa = c.casa AND u.cuando = c.visto_en
+                WHERE {donde}
+                ORDER BY c.mercado, c.linea, c.casa, c.seleccion""",
+            (partido_id, *parametros))
+
+    def movimiento_de(self, partido_id: int, mercado: str = "1x2",
+                      linea: str = "") -> list[dict]:
+        """Cómo se ha movido un mercado: apertura, ahora y cuánto ha cambiado.
+
+        La apertura es la primera foto nuestra o, si la fuente la manda —como
+        Sofascore—, su cuota inicial, que es anterior a cualquier cosa que
+        hayamos mirado.
+        """
+        primeras = {(f["casa"], f["seleccion"]): f for f in self.mercados_de(
+            partido_id, mercado=mercado, cual="primera") if f["linea"] == linea}
+        salida = []
+        for ahora in self.mercados_de(partido_id, mercado=mercado):
+            if ahora["linea"] != linea:
+                continue
+            antes = primeras.get((ahora["casa"], ahora["seleccion"])) or {}
+            apertura = ahora.get("cuota_inicial") or antes.get("cuota")
+            salida.append({
+                "casa": ahora["casa"], "seleccion": ahora["seleccion"],
+                "apertura": apertura, "ahora": ahora["cuota"],
+                # Una cuota que baja es que el dinero va hacia ahí.
+                "cambio": (round(ahora["cuota"] / apertura - 1, 4)
+                           if apertura else None),
+                "prob": ahora.get("prob"),
+            })
+        return salida
+
+    def guardar_charla(self, partido_id: int, pregunta: str, respuesta: str,
+                       modelo: str = "", herramientas: list | None = None) -> int:
+        cursor = self._conexion.execute(
+            """INSERT INTO charlas (partido_id, pregunta, respuesta, modelo, herramientas)
+               VALUES (?,?,?,?,?)""",
+            (partido_id, pregunta, respuesta, modelo,
+             json.dumps(herramientas or [], ensure_ascii=False)))
+        self._conexion.commit()
+        return int(cursor.lastrowid or 0)
+
+    def charla_de(self, partido_id: int, limite: int = 50) -> list[dict]:
+        """Lo hablado de un partido, de lo más viejo a lo más nuevo."""
+        filas = self.consulta(
+            """SELECT * FROM (SELECT * FROM charlas WHERE partido_id = ?
+                              ORDER BY id DESC LIMIT ?) ORDER BY id""",
+            (partido_id, limite))
+        for fila in filas:
+            fila["herramientas"] = json.loads(fila.get("herramientas") or "[]")
+        return filas
+
+    def borrar_charla(self, partido_id: int) -> int:
+        cursor = self._conexion.execute(
+            "DELETE FROM charlas WHERE partido_id = ?", (partido_id,))
+        self._conexion.commit()
+        return cursor.rowcount or 0
+
     def cuotas_de(self, partido_id: int) -> dict | None:
         """El 1X2 guardado de un partido, con quién era favorito."""
         from .cuotas import desde_fila
@@ -532,9 +714,24 @@ class Almacen:
             cuenta["estadisticas"] += 1
 
         self.guardar_formaciones(evento.id, informe.get("lineups"))
-        for seccion in ("odds_featured", "odds"):
+        for seccion in ("odds", "odds_featured"):
             if self.guardar_cuotas(evento.id, informe.get(seccion)):
                 cuenta["cuotas"] = 1
+                break
+        # Y todos los mercados, no solo el 1X2. En un partido ya jugado esto es
+        # el **cierre** de cada mercado: con la historia traída, es lo que deja
+        # medir al mercado de goles, de córners o de marcador exacto contra el
+        # nuestro en miles de partidos, y no solo en los que se jueguen a partir
+        # de hoy.
+        from .mercados import de_sofascore
+
+        for seccion in ("odds", "odds_featured"):
+            filas = de_sofascore(informe.get(seccion))
+            if filas:
+                # Se cuenta lo que trae el informe, como el resto de cuentas, y no
+                # lo escrito: una foto idéntica a la anterior no se vuelve a escribir.
+                self.guardar_mercados(evento.id, filas)
+                cuenta["mercados"] = len(filas)
                 break
 
         for jugador in informe.players():

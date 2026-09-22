@@ -37,7 +37,9 @@ from .models import Event
 #: rendimiento por jugador, que es justo lo que se quiere mirar. Las cuotas
 #: son baratas y valen oro: dicen quién era favorito, que es lo que separa
 #: «rinde mal contra bloque bajo» de «rinde mal cuando su equipo es favorito».
-SECCIONES = ["statistics", "lineups", "incidents", "shotmap", "odds_featured"]
+#: `odds` y no `odds_featured`: cuesta la misma petición y trae todos los
+#: mercados —goles, córners, marcador exacto— en vez de solo el 1X2.
+SECCIONES = ["statistics", "lineups", "incidents", "shotmap", "odds"]
 
 #: Los grupos y el catálogo viven en :mod:`cancha.ligas`, que además sabe
 #: descubrir el id de una competición que no tenga. Se reexportan aquí porque

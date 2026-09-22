@@ -146,7 +146,7 @@ class Servidor:
             self._analistas[clave] = Analista(
                 sesion=self.sesion, modelo=clave, url=self.ollama,
                 api_key=self.api_key, ca_bundle=self.ca_bundle,
-                sin_verificar=self.sin_verificar)
+                sin_verificar=self.sin_verificar, cerrojo=self.cerrojo)
         return self._analistas[clave]
 
     def estado_analista(self, modelo: str | None = None) -> dict:
@@ -167,10 +167,63 @@ class Servidor:
         estado.setdefault("modelo", modelo or self.modelo)
         return estado
 
-    def preguntar(self, pregunta: str, historial=None, modelo=None, al_paso=None) -> dict:
+    def preguntar(self, pregunta: str, historial=None, modelo=None, al_paso=None,
+                  partido: str = "", profundidad: str = "ficha") -> dict:
+        """Una pregunta al modelo. Con `partido`, la conversación es de ese partido.
+
+        Sin cerrojo aquí: lo coge el analista al ejecutar cada herramienta, que es
+        cuando se toca la memoria. Sostenerlo durante toda la respuesta dejaba la
+        página congelada los minutos que tarde un modelo de casa.
+        """
+        partido_id = None
+        if partido and not historial:
+            from ..charla import sistema
+
+            with self.cerrojo:
+                inicio = sistema(self.sesion.almacen, self.sesion.cliente, partido,
+                                 profundidad=profundidad)
+            if inicio.get("error"):
+                return {"error": inicio["error"]}
+            historial = [{"role": "system", "content": inicio["sistema"]}]
+            partido_id = inicio["partido_id"]
+        elif partido:
+            from ..previa import _resolver
+
+            with self.cerrojo:
+                evento = _resolver(self.sesion.almacen, partido, self.sesion.cliente)
+            partido_id = evento.id if evento else None
+        salida = self.analista(modelo).preguntar(pregunta, historial=historial,
+                                                 al_paso=al_paso)
+        if partido_id:
+            with self.cerrojo:
+                self.sesion.almacen.guardar_charla(
+                    partido_id, pregunta, salida.get("respuesta") or "",
+                    modelo=salida.get("modelo") or "",
+                    herramientas=[p["nombre"] for p in salida.get("pasos") or []
+                                  if p.get("tipo") == "herramienta"])
+            salida["partido_id"] = partido_id
+        return salida
+
+    def charla(self, partido: str) -> dict:
+        """Lo que ya se ha hablado de un partido, para seguir donde se dejó."""
+        from ..charla import SUGERIDAS
+        from ..previa import _resolver
+
         with self.cerrojo:
-            return self.analista(modelo).preguntar(pregunta, historial=historial,
-                                                   al_paso=al_paso)
+            evento = _resolver(self.sesion.almacen, partido, self.sesion.cliente)
+            if evento is None:
+                return {"error": "No encuentro ese partido."}
+            return {"partido_id": evento.id, "sugeridas": list(SUGERIDAS),
+                    "mensajes": self.sesion.almacen.charla_de(evento.id)}
+
+    def borrar_charla(self, partido: str) -> dict:
+        from ..previa import _resolver
+
+        with self.cerrojo:
+            evento = _resolver(self.sesion.almacen, partido, self.sesion.cliente)
+            if evento is None:
+                return {"error": "No encuentro ese partido."}
+            return {"borrados": self.sesion.almacen.borrar_charla(evento.id)}
 
     # --- dictamen ---
 
@@ -331,6 +384,45 @@ class Servidor:
         with self.cerrojo:
             return plan(self.sesion.cliente, self.sesion.almacen, grupos,
                         anos=anos, secciones=secciones)
+
+    # --- picks ---
+
+    def picks(self, fecha: str | None = None) -> dict:
+        """Los apuntados de ese día, y el historial de cada nivel. Sin calcular nada.
+
+        Calcular los de un día entero son cientos de pronósticos y una petición de
+        cuotas por partido: eso va por `lanzar_picks`, en segundo plano.
+        """
+        from ..picks import REGLA, apuntados, historial
+
+        dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self.cerrojo:
+            suyos = apuntados(self.sesion.almacen, dia)
+            historiales = {n: historial(self.sesion.almacen, n)
+                           for n in ("gratis", "premium")}
+        calculados = (self.tareas.get("picks") or {}).get("resumen") or {}
+        if not suyos and calculados.get("fecha") == dia:
+            suyos = calculados
+        return {"fecha": dia, "regla": REGLA, "dia": suyos,
+                "historial": historiales}
+
+    def lanzar_picks(self, fecha: str | None, apuntar_: bool = False) -> dict:
+        from ..ajustes import cargar, grupos_de
+        from ..picks import apuntar, del_dia
+
+        grupos = grupos_de(cargar(self.ruta_ajustes))
+
+        def trabajo(decir, _puede_seguir):
+            decir("Mirando cada partido del día contra el mercado…")
+            with self.cerrojo:
+                dia = del_dia(self.sesion.almacen, self.sesion.cliente, fecha=fecha,
+                              grupos=grupos)
+                if apuntar_:
+                    decir(f"{apuntar(self.sesion.almacen, dia)['apuntados']} apuntados.")
+            decir(f"{len(dia['premium'])} pasan la regla.")
+            return dia
+
+        return self._lanzar("picks", trabajo)
 
     # --- agentes ---
 
@@ -769,7 +861,12 @@ class Manejador(BaseHTTPRequestHandler):
             salida = self.app.preguntar(
                 pregunta, historial=cuerpo.get("historial"),
                 modelo=cuerpo.get("modelo"),
-                al_paso=lambda paso: escribir({"paso": paso.as_dict()}))
+                al_paso=lambda paso: escribir({"paso": paso.as_dict()}),
+                partido=str(cuerpo.get("partido") or ""),
+                profundidad=str(cuerpo.get("profundidad") or "ficha"))
+            if salida.get("error"):
+                escribir({"error": salida["error"]})
+                return None
             escribir({"fin": {k: v for k, v in salida.items() if k != "pasos"}})
         except OllamaNoDisponible as exc:
             with suppress(OSError):
@@ -926,6 +1023,15 @@ class Manejador(BaseHTTPRequestHandler):
                 cuerpo.get("secciones") or None, int(cuerpo.get("max") or 0)))
         if ruta == "/api/tarea/parar":
             return self._json(self.app.parar_tarea(str(cuerpo.get("nombre") or "")))
+        if ruta == "/api/charla":
+            return self._json(self.app.charla(str(cuerpo.get("partido") or "")))
+        if ruta == "/api/charla/borrar":
+            return self._json(self.app.borrar_charla(str(cuerpo.get("partido") or "")))
+        if ruta == "/api/picks":
+            return self._json(self.app.picks(cuerpo.get("fecha") or None))
+        if ruta == "/api/picks/calcular":
+            return self._json(self.app.lanzar_picks(cuerpo.get("fecha") or None,
+                                                    bool(cuerpo.get("apuntar"))))
         if ruta == "/api/cache":
             return self._json(self.app.limpiar_cache())
         if ruta == "/api/ligas":

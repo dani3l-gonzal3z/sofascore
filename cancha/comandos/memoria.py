@@ -771,6 +771,180 @@ def cmd_resultados(args: argparse.Namespace) -> int:
             cliente.close()
 
 
+def cmd_mercados(args: argparse.Namespace) -> int:
+    """Las casas contra nosotros: un partido, traer de fuera, o el marcador exacto."""
+    from .. import ajustes as modulo_ajustes
+    from ..registro import marcadores_frente_a_frente
+
+    almacen = _almacen(args)
+    cliente = None
+    try:
+        if args.traer:
+            from ..sources.casas import CasaNoDisponible, traer
+
+            guardados = modulo_ajustes.cargar(getattr(args, "ajustes", None))
+            try:
+                salida = traer(almacen, guardados, args.traer, dias=args.dias)
+            except CasaNoDisponible as exc:
+                imprimir(f"✗ {exc}")
+                return 1
+            imprimir(f"{salida['fuente']}: {salida['partidos']} partidos, "
+                     f"{salida['emparejados']} emparejados con los nuestros, "
+                     f"{salida['filas']} cuotas nuevas.")
+            if salida["cuantos_sin_pareja"]:
+                imprimir(f"{salida['cuantos_sin_pareja']} sin pareja (ligas que no "
+                         "sigues, o nombres que se escriben muy distinto):")
+                for nombre in salida["sin_pareja"][:10]:
+                    imprimir(f"    {nombre}")
+            return 0
+
+        if args.marcadores or not args.consulta:
+            datos = marcadores_frente_a_frente(almacen)
+            if not datos.get("casos"):
+                imprimir(datos["nota"])
+                return 0
+            imprimir(f"Marcador exacto, {datos['casos']} partidos jugados:")
+            imprimir("")
+            imprimir(f"{'':<26}{'nosotros':>10}{'mercado':>10}")
+            for etiqueta, clave in (("Prob. al que salió", "p_real"),
+                                    ("Log score (más es mejor)", "log"),
+                                    ("Acertó el primero", "top1"),
+                                    ("Estaba entre los 3", "top3")):
+                formato = ".3f" if clave == "log" else ".1%"
+                imprimir(f"{etiqueta:<26}{format(datos[clave + '_uno'], formato):>10}"
+                         f"{format(datos[clave + '_otro'], formato):>10}")
+            imprimir("")
+            for linea in envolver(datos["lectura"], 74):
+                imprimir(linea)
+            return 0
+
+        from ..mercados import frente_al_mercado, refrescar
+        from ..previa import _resolver
+        from ..pronostico import pronostico
+
+        cliente = comun.construir_cliente(args)
+        evento = _resolver(almacen, args.consulta, cliente)
+        if evento is None:
+            imprimir("No encuentro ese partido.")
+            return 1
+        refrescar(cliente, almacen, evento, forzar=args.refrescar)
+        datos = frente_al_mercado(almacen, evento.id,
+                                  pronostico(almacen, evento, cliente=cliente))
+        if args.json:
+            imprimir(json.dumps(datos, ensure_ascii=False, indent=2))
+            return 0
+        imprimir(f"{evento.home.name} - {evento.away.name}")
+        if not datos.get("disponible"):
+            imprimir(datos["nota"])
+            return 0
+        imprimir("")
+        imprimir(f"{'':<22}{'nosotros':>9}{'mercado':>9}{'cuota':>7}{'dif.':>8}")
+        for s in datos["sucesos"]:
+            nuestra = f"{s['nuestra']:.0%}" if s["nuestra"] is not None else "—"
+            suya = f"{s['mercado']:.0%}" if s["mercado"] is not None else "—"
+            dif = f"{s['diferencia']:+.0%}" if s["diferencia"] is not None else "—"
+            imprimir(f"{s['suceso']:<22}{nuestra:>9}{suya:>9}"
+                     f"{s['cuota'] or '—':>7}{dif:>8}{'  ←' if s['discrepa'] else ''}")
+        exacto = datos["marcador_exacto"]
+        if exacto.get("mas_probables_nuestros"):
+            imprimir("")
+            imprimir(f"Marcador exacto ({exacto['casa']}):")
+            for (m1, p1), (m2, p2) in zip(exacto["mas_probables_nuestros"],
+                                          exacto["mas_probables_mercado"], strict=False):
+                imprimir(f"    nosotros {m1:>5} {p1:5.1%}      mercado {m2:>5} {p2:5.1%}")
+        elif exacto.get("nota"):
+            imprimir("")
+            imprimir(exacto["nota"])
+        imprimir("")
+        for linea in envolver(datos["como_leerlo"], 74):
+            imprimir(linea)
+        return 0
+    finally:
+        almacen.close()
+        if cliente is not None:
+            cliente.close()
+
+
+def cmd_picks(args: argparse.Namespace) -> int:
+    """Los picks del día con su regla, apuntarlos, resolverlos y su historial."""
+    from .. import ajustes as modulo_ajustes
+    from ..picks import REGLA, apuntados, apuntar, del_dia, historial, resolver
+
+    almacen = _almacen(args)
+    cliente = None
+    try:
+        if args.resolver:
+            hechos = resolver(almacen)
+            imprimir(f"{hechos['resueltos']} picks resueltos, {hechos['pendientes']} "
+                     "esperando a que se juegue el partido.")
+            imprimir("")
+        if args.historial:
+            for nivel in ("gratis", "premium"):
+                h = historial(almacen, nivel)
+                imprimir(f"{nivel.upper()}")
+                if not h.get("picks"):
+                    imprimir(f"  {h.get('nota')}")
+                    imprimir("")
+                    continue
+                imprimir(f"  {h['picks']} picks ({h['desde']} → {h['hasta']}) · "
+                         f"{h['aciertos']} acertados ({h['acierto']:.0%}) · cuota "
+                         f"media {h['cuota_media']}")
+                imprimir(f"  {h['unidades']:+.2f} unidades · rendimiento "
+                         f"{h['rendimiento']:+.1%}"
+                         + (f" [{h['intervalo'][0]:+.1%}, {h['intervalo'][1]:+.1%}]"
+                            if h.get("intervalo") else "")
+                         + f" · peor racha {h['peor_racha']:+.2f}")
+                if h.get("gana_al_cierre") is not None:
+                    imprimir(f"  gana al cierre en el {h['gana_al_cierre']:.0%} "
+                             f"({h['con_cierre']} con cierre) · CLV medio "
+                             f"{h['clv_medio']:+.1%}")
+                for linea in envolver(h["lectura"], 72):
+                    imprimir(f"  {linea}")
+                imprimir("")
+            return 0
+
+        from datetime import datetime, timezone
+
+        fecha = args.fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        dia = None if args.apuntar else apuntados(almacen, fecha)
+        if dia is None:
+            cliente = comun.construir_cliente(args)
+            guardados = modulo_ajustes.cargar(getattr(args, "ajustes", None))
+            dia = del_dia(almacen, cliente, fecha=fecha,
+                          grupos=modulo_ajustes.grupos_de(guardados))
+        if args.json:
+            imprimir(json.dumps(dia, ensure_ascii=False, indent=2, default=str))
+            return 0
+        imprimir(f"Picks del {fecha} · {REGLA['version']}"
+                 + (" · apuntados" if dia.get("apuntado") else " · calculados ahora"))
+        imprimir("")
+        if not dia["premium"]:
+            for linea in envolver(dia.get("nota") or "Nada pasa la regla hoy.", 74):
+                imprimir(linea)
+        for n, pick in enumerate(dia["premium"], 1):
+            marca = "GRATIS " if n == 1 else "       "
+            imprimir(f"{marca}{pick.get('partido') or pick['partido_id']}")
+            imprimir(f"        {pick['suceso']} a {pick['cuota']} ({pick['casa']}) · "
+                     f"nosotros {pick['prob_nuestra']:.0%}, mercado "
+                     f"{pick['prob_mercado']:.0%} · valor {pick['valor']:+.1%}")
+        if dia.get("casi"):
+            imprimir("")
+            imprimir("Lo más cerca de pasar, y por qué no:")
+            for casi in dia["casi"][:5]:
+                imprimir(f"    {casi['partido']}: {casi['suceso']} a {casi['cuota']} — "
+                         f"{', '.join(casi['por_que_no'])}")
+        if args.apuntar:
+            hechos = apuntar(almacen, dia)
+            imprimir("")
+            imprimir(f"{hechos['apuntados']} apuntados con el precio de ahora. Lo "
+                     "apuntado ya no se puede cambiar.")
+        return 0
+    finally:
+        almacen.close()
+        if cliente is not None:
+            cliente.close()
+
+
 def cmd_historia(args: argparse.Namespace) -> int:
     """Traerse años de partidos de golpe, en vez de seis por equipo."""
     from .. import ajustes as modulo_ajustes
@@ -979,6 +1153,45 @@ def registrar(sub, comun_p, informe, listado) -> None:
     p_briefing.add_argument("--no-guardar", action="store_true", help="Solo por pantalla.")
     p_briefing.add_argument("--quiet", action="store_true", help="Sin volcarlo por pantalla.")
     p_briefing.set_defaults(func=cmd_briefing)
+
+    p_mercados = sub.add_parser(
+        "mercados", parents=[comun_p, base],
+        help="Las casas contra nosotros, suceso a suceso y en marcador exacto.",
+        description="Con un partido: lo que dice cada mercado al lado de nuestro "
+                    "pronóstico, dónde discrepan y cómo se ha movido la cuota. Sin "
+                    "partido: quién acierta más en marcador exacto, nosotros o el "
+                    "mercado, sobre los partidos ya jugados. Con --traer, cuotas de "
+                    "Betfair o de The Odds API (hacen falta sus claves en Ajustes).",
+    )
+    p_mercados.add_argument("consulta", nargs="?", help="El partido (opcional).")
+    p_mercados.add_argument("--traer", choices=["betfair", "the-odds-api"],
+                            help="Traer cuotas de otra fuente para los próximos días.")
+    p_mercados.add_argument("--dias", type=int, default=2,
+                            help="Cuántos días hacia delante con --traer.")
+    p_mercados.add_argument("--marcadores", action="store_true",
+                            help="Quién acierta más en marcador exacto.")
+    p_mercados.add_argument("--refrescar", action="store_true",
+                            help="Volver a pedir las cuotas aunque sean recientes.")
+    p_mercados.add_argument("--json", action="store_true", help="Volcar el JSON.")
+    p_mercados.set_defaults(func=cmd_mercados)
+
+    p_picks = sub.add_parser(
+        "picks", parents=[comun_p, base],
+        help="Los picks del día: una regla fija, el precio y su historial.",
+        description="No es «la apuesta segura del día», que no existe: es una regla "
+                    "escrita antes, igual todos los días, apuntada con el precio al "
+                    "que se da y medida después al precio tomado, con su intervalo y "
+                    "su CLV. Los días en que nada pasa la regla, no hay pick.",
+    )
+    p_picks.add_argument("--fecha", help="Otro día (AAAA-MM-DD).")
+    p_picks.add_argument("--apuntar", action="store_true",
+                         help="Apuntarlos con el precio de ahora (no se puede deshacer).")
+    p_picks.add_argument("--resolver", action="store_true",
+                         help="Resolver los de partidos ya jugados.")
+    p_picks.add_argument("--historial", action="store_true",
+                         help="Cómo han ido, en cada nivel.")
+    p_picks.add_argument("--json", action="store_true", help="Volcar el JSON.")
+    p_picks.set_defaults(func=cmd_picks)
 
     p_historia = sub.add_parser(
         "historia", parents=[comun_p, base],

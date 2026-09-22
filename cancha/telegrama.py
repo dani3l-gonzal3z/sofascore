@@ -147,8 +147,9 @@ def _trozos(texto: str, limite: int = LIMITE) -> list[str]:
 #: propósito y es lo que impide que el menú y las órdenes se separen con el
 #: tiempo: no hay dos caminos que mantener, hay uno.
 MENU = (
+    (("pick", "🎯 El pick de hoy"), ("resumen", "☕ Resumen del día")),
     (("hoy", "⚽ Hoy"), ("directo", "🔴 En directo")),
-    (("resumen", "☕ Resumen del día"), ("manana", "📅 Mañana")),
+    (("manana", "📅 Mañana"), ("historial", "📈 Historial de picks")),
     (("ligas", "🏆 Por competición"), ("seguro", "🛡 Casi seguro")),
     (("resultados", "📊 Cómo acierto"), ("clasificacion", "🥇 Clasificación")),
     (("agentes", "🧠 Mis agentes"), ("memoria", "📚 La memoria")),
@@ -159,6 +160,9 @@ MENU = (
 #: hay que acordarse de las órdenes, que es justo lo que no queremos.
 COMANDOS = (
     ("menu", "El menú de botones"),
+    ("pick", "El pick del día, con su cuota"),
+    ("picks", "Todos los que pasan la regla hoy"),
+    ("historial", "Cómo han ido los picks: rendimiento, intervalo y CLV"),
     ("resumen", "El día en un mensaje: agenda, patrones y lo de ayer"),
     ("hoy", "Qué se juega hoy"),
     ("directo", "Lo que se está jugando ahora"),
@@ -180,7 +184,9 @@ COMANDOS = (
 #: Las órdenes que tardan de verdad —hablan con un modelo— y por las que hay que
 #: avisar antes de ponerse. Sin esto escribes /dictamen y el bot se queda mudo
 #: tres minutos, que es indistinguible de estar roto.
-LENTAS = {"dictamen": "Monto el expediente y se lo mando al modelo. Tarda un rato.",
+LENTAS = {"pick": "Miro los partidos de hoy contra el mercado.",
+          "picks": "Miro los partidos de hoy contra el mercado.",
+          "dictamen": "Monto el expediente y se lo mando al modelo. Tarda un rato.",
           "agente": "Lo pongo a mirar el partido. Va a pedir datos por su cuenta, "
                     "así que esto tarda.",
           "analista": "Déjame mirarlo."}
@@ -230,6 +236,9 @@ class Bot:
     #: lo que hace que poner el token desde el móvil valga para algo sin
     #: reiniciar nada. Ver ``refrescar``.
     releer: Callable[[], dict] | None = field(default=None, repr=False)
+    #: Dónde se publican los picks de cada día. Ver `publicar_picks`.
+    canal_gratis: str = ""
+    canal_premium: str = ""
     #: Las competiciones que se siguen. Sin esto, «qué se juega hoy» traía el
     #: fútbol entero del planeta y «en directo» acababa en Perú sub-15.
     grupos: tuple[str, ...] = ()
@@ -382,6 +391,27 @@ class Bot:
                          if x) or ""
         self.atender(chat, "/" + orden, quien)
         return {"chat": chat, "texto": "/" + orden, "quien": quien, "boton": True}
+
+    def publicar_picks(self, dia: dict, historiales: dict | None = None) -> list[str]:
+        """Publica el boletín de cada nivel en su canal. Devuelve lo publicado.
+
+        Cada nivel en su canal y con su propio historial: son dos productos, y el
+        del premium no puede presumir de lo que acertó el gratis ni al revés. Un
+        canal que falla no impide publicar en el otro.
+        """
+        from .picks import boletin
+
+        publicados = []
+        for nivel, canal in (("gratis", self.canal_gratis),
+                             ("premium", self.canal_premium)):
+            if not canal or not self.token:
+                continue
+            try:
+                self.enviar(canal, boletin(dia, nivel, (historiales or {}).get(nivel)))
+                publicados.append(nivel)
+            except TelegramNoDisponible:
+                continue
+        return publicados
 
     def presentar_ordenes(self) -> bool:
         """Le dice a Telegram la lista de órdenes, para que salga al teclear «/».
@@ -598,6 +628,11 @@ class Bot:
         if ligas != self.grupos:
             cambios.append("ligas: " + (", ".join(ligas) if ligas else "las de por defecto"))
             self.grupos = ligas
+        for nivel in ("gratis", "premium"):
+            canal = str(suyo.get(f"canal_{nivel}") or "").strip()
+            if canal != getattr(self, f"canal_{nivel}"):
+                cambios.append(f"canal {nivel}: {canal or 'ninguno'}")
+                setattr(self, f"canal_{nivel}", canal)
         red = frescos.get("red") or {}
         bundle = str(red.get("ca_bundle") or "")
         flojo = bool(red.get("sin_verificar"))
@@ -746,33 +781,67 @@ def _ligas(bot: Bot, _resto: str = "") -> str:
 
 
 def _resumen(bot: Bot, resto: str) -> str:
-    """El día en un mensaje: lo que se juega, lo que se repite y cómo fue ayer.
+    """El día en un mensaje: cómo salió lo de ayer, el pick, la agenda y los patrones.
 
-    Es la orden para abrir el bot por la mañana y no tener que preguntar tres
-    veces. Junta lo que ya existe —la agenda, los patrones y el registro— y lo
-    corta a lo que se lee de un vistazo en un móvil, que es de lo que se trata.
+    En ese orden a propósito. Empezar el día viendo si lo de ayer salió es más
+    honesto que empezar prometiendo lo de hoy, y es lo que hace creíble el resto.
+    Si un trozo falla, el resumen sale con los demás.
     """
+    from datetime import date, datetime, timedelta, timezone
+
+    from .picks import apuntados
+    from .picks import resolver as resolver_picks
     from .registro import resolver
 
-    fecha = resto.strip() or None
+    fecha = resto.strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     partes = []
 
-    # 1. Lo de ayer, ya puntuado. Primero a propósito: empezar el día viendo si
-    #    lo de ayer salió o no es más honesto que empezar prometiendo lo de hoy.
     with suppress(Exception):
-        hechas = resolver(bot.sesion.almacen)
-        if hechas["resueltas"]:
-            partes.append(f"✅ <b>De ayer</b>\n{hechas['resueltas']} predicciones ya "
-                          "tienen resultado.")
+        resolver(bot.sesion.almacen)
+        resolver_picks(bot.sesion.almacen)
 
-    # 2. Qué se juega.
-    agenda = _hoy(bot, fecha or "").strip()
+    # 1. Lo de ayer, ya puntuado.
+    with suppress(Exception):
+        ayer = (date.fromisoformat(fecha) - timedelta(days=1)).isoformat()
+        suyos = apuntados(bot.sesion.almacen, ayer)
+        if suyos and suyos["premium"]:
+            lineas = ["✅ <b>Lo de ayer</b>"]
+            unidades = 0.0
+            for pick in suyos["premium"]:
+                if not pick.get("resuelto"):
+                    estado = "pendiente"
+                else:
+                    estado = "acertado" if pick["acerto"] else "fallado"
+                    unidades += pick["beneficio"] or 0
+                lineas.append(f"{_escapar(pick.get('partido') or '')}: "
+                              f"{_escapar(pick['suceso'])} a {pick['cuota']} — {estado}")
+            lineas.append(f"<b>{unidades:+.2f} unidades</b>")
+            partes.append("\n".join(lineas))
+
+    # 2. El pick de hoy: el apuntado, que es el que cuenta.
+    with suppress(Exception):
+        hoy = apuntados(bot.sesion.almacen, fecha)
+        if hoy and hoy["gratis"]:
+            pick = hoy["gratis"][0]
+            partes.append(f"🎯 <b>El pick de hoy</b>\n{_escapar(pick.get('partido') or '')}: "
+                          f"{_escapar(pick['suceso'])} a <b>{pick['cuota']}</b> "
+                          f"({pick['casa']}) · valor {pick['valor']:+.0%}"
+                          + (f"\n<i>y {len(hoy['premium']) - 1} más en /picks</i>"
+                             if len(hoy["premium"]) > 1 else ""))
+        elif hoy:
+            partes.append("🎯 Hoy nada pasa la regla: no hay pick.")
+        else:
+            partes.append("🎯 La guardia todavía no ha apuntado los picks de hoy. "
+                          "/pick los calcula ahora.")
+
+    # 3. Qué se juega.
+    agenda = _hoy(bot, fecha).strip()
     if agenda:
         partes.append(agenda)
 
-    # 3. Y lo que se repite hoy, recortado: el resumen no es el /seguro entero.
+    # 4. Y lo que se repite hoy, recortado: el resumen no es el /seguro entero.
     with suppress(Exception):
-        patrones = _seguro(bot, fecha or "").strip()
+        patrones = _seguro(bot, fecha).strip()
         if patrones:
             partes.append("\n".join(patrones.splitlines()[:14]))
 
@@ -781,8 +850,7 @@ def _resumen(bot: Bot, resto: str) -> str:
                 "noche, prueba /hoy para traerlo ahora.")
     return ("☕ <b>El día</b>\n\n" + "\n\n".join(partes)
             + "\n\n<i>Para entrar en un partido, escríbelo: «Girona vs Osasuna». "
-            "Y /clasificacion dice quién va acertando.</i>")
-
+            "/historial dice cómo van los picks.</i>")
 
 def _hoy(bot: Bot, resto: str, dias: int = 0) -> str:
     """Qué se juega, en las ligas que sigues y a la hora de tu reloj.
@@ -1093,6 +1161,62 @@ def _resultados(bot: Bot, resto: str) -> str:
             + "\n\n<i>" + _escapar(datos["lo_que_no_dice"]) + "</i>")
 
 
+def _los_picks(bot: Bot, fecha: str) -> dict:
+    """Los de ese día: los apuntados si los hay, y si no, calculados ahora."""
+    from .picks import apuntados, del_dia
+
+    return (apuntados(bot.sesion.almacen, fecha)
+            or del_dia(bot.sesion.almacen, bot.sesion.cliente, fecha=fecha,
+                       grupos=list(bot.grupos) or None))
+
+
+def _pick(bot: Bot, resto: str, nivel: str = "gratis") -> str:
+    """El pick del día. O los de ese día, si se da una fecha."""
+    from datetime import datetime, timezone
+
+    from .picks import boletin, historial
+
+    fecha = resto.strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    dia = _los_picks(bot, fecha)
+    texto = boletin(dia, nivel, historial(bot.sesion.almacen, nivel))
+    if not dia.get("apuntado") and dia[nivel]:
+        texto += ("\n\n<i>Calculado ahora, con las cuotas de ahora: todavía no está "
+                  "apuntado, así que no cuenta para el historial.</i>")
+    if not dia[nivel] and dia.get("casi"):
+        cerca = dia["casi"][0]
+        texto += (f"\n\nLo más cerca: {_escapar(cerca['partido'])}, "
+                  f"{_escapar(cerca['suceso'])} a {cerca['cuota']} — no pasa por "
+                  f"{_escapar(', '.join(cerca['por_que_no']))}.")
+    return texto
+
+
+def _picks(bot: Bot, resto: str) -> str:
+    return _pick(bot, resto, nivel="premium")
+
+
+def _historial(bot: Bot, _resto: str) -> str:
+    """Cómo han ido los picks, en cada nivel: lo que se le enseña a un cliente."""
+    from .picks import historial
+
+    partes = []
+    for nivel in ("gratis", "premium"):
+        h = historial(bot.sesion.almacen, nivel)
+        if not h.get("picks"):
+            partes.append(f"<b>{nivel.capitalize()}</b>: {h.get('nota')}")
+            continue
+        partes.append(
+            f"<b>{nivel.capitalize()}</b> · {h['picks']} picks · {h['aciertos']} "
+            f"acertados ({h['acierto']:.0%}) · cuota media {h['cuota_media']}\n"
+            f"{h['unidades']:+.2f} unidades · rendimiento {h['rendimiento']:+.1%}"
+            + (f" (entre {h['intervalo'][0]:+.1%} y {h['intervalo'][1]:+.1%})"
+               if h.get("intervalo") else "")
+            + f"\npeor racha {h['peor_racha']:+.2f}"
+            + (f" · gana al cierre en el {h['gana_al_cierre']:.0%}"
+               if h.get("gana_al_cierre") is not None else "")
+            + f"\n<i>{_escapar(h['lectura'])}</i>")
+    return "📈 <b>Historial de picks</b>\n\n" + "\n\n".join(partes)
+
+
 def _agentes(bot: Bot, _resto: str) -> str:
     """Los agentes analistas que hay, para poder llamar a uno por su nombre."""
     from .agentes import cargar, huella
@@ -1224,6 +1348,7 @@ ORDENES: dict[str, Callable[[Bot, str], str]] = {
     "equipo": _equipo, "jugador": _jugador, "memoria": _memoria,
     "resultados": _resultados, "acierto": _resultados,
     "agentes": _agentes, "agente": _agente,
+    "pick": _pick, "picks": _picks, "historial": _historial,
     "clasificacion": _clasificacion, "clasificación": _clasificacion,
 }
 

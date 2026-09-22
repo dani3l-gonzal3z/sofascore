@@ -99,7 +99,7 @@ pip install "cancha[langchain]"
 ```python
 from cancha.agentes.langchain import agente, herramientas
 
-herramientas()          # 45 StructuredTool, para tu propio agente
+herramientas()          # 46 StructuredTool, para tu propio agente
 agente(modelo="hermes3").invoke({"messages": [("user", "¿qué hay hoy?")]})
 ```
 
@@ -144,3 +144,25 @@ ya dijeron. El detalle completo, con lo que esto **no** promete, está en
 `techo_tokens` es un tope de gasto para toda la ejecución. `max_vueltas` cuenta
 turnos, y un turno sobre un expediente grande cuesta tres veces más que uno sobre
 uno pequeño: las vueltas no dicen nada del gasto y esto sí.
+
+## Hablar de un partido desde su pantalla
+
+Cada partido tiene su tarjeta **«Pregúntale a tu analista»**. El modelo arranca
+sabiendo de qué partido hablas —el id va fijado, así que cualquier herramienta
+que pida lo usa sin buscarlo— y con **una ficha corta**: nuestro pronóstico, lo
+que dice el mercado de cada cosa, dónde discrepamos y los marcadores más
+probables de los dos. Las preguntas básicas se contestan sin gastar vueltas; lo
+demás —cómo llega cada equipo, el árbitro, las alineaciones, un jugador— lo pide
+él con las herramientas.
+
+No se le da el expediente entero por defecto: son diez o quince mil tokens, y a
+un modelo de casa con ventana de 16k se le acaba el sitio a la tercera pregunta.
+Ollama entonces recorta por lo viejo, que es donde están las instrucciones. Con
+un modelo grande o de la nube, marca «darle el expediente entero».
+
+Lo hablado se guarda con el partido: se vuelve mañana y sigue ahí.
+
+Y mientras el modelo piensa, **la página sigue funcionando**. Antes el servidor
+sostenía el cerrojo de la memoria durante toda la respuesta, y con un modelo de
+casa eso eran minutos de todo congelado; ahora solo lo coge al ejecutar cada
+herramienta, que es cuando de verdad se toca la memoria.

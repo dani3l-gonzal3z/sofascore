@@ -30,6 +30,7 @@ import json
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Iterator
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -395,6 +396,11 @@ class Analista:
     instrucciones: str = INSTRUCCIONES
     #: Cómo se habla con Ollama. Se puede sustituir para probar sin Ollama.
     pedir: Callable[[str, dict | None], Any] = field(default=None, repr=False)
+    #: Un cerrojo compartido con quien más use la memoria (el servidor web). Se
+    #: coge **solo al ejecutar una herramienta**, nunca mientras el modelo
+    #: piensa: antes el servidor lo sostenía durante toda la respuesta y la página
+    #: entera se quedaba congelada los minutos que tardase un modelo de casa.
+    cerrojo: Any = field(default=None, repr=False)
     _propia: bool = field(default=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -533,7 +539,11 @@ class Analista:
                 argumentos = {}
         if not isinstance(argumentos, dict):
             argumentos = {}
-        return ejecutar(nombre, argumentos, sesion=self.sesion, max_chars=self.max_chars)
+        # El cerrojo, solo aquí: es donde se toca la memoria. Mientras el modelo
+        # piensa —que con uno local son minutos— el resto del programa sigue.
+        with self.cerrojo or nullcontext():
+            return ejecutar(nombre, argumentos, sesion=self.sesion,
+                            max_chars=self.max_chars)
 
     def analizar(self, expediente: str, pregunta: str = "", instrucciones: str = "",
                  al_paso: Callable[[Paso], None] | None = None,

@@ -515,11 +515,30 @@ function comparar(filas, local, visitante) {
   }
   return c;
 }
-function rasgos(dimensiones, limite = 6) {
-  const filas = Object.entries(dimensiones || {})
+/* Cómo se sale un equipo de la media de su liga, dimensión a dimensión.
+
+   Con muestra corta **no se pintan barras**. Salió así: el Charlotte aparecía
+   con «paradas +93 %, ocasiones +69 %, faltas −66 %» calculado sobre un solo
+   partido. El cálculo ya lo marcaba (`muestra_corta`) y no sacaba rasgos, pero
+   la pantalla pintaba las barras igual, y una barra verde de +93 % se lee como
+   un hecho del equipo. Los números siguen ahí, plegados y en gris: son ciertos,
+   solo que no describen a nadie. */
+function rasgos(dimensiones, limite = 6, aviso = "") {
+  const todas = Object.entries(dimensiones || {})
     .filter(([, d]) => d && d.diferencia !== undefined && d.diferencia !== null)
-    .sort((x, y) => Math.abs(y[1].diferencia) - Math.abs(x[1].diferencia)).slice(0, limite);
-  if (!filas.length) return nota("Sin media de liga con la que comparar todavía.");
+    .sort((x, y) => Math.abs(y[1].diferencia) - Math.abs(x[1].diferencia));
+  if (!todas.length) return nota(aviso || "Sin media de liga con la que comparar todavía.");
+  if (todas.some(([, d]) => d.muestra_corta)) {
+    const n = todas[0][1].partidos;
+    return el("div", { class: "bloque" },
+      msg(aviso || `Solo ${n} partido${n === 1 ? "" : "s"} guardado${n === 1 ? "" : "s"}: `
+        + "con eso no se puede decir cómo juega, así que no se dice.", "ojo"),
+      el("details", {}, el("summary", { class: "peq gris" }, "Los números de todas formas"),
+        el("ul", { class: "lista gris peq" }, ...todas.slice(0, limite).map(([nombre, d]) =>
+          el("li", {}, el("span", { style: "flex:1 1 auto" }, nombre.replace(/_/g, " ")),
+            `${d.valor} · liga ${d.media_liga}`)))));
+  }
+  const filas = todas.slice(0, limite);
   const c = el("div", { class: "rasgos" });
   for (const [nombre, d] of filas) {
     const v = Math.max(-1, Math.min(1, d.diferencia));
@@ -727,6 +746,8 @@ V.hoy = async (raiz, [fecha]) => {
         el("button", { class: "btn s", onclick: (e) => generarBriefing(fecha, raiz, e.currentTarget) },
           "Generar briefing")));
 
+  if (brief && brief.portada) raiz.append(tarjetaPortada(brief.portada));
+
   const porLiga = {};
   for (const p of partidos) (porLiga[p.liga || "Otras"] ||= []).push(p);
   for (const [liga, lista] of Object.entries(porLiga).sort((a, b) => a[0].localeCompare(b[0]))) {
@@ -911,7 +932,7 @@ function previaDentro(pv, p) {
         el("span", { class: "resto fila peq gris", style: "gap:7px" }, forma(r.racha),
           `${r.goles_favor}-${r.goles_contra} en ${e.partidos_mirados}`,
           el("a", { href: `#/buscar/equipo/${encodeURIComponent(nombre)}` }, "ver →"))),
-      rasgos(e.dimensiones, 4),
+      rasgos(e.dimensiones, 4, e.aviso),
       jugadores.length ? el("ul", { class: "lista" }, ...jugadores.slice(0, 3).map((j) =>
         el("li", {}, el("a", { href: `#/buscar/jugador/${encodeURIComponent(j.jugador)}` }, j.jugador),
           el("span", { class: "gris peq" }, j.rachas.join(" · "))))) : null));
@@ -954,7 +975,7 @@ function previaDentro(pv, p) {
 
 /* ── CASI SEGURO ─────────────────────────────────────────────────── */
 V.seguro = async (raiz, [modo, fechaRuta]) => {
-  modo = modo === "calibrar" ? "calibrar" : "hoy";
+  modo = ["calibrar", "acierto", "picks"].includes(modo) ? modo : "hoy";
   const fecha = fechaRuta || leer("fecha", hoy());
   poner(raiz, 
     el("div", { class: "titular" }, el("h1", {}, "Casi seguro"),
@@ -965,7 +986,8 @@ V.seguro = async (raiz, [modo, fechaRuta]) => {
         el("div", { class: "seg" },
           el("button", { class: modo === "hoy" ? "on" : "", onclick: () => ir(`#/seguro/hoy/${fecha}`) }, "Hoy"),
           el("button", { class: modo === "calibrar" ? "on" : "", onclick: () => ir("#/seguro/calibrar") }, "Los patrones"),
-          el("button", { class: modo === "acierto" ? "on" : "", onclick: () => ir("#/seguro/acierto") }, "Cómo acierto")))),
+          el("button", { class: modo === "acierto" ? "on" : "", onclick: () => ir("#/seguro/acierto") }, "Cómo acierto"),
+          el("button", { class: modo === "picks" ? "on" : "", onclick: () => ir("#/seguro/picks") }, "Picks")))),
     msg("Aquí no hay apuestas seguras: hay frecuencias contadas sobre lo que tienes guardado, con "
       + "su número de casos y su suelo de confianza. Si un patrón coincide con la tasa base, se dice.", "ojo"),
     espera(modo === "hoy" ? "Midiendo lo de hoy…" : "Contando el historial…"));
@@ -973,6 +995,11 @@ V.seguro = async (raiz, [modo, fechaRuta]) => {
   /* El registro: lo que se predijo antes de cada partido y cómo acabó. Va aquí
      porque es la misma idea que lo de al lado —medirse en vez de creerse— y
      porque un pronóstico sin su historial de aciertos no se puede juzgar. */
+  if (modo === "picks") {
+    raiz.lastChild.remove();
+    return pintarPicks(raiz, fecha);
+  }
+
   if (modo === "acierto") {
     raiz.lastChild.remove();
     const b = await api.h("como_acierta", {});
@@ -1195,36 +1222,8 @@ V.analista = async (raiz) => {
     burbuja.scrollIntoView({ block: "end", behavior: "smooth" });
 
     try {
-      const r = await fetch("/api/analista", { method: "POST", headers: api.cab(),
-        body: JSON.stringify({ pregunta, historial }) });
-      if (!r.ok || !r.body) throw new Error(`El servidor no ha aceptado la pregunta (${r.status}).`);
-      const lector = r.body.getReader(), dec = new TextDecoder();
-      let resto = "";
-      for (;;) {
-        const trozo = await lector.read();
-        if (trozo.done) break;
-        resto += dec.decode(trozo.value, { stream: true });
-        const lineas = resto.split("\n"); resto = lineas.pop() || "";
-        for (const linea of lineas) {
-          if (!linea.trim()) continue;
-          let ev;
-          try { ev = JSON.parse(linea); } catch (e) { continue; }
-          if (ev.error) { texto.replaceChildren(msg(ev.error, "mal")); pasos.replaceChildren(); }
-          if (ev.paso) {
-            const p = ev.paso;
-            pasos.querySelectorAll(".vivo").forEach((n) => n.classList.remove("vivo"));
-            if (p.tipo === "herramienta")
-              pasos.append(el("span", { class: "paso vivo", title: JSON.stringify(p.argumentos || {}) }, p.nombre));
-            else if (p.tipo === "resultado") {
-              const ultimo = pasos.lastElementChild;
-              if (ultimo) ultimo.textContent = `${p.nombre} · ${p.caracteres}c`;
-            } else if (p.tipo === "aviso") pasos.append(el("span", { class: "paso" }, p.texto));
-            else if (p.tipo === "respuesta") poner(texto, p.texto || "(sin respuesta)");
-          }
-          if (ev.fin) { historial = ev.fin.historial; guardar("hilo", historial); }
-        }
-      }
-      if (texto.querySelector(".espera")) poner(texto, msg("No ha llegado respuesta.", "ojo"));
+      const fin = await conversar({ pregunta, historial }, pasos, texto);
+      if (fin) { historial = fin.historial; guardar("hilo", historial); }
     } catch (e) {
       poner(texto, msg(e.message, "mal"));
     } finally {
@@ -1234,6 +1233,120 @@ V.analista = async (raiz) => {
     }
   }
 };
+
+/* Una pregunta al modelo, leyendo su respuesta según llega (NDJSON): cada
+   herramienta que pide sale como una etiqueta en `pasos`, y la respuesta final
+   en `texto`. Devuelve el `fin` —con el historial para seguir— o null. Lo usan
+   el analista y la conversación de dentro de un partido. */
+async function conversar(cuerpo, pasos, texto) {
+  const r = await fetch("/api/analista", { method: "POST", headers: api.cab(),
+    body: JSON.stringify(cuerpo) });
+  if (!r.ok || !r.body) throw new Error(`El servidor no ha aceptado la pregunta (${r.status}).`);
+  const lector = r.body.getReader(), dec = new TextDecoder();
+  let resto = "", fin = null;
+  for (;;) {
+    const trozo = await lector.read();
+    if (trozo.done) break;
+    resto += dec.decode(trozo.value, { stream: true });
+    const lineas = resto.split("\n"); resto = lineas.pop() || "";
+    for (const linea of lineas) {
+      if (!linea.trim()) continue;
+      let ev;
+      try { ev = JSON.parse(linea); } catch (e) { continue; }
+      if (ev.error) { poner(texto, msg(ev.error, "mal")); poner(pasos); }
+      if (ev.paso) {
+        const p = ev.paso;
+        pasos.querySelectorAll(".vivo").forEach((n) => n.classList.remove("vivo"));
+        if (p.tipo === "herramienta")
+          pasos.append(el("span", { class: "paso vivo", title: JSON.stringify(p.argumentos || {}) }, p.nombre));
+        else if (p.tipo === "resultado") {
+          const ultimo = pasos.lastElementChild;
+          if (ultimo) ultimo.textContent = `${p.nombre} · ${p.caracteres}c`;
+        } else if (p.tipo === "aviso") pasos.append(el("span", { class: "paso" }, p.texto));
+        else if (p.tipo === "respuesta") poner(texto, p.texto || "(sin respuesta)");
+      }
+      if (ev.fin) fin = ev.fin;
+    }
+  }
+  if (texto.querySelector(".espera")) poner(texto, msg("No ha llegado respuesta.", "ojo"));
+  pasos.querySelectorAll(".vivo").forEach((n) => n.classList.remove("vivo"));
+  return fin;
+}
+
+/* Hablar de este partido con el modelo. Ya sabe de qué partido se habla —el id
+   va fijado— y arranca con una ficha: pronóstico, mercado, dónde discrepamos.
+   Lo demás lo pide él con las herramientas. Lo hablado se guarda con el
+   partido: se vuelve mañana y sigue ahí. */
+function tarjetaCharla(consulta) {
+  const hilo = el("div", { class: "chat" });
+  const sugeridas = el("div", { class: "sugeridas" });
+  const caja = el("textarea", { class: "campo", rows: 1,
+    placeholder: "Pregunta lo que quieras de este partido…" });
+  const boton = el("button", { class: "btn" }, "Preguntar");
+  const profundo = el("input", { type: "checkbox" });
+  let historial = null, ocupado = false;
+
+  const burbuja = (quien, contenido, pasos) => el("div", { class: `burbuja ${quien}` },
+    pasos || null, el("div", { class: "txt" }, contenido));
+
+  async function enviar(pregunta) {
+    pregunta = (pregunta || caja.value).trim();
+    if (!pregunta || ocupado) return;
+    ocupado = true; boton.disabled = true; caja.value = ""; sugeridas.hidden = true;
+    hilo.append(burbuja("yo", pregunta));
+    const pasos = el("div", { class: "pasos" }, el("span", { class: "paso vivo" }, "pensando…"));
+    const texto = el("div", {}, espera("…"));
+    const suya = burbuja("el", texto, pasos);
+    hilo.append(suya);
+    try {
+      const fin = await conversar({ pregunta, historial, partido: String(consulta),
+        profundidad: profundo.checked ? "expediente" : "ficha" }, pasos, texto);
+      if (fin) historial = fin.historial;
+    } catch (e) {
+      poner(texto, msg(e.message, "mal"));
+    } finally {
+      ocupado = false; boton.disabled = false;
+      suya.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+  boton.addEventListener("click", () => enviar());
+  caja.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); enviar(); }
+  });
+
+  api.post("/api/charla", { partido: String(consulta) }).then((d) => {
+    if (fallo(d)) return;
+    poner(sugeridas, ...(d.sugeridas || []).map((s) =>
+      el("button", { class: "sug", onclick: () => enviar(s) }, s)));
+    for (const m of d.mensajes || []) {
+      hilo.append(burbuja("yo", m.pregunta),
+        burbuja("el", m.respuesta || "(sin respuesta)", (m.herramientas || []).length
+          ? el("div", { class: "pasos" }, ...m.herramientas.map((h) =>
+              el("span", { class: "paso" }, h)))
+          : null));
+    }
+    if ((d.mensajes || []).length) {
+      sugeridas.hidden = true;
+      hilo.prepend(el("div", { class: "fila" },
+        el("span", { class: "gris peq" },
+          `${d.mensajes.length} preguntas guardadas de este partido. Las nuevas `
+          + "empiezan una conversación nueva, con la ficha de ahora."),
+        el("button", { class: "btn plano s", onclick: async () => {
+          await api.post("/api/charla/borrar", { partido: String(consulta) });
+          poner(hilo); historial = null; sugeridas.hidden = false;
+        } }, "Borrar")));
+    }
+  });
+
+  return tarjeta("Pregúntale a tu analista", hilo, sugeridas,
+    el("div", { class: "redactar" }, caja, boton),
+    el("label", { class: "casilla" }, profundo,
+      "Darle el expediente entero (solo con un modelo grande o de la nube)"),
+    nota("Sabe de qué partido hablas y arranca con el pronóstico y lo que dice el "
+      + "mercado. Lo demás —cómo llega cada equipo, el árbitro, las alineaciones, "
+      + "un jugador— lo pide él. Si dice un número que no sale de ahí, se lo ha "
+      + "inventado."));
+}
 
 /* ── BUSCAR ──────────────────────────────────────────────────────── */
 V.buscar = async (raiz, partes) => {
@@ -1355,6 +1468,8 @@ async function pintarPartido(raiz, consulta) {
 
   raiz.append(abastecer(p.id));
   raiz.append(tarjetaPronostico(consulta));
+  raiz.append(tarjetaMercado(consulta));
+  raiz.append(tarjetaCharla(consulta));
   raiz.append(tarjetaDictamen(consulta));
   raiz.append(tarjetaAgentes(consulta));
 
@@ -1576,6 +1691,78 @@ function tarjetaDictamen(consulta) {
 
 /* El pronóstico: marcador, córners y tarjetas. Los números salen calculados
    del servidor; aquí solo se pintan. Se pide al abrir, no antes: es lo caro. */
+/* Lo que dicen las casas al lado de lo nuestro, y el marcador exacto de los dos.
+   De cada suceso sale la casa que menos cobra: es la que más se acerca a lo que
+   el mercado de verdad cree, y la más difícil de batir. */
+function tarjetaMercado(consulta) {
+  const pintar = (d) => {
+    const err = fallo(d);
+    if (err) return err;
+    if (!d.disponible) return msg(d.nota, "ojo");
+    const marcaDif = (x) => x.diferencia === null ? "—"
+      : el("b", { style: x.discrepa
+          ? `color:var(--${x.diferencia > 0 ? "cesped" : "bandera"})` : "" },
+          (x.diferencia > 0 ? "+" : "") + pc(x.diferencia, 1));
+    const partes = [
+      el("div", { class: "desliza" }, tabla(
+        [{ t: "Suceso", k: "suceso" }, { t: "Nosotros", k: "nuestra", n: true },
+         { t: "Mercado", k: "mercado", n: true }, { t: "Cuota", k: "cuota", n: true },
+         { t: "Diferencia", k: "dif", n: true }, { t: "Casa", k: "casa" }],
+        d.sucesos,
+        (f, c) => c.k === "nuestra" || c.k === "mercado" ? pc(f[c.k], 1)
+          : c.k === "dif" ? marcaDif(f)
+          : c.k === "casa" ? (f.casa ? `${f.casa}${f.casas > 1 ? ` (de ${f.casas})` : ""}` : "—")
+          : f[c.k])),
+    ];
+    const mov = (d.movimiento || []).filter((m) => m.apertura && m.cambio);
+    if (mov.length) partes.push(el("div", { class: "bloque" },
+      el("b", {}, "Cómo se ha movido desde la apertura"),
+      el("div", { class: "fila" }, ...mov.map((m) => etiqueta(
+        `${m.seleccion}: ${n2(m.apertura)} → ${n2(m.ahora)} (${m.cambio > 0 ? "+" : ""}${pc(m.cambio, 0)})`,
+        m.cambio < -0.03 ? "verde" : m.cambio > 0.03 ? "ambar" : ""))),
+      nota("Una cuota que baja es que entra dinero ahí. Las de las últimas horas, "
+        + "con las alineaciones ya dentro, son las que más dicen.")));
+    const me = d.marcador_exacto || {};
+    if (me.mas_probables_nuestros) {
+      const lista = (pares) => el("ul", { class: "lista" }, ...pares.map(([m, p]) =>
+        el("li", {}, el("b", { style: "flex:0 0 52px" }, m),
+          el("span", { class: "gris peq" }, pc(p, 1)))));
+      partes.push(el("div", { class: "bloque" },
+        el("b", {}, `Marcador exacto · ${me.casa}`),
+        el("div", { class: "fila", style: "align-items:flex-start" },
+          el("div", { style: "flex:1 1 150px" }, el("p", { class: "mini" }, "Nosotros"),
+            lista(me.mas_probables_nuestros)),
+          el("div", { style: "flex:1 1 150px" }, el("p", { class: "mini" }, "El mercado"),
+            lista(me.mas_probables_mercado))),
+        el("p", { class: "peq" }, "Donde más discrepan: ",
+          ...me.donde_discrepan.slice(0, 3).map((x) => etiqueta(
+            `${x.marcador} ${x.diferencia > 0 ? "+" : ""}${pc(x.diferencia, 1)}`,
+            x.diferencia > 0 ? "verde" : "ambar"))),
+        nota(me.coinciden_en_el_primero
+          ? "Coinciden en el más probable. Lo que dice algo es dónde se separan."
+          : "No coinciden ni en el más probable: uno de los dos se equivoca bastante.")));
+    } else if (me.nota) {
+      partes.push(nota(me.nota));
+    }
+    partes.push(el("p", { class: "peq gris" },
+      `Casas: ${(d.casas || []).join(", ")} · visto ${String(d.visto_en || "").slice(0, 16).replace("T", " ")}`),
+      nota(d.como_leerlo));
+    return partes;
+  };
+  const cuerpo = el("div", { class: "bloque" });
+  const refrescar = el("button", { class: "btn plano s", onclick: async () => {
+    refrescar.disabled = true;
+    poner(cuerpo, espera("Pidiendo las cuotas otra vez…"));
+    poner(cuerpo, pintar(await api.h("mercados_partido",
+      { partido: String(consulta), refrescar: true })));
+    refrescar.disabled = false;
+  } }, "Volver a pedirlas");
+  return tarjeta("Lo que dicen las casas", plegable("Nosotros contra el mercado", async () => {
+    poner(cuerpo, pintar(await api.h("mercados_partido", { partido: String(consulta) })));
+    return [cuerpo, el("div", { class: "fila" }, refrescar)];
+  }));
+}
+
 function tarjetaPronostico(consulta) {
   const cuerpo = el("div", { class: "bloque" });
   return tarjeta("Pronóstico", plegable("Marcador, córners y tarjetas", async () => {
@@ -1636,7 +1823,7 @@ async function pintarEquipo(raiz, nombre) {
       el("span", { class: "gris peq" }, `${est.partidos_mirados} partidos · ${r.goles_favor}-${r.goles_contra}`)),
     cifras([[n2(concede.xg), "xG concedido"], [n2(concede.tiros, 1), "tiros concedidos"],
       [n2(concede.ocasiones_claras, 1), "claras concedidas"]])));
-  raiz.append(tarjeta("Lo que le distingue de su liga", rasgos(est.dimensiones, 9), nota(est.aviso)));
+  raiz.append(tarjeta("Lo que le distingue de su liga", rasgos(est.dimensiones, 9, est.aviso)));
   raiz.append(tarjeta("Con qué plantea", sis && sis.disponible
     ? el("div", { class: "bloque" },
         el("div", { class: "fila" }, ...Object.entries(sis.formaciones || {}).map((par) => etiqueta(`${par[0]} ×${par[1]}`))),
@@ -1962,6 +2149,110 @@ function vigilarTarea(nombre, caja, boton, alAcabar) {
     else if (alAcabar) alAcabar(d);
   };
   mirar();
+}
+
+/* Lo primero del día: cómo salió lo de ayer, el pick y dónde no estamos de
+   acuerdo con el mercado. En ese orden: empezar viendo si lo de ayer salió es más
+   honesto que empezar prometiendo lo de hoy. */
+function tarjetaPortada(pt) {
+  const partes = [];
+  const ayer = pt.ayer || {};
+  if ((ayer.picks || []).length) partes.push(el("div", { class: "bloque" },
+    el("b", {}, `Lo de ayer · ${(ayer.unidades > 0 ? "+" : "") + n2(ayer.unidades)} unidades`),
+    el("ul", { class: "lista peq" }, ...ayer.picks.map((x) => el("li", {},
+      el("span", { style: "flex:1 1 220px" }, `${x.partido}: ${x.suceso} a ${x.cuota}`),
+      !x.resuelto ? etiqueta("pendiente")
+        : etiqueta(x.acerto ? "acertado" : "fallado", x.acerto ? "verde" : "roja"))))));
+  const pick = (pt.pick || [])[0];
+  partes.push(pick
+    ? el("div", { class: "bloque" }, el("b", {}, "El pick del día"),
+        el("p", {}, el("b", {}, pick.partido), ` — ${pick.suceso} a `, el("b", {}, pick.cuota),
+          ` (${pick.casa})`),
+        el("p", { class: "peq gris" }, `Nosotros ${pc(pick.prob_nuestra)} · mercado `
+          + `${pc(pick.prob_mercado)} · valor ${pick.valor > 0 ? "+" : ""}${pc(pick.valor)}`
+          + ((pt.picks || []).length > 1 ? ` · y ${pt.picks.length - 1} más en Seguro → Picks` : "")))
+    : msg("Hoy nada pasa la regla, así que no hay pick. Un día sin pick no es un fallo: "
+        + "es lo que hace creíble el día que sí lo hay.", "ojo"));
+  if ((pt.discrepancias || []).length) partes.push(el("details", {},
+    el("summary", {}, `Dónde no estamos de acuerdo con el mercado (${pt.discrepancias.length})`),
+    el("ul", { class: "lista peq" }, ...pt.discrepancias.map((s) => el("li", {},
+      el("span", { style: "flex:1 1 220px" }, `${s.partido}: ${s.suceso}`),
+      el("span", { class: "gris" }, `nosotros ${pc(s.nuestra)} · mercado ${pc(s.mercado)}`)))),
+    nota("Lo más probable es que el mercado sepa algo que nosotros no. Las que además "
+      + "tienen valor ya están arriba como pick.")));
+  partes.push(el("a", { class: "peq", href: "#/seguro/picks" }, "Historial de picks →"));
+  return tarjeta(null, ...partes);
+}
+
+/* Los picks: una regla fija, el precio al que se dio y un historial que nadie
+   puede reescribir. No es «la apuesta segura del día», que no existe. Los días
+   en que nada pasa la regla, no hay pick, y eso se enseña igual de claro. */
+async function pintarPicks(raiz, fecha) {
+  const d = await api.post("/api/picks", { fecha });
+  const err = fallo(d);
+  if (err) { raiz.append(err); return; }
+  const r = d.regla || {};
+  const dia = d.dia;
+  const caja = el("div", { class: "registro", hidden: true });
+  const calcular = (apuntar) => el("button", { class: apuntar ? "btn" : "btn plano", onclick: async (e) => {
+    e.currentTarget.disabled = true;
+    const a = await api.post("/api/picks/calcular", { fecha, apuntar });
+    if (fallo(a)) { raiz.append(fallo(a)); return; }
+    vigilarTarea("picks", caja, null, () => ir(`#/seguro/picks`, true));
+  } }, apuntar ? "Calcular y apuntar" : "Calcular sin apuntar");
+
+  const pintaPick = (x, gratis) => el("li", {},
+    el("div", { style: "flex:1 1 240px;min-width:0" },
+      gratis ? etiqueta("gratis", "verde") : null, " ",
+      el("b", {}, x.partido || x.partido_id), el("br"),
+      el("span", {}, `${x.suceso} a `, el("b", {}, x.cuota), ` (${x.casa})`)),
+    el("span", { class: "gris peq" },
+      `nosotros ${pc(x.prob_nuestra)} · mercado ${pc(x.prob_mercado)} · valor ${x.valor > 0 ? "+" : ""}${pc(x.valor, 1)}`),
+    x.resuelto ? etiqueta(x.acerto ? "acertado" : "fallado", x.acerto ? "verde" : "roja") : null);
+
+  if (!dia) {
+    raiz.append(tarjeta(`Picks del ${fecha}`,
+      msg("Todavía no están apuntados. La guardia los apunta cada noche con el precio "
+        + "de ese momento; también puedes calcularlos ahora.", "ojo"),
+      el("div", { class: "fila" }, calcular(false), calcular(true)), caja,
+      nota("Apuntarlos es irreversible a propósito: el precio que se apunta es el "
+        + "que se juzga después.")));
+  } else {
+    const lista = dia.premium || [];
+    raiz.append(tarjeta(`Picks del ${dia.fecha}${dia.apuntado ? " · apuntados" : " · calculados, sin apuntar"}`,
+      lista.length ? el("ul", { class: "lista" }, ...lista.map((x, i) => pintaPick(x, i === 0)))
+        : msg(dia.nota || "Hoy nada pasa la regla, así que hoy no hay pick.", "ojo"),
+      (dia.casi || []).length ? el("details", {}, el("summary", {}, "Lo más cerca de pasar, y por qué no"),
+        el("ul", { class: "lista peq" }, ...dia.casi.map((c) => el("li", {},
+          el("span", { style: "flex:1 1 220px" }, `${c.partido}: ${c.suceso} a ${c.cuota}`),
+          el("span", { class: "gris" }, (c.por_que_no || []).join(" · ")))))) : null,
+      dia.apuntado ? null : el("div", { class: "fila" }, calcular(true)), caja));
+  }
+
+  for (const nivel of ["gratis", "premium"]) {
+    const h = (d.historial || {})[nivel] || {};
+    raiz.append(tarjeta(`Historial ${nivel}`, !h.picks ? nota(h.nota)
+      : el("div", { class: "bloque" },
+          cifras([[h.picks, "picks"], [pc(h.acierto), "acierto"],
+            [(h.unidades > 0 ? "+" : "") + n2(h.unidades), "unidades"],
+            [(h.rendimiento > 0 ? "+" : "") + pc(h.rendimiento, 1), "rendimiento"]]),
+          h.intervalo ? el("p", { class: "peq gris" },
+            `Rendimiento entre ${pc(h.intervalo[0], 1)} y ${pc(h.intervalo[1], 1)} al 95 % · `
+            + `peor racha ${n2(h.peor_racha)} · cuota media ${h.cuota_media}`
+            + (h.gana_al_cierre !== null && h.gana_al_cierre !== undefined
+              ? ` · gana al cierre en el ${pc(h.gana_al_cierre)}` : "")) : null,
+          msg(h.lectura, h.intervalo && h.intervalo[0] > 0 ? "bien" : "ojo"))));
+  }
+
+  raiz.append(tarjeta("La regla", el("ul", { class: "lista peq" },
+    el("li", {}, `Cuota entre ${r.cuota_minima} y ${r.cuota_maxima}`),
+    el("li", {}, `Valor de al menos ${pc(r.valor_minimo)} al precio que se da`),
+    el("li", {}, `Al menos ${pc(r.separacion_minima)} por encima de lo que cree el mercado`),
+    el("li", {}, `${r.partidos_minimos} partidos guardados de cada equipo`),
+    el("li", {}, `Mercados donde la casa cobra menos de un ${pc(r.margen_maximo)}`),
+    el("li", {}, `Uno por partido como mucho`)),
+    nota(`Versión ${r.version}. Cambiar la regla es cambiar de producto: cada pick apunta `
+      + "con qué regla salió, para no mezclar dos productos en un historial.")));
 }
 
 /* ═══════════════════════════════════════════════════════ agentes ═══ */

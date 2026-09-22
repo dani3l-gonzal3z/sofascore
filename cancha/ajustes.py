@@ -60,24 +60,39 @@ POR_DEFECTO: dict[str, Any] = {
         #: Qué se pide de cada partido. Cada sección es **una petición más por
         #: partido**, así que esto multiplica: con cinco secciones, diez mil
         #: partidos son cincuenta mil peticiones. Ver `cancha historia --plan`.
-        "secciones": ["statistics", "lineups", "incidents", "shotmap",
-                      "odds_featured"],
+        "secciones": ["statistics", "lineups", "incidents", "shotmap", "odds"],
         #: Tope de peticiones por tanda. 0 = sin tope, y entonces tarda lo que
         #: tarde. Con tope se puede dejar corriendo a ratos y reanudar.
         "max": 0,
+    },
+    #: Fuentes de cuotas además de Sofascore. Sin claves, no se usan y ya está:
+    #: Sofascore sigue funcionando solo. Ver :mod:`cancha.sources.casas`.
+    "cuotas": {
+        #: Betfair Exchange: el marcador exacto con dinero de verdad detrás y casi
+        #: sin margen. Clave gratuita en developer.betfair.com. Una cuenta
+        #: española va con jurisdicción «es».
+        "betfair": {"clave_app": "", "usuario": "", "contrasena": "",
+                    "jurisdiccion": "com"},
+        #: Varias casas por región con una clave (the-odds-api.com). Cada liga,
+        #: mercado y región cuentan del cupo mensual.
+        "the_odds_api": {"clave": "", "regiones": "eu,uk", "casas": ""},
     },
     "web": {"puerto": 8765, "lan": True, "clave": ""},
     #: Cuando algo abre tu HTTPS por el camino —un antivirus que «revisa webs
     #: seguras», el proxy de una empresa, una VPN—, Python no conoce a quien
     #: firma el certificado y no se conecta a nada. Ver :mod:`cancha.tls`.
     "red": {"ca_bundle": "", "sin_verificar": False},
-    "telegram": {"token": "", "chats": []},
+    #: `canal_gratis` y `canal_premium`: dónde publica el bot los picks de cada
+    #: día (el id del canal, -100…, o @nombre). El bot tiene que ser administrador
+    #: del canal. Vacíos, no se publica nada.
+    "telegram": {"token": "", "chats": [], "canal_gratis": "", "canal_premium": ""},
 }
 
 #: Lo que no se enseña de vuelta. El token del bot es una llave: se puede
 #: escribir desde la interfaz, pero no se devuelve para que no acabe en una
 #: captura de pantalla ni en el historial del navegador.
-SECRETOS = ("telegram.token", "ollama_api_key")
+SECRETOS = ("telegram.token", "ollama_api_key", "cuotas.betfair.clave_app",
+            "cuotas.betfair.contrasena", "cuotas.the_odds_api.clave")
 
 
 def ruta(dada: str | Path | None = None) -> Path:

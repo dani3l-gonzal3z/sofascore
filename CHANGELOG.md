@@ -4,6 +4,96 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.19.0
+
+Todos los mercados con su historia, el marcador exacto contra el nuestro, una
+conversación dentro de cada partido, y los picks: una regla fija, el precio al
+que se dio y un historial que no se toca. Y seis fallos de dentro que hacían que
+las cosas no salieran bien aunque parecieran salir.
+
+### Arreglos
+
+- **Las cuotas se sobrescribían y no se volvían a pedir.** Se guardaba el 1X2 en
+  una fila por partido que se pisaba —la apertura y el cierre eran la misma
+  fila— y, si ya había cuotas, no se pedían nunca más. Un partido visto tres días
+  antes llegaba al saque con la cuota de apertura: el mercado del briefing estaba
+  viejo, y el «cierre» con el que se mide el CLV, también. Ahora cada foto se
+  apila y se vuelve a mirar más a menudo cuanto más cerca está el saque.
+
+- **Solo el 1X2 tenía con qué compararse.** Los goles, «ambos marcan», córners y
+  tarjetas se apuntaban sin precio de mercado, así que no se podía saber si en
+  ellos acertábamos más o menos que las casas. Ahora tienen precio, y el mercado
+  concursa en todos.
+
+- **Quien elegía «no» acertaba cuando pasaba lo contrario.** En `mas_2_5`,
+  `ambos_marcan`, córners y tarjetas se devolvía «¿pasó?» sin mirar qué se había
+  elegido: un agente que decía que no marcarían los dos se apuntaba un acierto
+  cada vez que marcaban.
+
+- **Barras de +93 % sacadas de un partido.** En la previa de Hoy, un equipo con
+  un solo partido guardado salía con «paradas +93 %, ocasiones +69 %, faltas
+  −66 %». El cálculo ya lo marcaba como muestra corta y no sacaba rasgos, pero la
+  pantalla pintaba las barras igual. Ahora dice que con eso no se puede decir
+  cómo juega, y los números van plegados y en gris.
+
+- **Y frases enteras sacadas de dos partidos.** «Dónde se pueden hacer daño» no
+  miraba la muestra: con un partido de cada equipo salía «genera muchas ocasiones
+  y enfrente las conceden».
+
+- **«Cómo acierto» nunca se abría.** La vista de Seguro solo aceptaba el modo
+  «calibrar» y convertía todo lo demás en «hoy», así que ese botón llevaba a la
+  pantalla de hoy: el registro de aciertos era inalcanzable desde la página.
+
+- **La página se congelaba mientras pensaba el modelo.** El servidor sostenía el
+  cerrojo de la memoria durante toda la respuesta; con un modelo de casa, minutos.
+  Ahora solo se coge al ejecutar cada herramienta.
+
+### Novedades
+
+- **Todos los mercados, con su historia.** 1X2, doble oportunidad, cada línea de
+  goles, «ambos marcan», hándicap, córners, tarjetas, primera parte y **marcador
+  exacto**, de cada casa y cada vez que se miran, con la cuota de apertura que
+  Sofascore ya mandaba y se tiraba. `cancha mercados "Girona vs Osasuna"` y la
+  tarjeta «Lo que dicen las casas» los ponen al lado de lo nuestro, marcan dónde
+  nos separamos y enseñan cómo se ha movido el precio.
+
+- **El marcador exacto, nosotros contra el mercado.** No «quién lo tenía
+  primero», que acierta poco y a todos igual, sino **cuánta probabilidad le dio
+  cada uno al marcador que salió**, sobre las mismas casillas y con su log score.
+  `cancha mercados --marcadores`. El margen se quita con el método de potencia,
+  que le quita más a lo improbable, que es donde la casa lo carga.
+
+- **Betfair y The Odds API.** Betfair Exchange es una bolsa casi sin margen, y su
+  marcador exacto es lo más parecido a la distribución real que hay en público;
+  tiene clave gratuita. The Odds API junta varias casas por región. Los partidos
+  se emparejan por hora y por los dos nombres de equipo, y lo que no se empareja
+  se enseña: mejor sin cuotas que con las de otro partido. Rascar la web de bet365
+  no está, a propósito.
+
+- **Pregúntale a tu analista, dentro de cada partido.** El modelo arranca con el
+  partido fijado y una ficha corta —pronóstico, mercado, discrepancias,
+  marcadores— y pide lo demás con las herramientas. No se le da el expediente
+  entero por defecto, porque a un modelo de 16k se le acaba el sitio y Ollama
+  recorta por las instrucciones. Lo hablado se guarda con el partido.
+
+- **Los picks.** No es «la apuesta segura del día», que no existe: es una regla
+  escrita antes, igual todos los días, apuntada con **el precio al que se da**, y
+  medida después al precio tomado con su intervalo, su peor racha y su CLV. Los
+  días en que nada pasa la regla, no hay pick, y se dice. Dos niveles —gratis,
+  el mejor; premium, todos— con historiales separados. `cancha picks`, Seguro →
+  Picks, `/pick`, `/picks` y `/historial`.
+
+- **Canales de Telegram.** La guardia apunta cada noche los picks del día
+  siguiente y el bot publica el boletín de cada nivel en su canal.
+
+- **El briefing empieza por lo que importa.** Lo de ayer con su resultado, el pick
+  del día, y dónde no estamos de acuerdo con el mercado; y cada partido lleva
+  ahora nuestro pronóstico y el mercado de cada cosa, que antes no llevaba. El
+  `/resumen` del bot, en el mismo orden.
+
+- **El expediente del modelo lleva todos los mercados**, el movimiento de la
+  cuota y el marcador exacto de los dos lados.
+
 ## 0.18.0
 
 Traerse la historia de golpe, el briefing que ya no se cuelga, y un `null` que

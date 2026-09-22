@@ -68,7 +68,7 @@ partido.available()            # secciones con datos
   ids que no estaban contrastados **se descubren solos**, comprobando país y
   género: aquí no se inventa un número que barrería otra liga en silencio.
 - **Un analista en tu máquina.** `cancha analista` habla con Ollama y le da las
-  45 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
+  46 herramientas. Cada paso se ve, y las instrucciones le prohíben decir una
   cifra que no le hayan dado.
 - **Y el expediente entero a un modelo grande.** `cancha dictamen "Girona vs
   Osasuna"` reúne todo lo que se sabe de un partido —el pronóstico ya
@@ -194,6 +194,8 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [Ajustes](docs/ajustes.md) | La hora, las ligas, el modelo: decidirlo una vez |
 | [Certificados](docs/certificados.md) | Si un antivirus o un proxy abre tu HTTPS y nada se conecta |
 | [Casi seguro](docs/seguro.md) | Lo que se repite, medido: frecuencia, suelo de Wilson y elevación |
+| [Las casas](docs/mercados.md) | Todos los mercados con su historia, el marcador exacto, Betfair y The Odds API |
+| [Los picks](docs/picks.md) | Una regla fija, el precio al que se dio y un historial que no se toca |
 | [El registro](docs/registro.md) | Qué predijo y cómo acabó: calibración, Brier y CLV |
 | [Agentes](docs/agentes.md) | Varios analistas con su estilo, compitiendo contra el cálculo y el mercado |
 | [El pronóstico](docs/pronostico.md) | Marcador exacto, córners y tarjetas, calculados y contra el mercado |
@@ -204,7 +206,7 @@ Y sin instalar nada: copia la carpeta `cancha/` a tu proyecto y usa
 | [Equipos, jugadores y ligas](docs/entidades.md) | Fichas, plantillas, clasificaciones, en directo |
 | [Análisis](docs/analisis.md) | Puntos esperados, calidad de tiro, carrera de xG |
 | [Fuentes de datos](docs/fuentes.md) | Understat, ClubElo, el cruce y de dónde salen las rutas |
-| [Para una IA local](docs/ia.md) | Las 45 herramientas, MCP y cómo indaga |
+| [Para una IA local](docs/ia.md) | Las 46 herramientas, MCP y cómo indaga |
 | [La línea de comandos](docs/comandos.md) | Todos los comandos y sus opciones |
 | [Sofascore Plus](docs/plus.md) | Tus credenciales, y por qué casi no hacen falta |
 | [Usarlo como librería](docs/libreria.md) | La API de Python, los módulos, los errores |

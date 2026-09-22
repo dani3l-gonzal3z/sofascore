@@ -81,6 +81,10 @@ def expediente(almacen: Almacen, partido, cliente=None, ultimos: int = ULTIMOS,
         },
     }
     salida["pronostico"] = _o_nota(lambda: pronostico(almacen, evento, cliente=cliente))
+    # Y todos los mercados, no solo el 1X2: goles, «ambos marcan», córners,
+    # tarjetas y el marcador exacto de las casas, al lado de lo nuestro.
+    salida["frente_al_mercado"] = _o_nota(lambda: _frente(almacen, evento.id,
+                                                         salida["pronostico"]))
     salida["previa"] = _o_nota(lambda: previa(almacen, evento, cliente=cliente,
                                               ultimos=ultimos,
                                               jugadores_por_equipo=JUGADORES))
@@ -99,6 +103,12 @@ def expediente(almacen: Almacen, partido, cliente=None, ultimos: int = ULTIMOS,
         "tokens_aprox": len(texto) // 4,
     }
     return salida
+
+
+def _frente(almacen, partido_id: int, pron: dict) -> dict:
+    from .mercados import frente_al_mercado
+
+    return frente_al_mercado(almacen, partido_id, pron if pron.get("disponible") else None)
 
 
 def _cuantos_hay(almacen) -> int | str:
@@ -354,7 +364,8 @@ def a_texto(datos: dict) -> str:
     lineas += _texto_pronostico(datos.get("pronostico") or {})
     # Aparte del pronóstico a propósito: aunque no haya pronóstico, el mercado
     # es lo primero que hay que mirar, y antes se iba con él.
-    lineas += _texto_mercado(datos.get("pronostico") or {})
+    lineas += _texto_mercado(datos.get("pronostico") or {},
+                             datos.get("frente_al_mercado") or {})
     lineas += _texto_equipos(datos.get("previa") or {})
     lineas += _texto_ultimos(datos.get("ultimos_partidos") or {},
                              datos.get("entre_ellos") or {})
@@ -424,7 +435,7 @@ def _texto_pronostico(pron: dict) -> list[str]:
     return lineas
 
 
-def _texto_mercado(pron: dict) -> list[str]:
+def _texto_mercado(pron: dict, frente: dict | None = None) -> list[str]:
     """El mercado, en su propio apartado.
 
     Iba dentro del pronóstico, en una línea que empezaba por «MERCADO:». Es lo
@@ -449,7 +460,34 @@ def _texto_mercado(pron: dict) -> list[str]:
         "donde no, lo más probable sigue siendo que se equivoque el cálculo.",
         "",
     ]
-    return lineas
+    return lineas + _texto_frente(frente or {})
+
+
+def _texto_frente(frente: dict) -> list[str]:
+    """Cada mercado al lado de lo nuestro, el movimiento y el marcador exacto."""
+    if not frente.get("disponible"):
+        return []
+    lineas = ["Cada suceso, de la casa que menos cobra (sin margen) y lo nuestro:"]
+    for s in frente.get("sucesos") or []:
+        if s.get("mercado") is None:
+            continue
+        nuestra = f"{s['nuestra']:.0%}" if s.get("nuestra") is not None else "—"
+        lineas.append(f"  {s['suceso']}: mercado {s['mercado']:.0%} (cuota {s['cuota']}, "
+                      f"{s['casa']}) · cálculo {nuestra}"
+                      + ("  ← DISCREPAN" if s.get("discrepa") else ""))
+    movidos = [m for m in frente.get("movimiento") or []
+               if m.get("cambio") and abs(m["cambio"]) >= 0.03]
+    if movidos:
+        lineas.append("Movimiento del 1X2 desde la apertura (una cuota que baja es "
+                      "dinero entrando): " + ", ".join(
+                          f"{m['seleccion']} {m['apertura']}→{m['ahora']}" for m in movidos))
+    exacto = frente.get("marcador_exacto") or {}
+    if exacto.get("mas_probables_mercado"):
+        lineas.append(f"Marcador exacto según el mercado ({exacto.get('casa')}): " + ", ".join(
+            f"{m} {p:.1%}" for m, p in exacto["mas_probables_mercado"][:6]))
+        lineas.append("Según el cálculo: " + ", ".join(
+            f"{m} {p:.1%}" for m, p in exacto.get("mas_probables_nuestros", [])[:6]))
+    return lineas + [""]
 
 
 def _texto_equipos(prev: dict) -> list[str]:

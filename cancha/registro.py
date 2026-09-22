@@ -58,7 +58,8 @@ MINIMO_PARA_JUZGAR = 50
 
 #: Qué se apunta de cada partido. La clave es el mercado; el valor, cómo se saca
 #: del pronóstico y cómo se resuelve con el partido ya jugado.
-MERCADOS = ("1x2", "mas_2_5", "ambos_marcan", "corners", "tarjetas", "marcador")
+MERCADOS = ("1x2", "mas_2_5", "ambos_marcan", "corners", "tarjetas", "marcador",
+            "marcador_exacto")
 
 
 # ------------------------------------------------------------------ apuntar
@@ -117,27 +118,92 @@ def anotar(almacen: Almacen, partido: Any, pronostico: dict | None = None,
 
     mercado = ((datos.get("mercado") or {}).get("mercado") or {})
     horas = _horas_hasta(evento)
+    precios = precios_del_mercado(almacen, evento.id)
     filas = (list(_de_un_dict(probabilidades, mercado)) if probabilidades is not None
              else list(_del_pronostico(datos, mercado)))
     guardadas = 0
     for mercado_nombre, seleccion, probabilidad, prob_mercado in filas:
+        # Hasta ahora solo el 1X2 tenía precio con el que compararse. Con todos
+        # los mercados guardados, los goles, «ambos marcan», los córners y el
+        # marcador exacto también lo tienen.
+        if prob_mercado is None:
+            prob_mercado = precios.get((mercado_nombre, seleccion))
         guardadas += _insertar(almacen, evento, autor, mercado_nombre, seleccion,
                                probabilidad, prob_mercado, horas, version)
 
     # El mercado, apuntado como un concursante más. Es gratis —las cuotas ya
     # están— y es el listón contra el que se mide todo lo demás. Solo se apunta
-    # una vez por partido, no una por cada agente que opine.
+    # una vez por partido, no una por cada agente que opine. Y ahora en **todos**
+    # los mercados que tenga, no solo en el 1X2.
     del_mercado = 0
-    if con_mercado and mercado:
-        for lado in ("local", "empate", "visitante"):
-            valor = _sacar(mercado, lado)
-            if valor is not None:
-                del_mercado += _insertar(almacen, evento, AUTOR_MERCADO, "1x2", lado,
-                                         valor, valor, horas, "cuotas")
+    if con_mercado:
+        if mercado:
+            for lado in ("local", "empate", "visitante"):
+                if (valor := _sacar(mercado, lado)) is not None:
+                    precios.setdefault(("1x2", lado), valor)
+        for (mercado_nombre, seleccion), valor in precios.items():
+            del_mercado += _insertar(almacen, evento, AUTOR_MERCADO, mercado_nombre,
+                                     seleccion, valor, valor, horas, "cuotas")
     almacen._conexion.commit()
     return {"partido_id": evento.id, "fecha": evento.date, "autor": autor,
             "guardadas": guardadas, "ya_estaban": len(filas) - guardadas,
             "del_mercado": del_mercado, "version": version, "horas_antes": horas}
+
+
+#: Cómo se llama en `cuotas_mercado` cada suceso del registro: (mercado, línea,
+#: selección). El registro usa sucesos binarios con nombre propio y las casas
+#: usan mercados con línea; esto es el puente.
+EN_EL_MERCADO = {
+    ("mas_2_5", "si"): ("goles", "2.5", "mas"),
+    ("mas_2_5", "no"): ("goles", "2.5", "menos"),
+    ("ambos_marcan", "si"): ("ambos_marcan", "", "si"),
+    ("ambos_marcan", "no"): ("ambos_marcan", "", "no"),
+    ("corners", "mas_9_5"): ("corners", "9.5", "mas"),
+    ("tarjetas", "mas_3_5"): ("tarjetas", "3.5", "mas"),
+}
+
+
+def precios_del_mercado(almacen: Almacen, partido_id: int) -> dict[tuple, float]:
+    """Lo que dice el mercado de cada suceso del registro, sin margen.
+
+    De cada mercado se coge la casa que **menos cobra**: con el margen más bajo es
+    la que más se acerca a lo que el mercado de verdad cree, y la más difícil de
+    batir. Coger la peor sería ponerse el listón bajo.
+
+    Devuelve también el marcador exacto entero, si alguna casa lo tiene, con su
+    «cualquier otro» aparte.
+    """
+    from .mercados import distribucion_de_marcadores
+
+    try:
+        filas = almacen.mercados_de(partido_id)
+    except Exception:  # noqa: BLE001 - una base vieja sin la tabla no rompe anotar
+        return {}
+    if not filas:
+        return {}
+    mejor: dict[tuple, dict] = {}
+    for fila in filas:
+        llave = (fila["mercado"], fila["linea"])
+        if llave not in mejor or (fila["margen"] or 9) < (mejor[llave]["margen"] or 9):
+            mejor[llave] = fila
+    casa_de = {llave: fila["casa"] for llave, fila in mejor.items()}
+    elegidas = {(f["mercado"], f["linea"], f["seleccion"]): f["prob"] for f in filas
+                if f["prob"] and casa_de.get((f["mercado"], f["linea"])) == f["casa"]}
+
+    salida: dict[tuple, float] = {}
+    for lado in ("local", "empate", "visitante"):
+        if (valor := elegidas.get(("1x2", "", lado))) is not None:
+            salida[("1x2", lado)] = round(valor, 4)
+    for suceso, en_casa in EN_EL_MERCADO.items():
+        if (valor := elegidas.get(en_casa)) is not None:
+            salida[suceso] = round(valor, 4)
+    exacto = distribucion_de_marcadores(filas)
+    if exacto.get("disponible"):
+        for cual, valor in exacto["marcadores"].items():
+            salida[("marcador_exacto", cual)] = round(valor, 5)
+        if exacto.get("otros"):
+            salida[("marcador_exacto", "otro")] = round(exacto["otros"], 5)
+    return salida
 
 
 def _de_un_dict(probabilidades: dict, mercado: dict):
@@ -218,6 +284,12 @@ def _del_pronostico(datos: dict, mercado: dict):
         primero = marcadores[0]
         yield "marcador", str(primero["marcador"]), float(primero["probabilidad"]), None
 
+    # Y la distribución **entera** de marcadores, cada uno como su propio suceso.
+    # Es lo que se compara con el mercado de marcador exacto: no «cuál es el más
+    # probable», sino cuánta probabilidad le dio cada uno a lo que pasó.
+    for cual, probabilidad in (goles.get("todos_los_marcadores") or {}).items():
+        yield "marcador_exacto", str(cual), float(probabilidad), None
+
 
 def _sacar(mercado: dict, lado: str) -> float | None:
     valor = mercado.get(lado)
@@ -297,11 +369,24 @@ def _resultado_de(almacen: Almacen, fila: dict) -> tuple[bool, str] | None:
         gano = "local" if local > visitante else ("visitante" if visitante > local
                                                   else "empate")
         return seleccion == gano, marcador
+    # En los de sí/no hay que mirar **qué** se predijo. Antes se devolvía «¿pasó?»
+    # a secas, así que quien apostaba por que no marcaran los dos se apuntaba un
+    # acierto cada vez que marcaban.
     if mercado == "mas_2_5":
-        return (local + visitante) > 2.5, marcador
+        return _segun(seleccion, (local + visitante) > 2.5), marcador
     if mercado == "ambos_marcan":
-        return (local > 0 and visitante > 0), marcador
+        return _segun(seleccion, local > 0 and visitante > 0), marcador
     if mercado == "marcador":
+        return seleccion == marcador, marcador
+    if mercado == "marcador_exacto":
+        if seleccion == "otro":
+            # «Cualquier otro»: acierta si el resultado no está entre los que ese
+            # mismo autor dio por separado en este partido.
+            listados = {f["seleccion"] for f in almacen.consulta(
+                """SELECT seleccion FROM predicciones WHERE partido_id = ?
+                   AND autor = ? AND mercado = 'marcador_exacto'""",
+                (fila["partido_id"], fila["autor"]))}
+            return marcador not in listados, marcador
         return seleccion == marcador, marcador
     if mercado in ("corners", "tarjetas"):
         clave = "cornerKicks" if mercado == "corners" else "yellowCards"
@@ -309,8 +394,18 @@ def _resultado_de(almacen: Almacen, fila: dict) -> tuple[bool, str] | None:
         if total is None:
             return None
         linea = 9.5 if mercado == "corners" else 3.5
-        return total > linea, f"{total:g}"
+        return _segun(seleccion, total > linea), f"{total:g}"
     return None
+
+
+#: Las selecciones que dicen «sí pasa». Las demás —«no», «menos»— dicen lo
+#: contrario, y aciertan cuando el suceso no ocurre.
+AFIRMATIVAS = ("si", "mas", "mas_9_5", "mas_3_5", "mas_2_5")
+
+
+def _segun(seleccion: str, paso: bool) -> bool:
+    """¿Acertó quien eligió `seleccion`, sabiendo si el suceso pasó?"""
+    return paso if seleccion in AFIRMATIVAS else not paso
 
 
 def _suma_estadistica(almacen: Almacen, partido_id: int, clave: str) -> float | None:
@@ -402,6 +497,12 @@ def balance(almacen: Almacen, desde: str | None = None, hasta: str | None = None
         if valor:
             condiciones.append(f"{campo} {operador} ?")
             parametros.append(valor)
+    if mercado != "marcador_exacto":
+        # El marcador exacto son treinta sucesos por partido, casi todos con un
+        # uno por ciento que no pasa. Mezclado con el resto, el Brier sale bueno
+        # por acertar que el 5-3 no ocurre, y la clasificación entera se deforma.
+        # Se mide aparte, con `marcadores_frente_a_frente`.
+        condiciones.append("mercado != 'marcador_exacto'")
     filas = almacen.consulta(
         "SELECT * FROM predicciones WHERE " + " AND ".join(condiciones)
         + " ORDER BY fecha", tuple(parametros))
@@ -662,6 +763,116 @@ def _desvio(calibracion: list[dict]) -> float | None:
     return round(sum(abs(t["desvio"]) * t["casos"] for t in calibracion) / casos, 4)
 
 
+def marcadores_frente_a_frente(almacen: Almacen, uno: str = AUTOR_CALCULO,
+                               otro: str = AUTOR_MERCADO,
+                               desde: str | None = None) -> dict:
+    """Quién acierta más en el marcador exacto: cuánta probabilidad le dio cada
+    uno a lo que de verdad pasó.
+
+    No se mira «cuál era el más probable», que acierta poco y a todo el mundo por
+    igual —el 1-1 lo es casi siempre—, sino la **probabilidad que le dio cada uno
+    al marcador que salió**. Quien le dio un 14 % al 2-1 que acabó pasando sabía
+    más que quien le dio un 8 %, aunque ninguno de los dos lo tuviera primero.
+
+    Para que la comparación sea justa, los dos se miden sobre **las mismas
+    casillas**: los marcadores que listaba el mercado más un «cualquier otro».
+    Si el partido acabó 5-3 y el mercado no lo listaba, lo que cuenta es lo que
+    cada uno le daba a «cualquier otro», no al 5-3 exacto.
+
+    La puntuación es el logaritmo de esa probabilidad (log score): castiga mucho
+    más haber dicho 0,5 % a lo que pasó que haber dicho 5 %, que es lo correcto.
+    """
+    import math
+
+    filas = almacen.consulta(
+        """SELECT partido_id, autor, seleccion, probabilidad, valor_real, fecha
+           FROM predicciones
+           WHERE mercado = 'marcador_exacto' AND resuelto = 1 AND autor IN (?, ?)"""
+        + (" AND fecha >= ?" if desde else ""),
+        (uno, otro, *([desde] if desde else [])))
+    por_partido: dict[int, dict] = {}
+    for fila in filas:
+        suyo = por_partido.setdefault(fila["partido_id"],
+                                      {"real": fila["valor_real"], uno: {}, otro: {}})
+        suyo[fila["autor"]][fila["seleccion"]] = fila["probabilidad"]
+
+    casos = []
+    for partido_id, datos in por_partido.items():
+        a, b = datos[uno], datos[otro]
+        if not a or not b:
+            continue
+        # Las casillas: lo que listó quien tenga «cualquier otro» (el mercado), y
+        # si ninguno lo tiene, lo que listaron los dos.
+        casillas = ({s for s in b if s != "otro"} if "otro" in b
+                    else {s for s in a if s != "otro"} if "otro" in a
+                    else set(a) | set(b))
+        real = datos["real"]
+        cae_en = real if real in casillas else "otro"
+
+        pa, pb = _en_casillas(a, casillas), _en_casillas(b, casillas)
+        orden_a = sorted(pa, key=lambda s: -pa[s])
+        orden_b = sorted(pb, key=lambda s: -pb[s])
+        casos.append({
+            "partido_id": partido_id, "real": real, "casilla": cae_en,
+            "p_uno": pa[cae_en], "p_otro": pb[cae_en],
+            "log_uno": math.log(pa[cae_en]), "log_otro": math.log(pb[cae_en]),
+            "top1_uno": orden_a[0] == cae_en, "top1_otro": orden_b[0] == cae_en,
+            "top3_uno": cae_en in orden_a[:3], "top3_otro": cae_en in orden_b[:3],
+        })
+
+    if not casos:
+        return {"casos": 0, "uno": uno, "otro": otro,
+                "nota": ("Todavía no hay partidos jugados con el marcador exacto de "
+                         f"«{uno}» y de «{otro}» a la vez. Hace falta que la fuente "
+                         "tenga ese mercado, y el partido se haya jugado.")}
+    n = len(casos)
+    media = lambda clave: sum(c[clave] for c in casos) / n  # noqa: E731
+    difs = [c["log_uno"] - c["log_otro"] for c in casos]
+    dif = sum(difs) / n
+    desvio = (sum((d - dif) ** 2 for d in difs) / (n - 1)) ** 0.5 if n > 1 else 0.0
+    margen_ic = 1.96 * desvio / n ** 0.5 if n > 1 else float("inf")
+    # Treinta partidos de mínimo: por debajo, un par de 3-2 raros deciden solos.
+    veredicto = ("no se distinguen" if n < 30 or abs(dif) <= margen_ic
+                 else uno if dif > 0 else otro)
+    return {
+        "uno": uno, "otro": otro, "casos": n,
+        "p_real_uno": round(media("p_uno"), 4), "p_real_otro": round(media("p_otro"), 4),
+        "log_uno": round(media("log_uno"), 4), "log_otro": round(media("log_otro"), 4),
+        "top1_uno": round(media("top1_uno"), 3), "top1_otro": round(media("top1_otro"), 3),
+        "top3_uno": round(media("top3_uno"), 3), "top3_otro": round(media("top3_otro"), 3),
+        "diferencia": round(dif, 4),
+        "intervalo": [round(dif - margen_ic, 4), round(dif + margen_ic, 4)]
+                     if n > 1 else None,
+        "veredicto": veredicto,
+        "lectura": _lectura_marcadores(uno, otro, n, media("p_uno"), media("p_otro"),
+                                       veredicto),
+    }
+
+
+def _en_casillas(dist: dict, casillas: set) -> dict:
+    """Una distribución de marcadores repartida en las casillas comunes.
+
+    Lo que no cae en ninguna casilla va a «cualquier otro». Y nada baja del uno
+    por mil: un cero haría infinito el logaritmo, y nadie debería poder perder
+    infinitamente por un 5-3.
+    """
+    suyo = {s: max(dist.get(s, 0.0), 0.0) for s in casillas}
+    suyo["otro"] = max(1 - sum(suyo.values()), 0.0)
+    total = sum(suyo.values()) or 1.0
+    return {s: max(p / total, 0.001) for s, p in suyo.items()}
+
+
+def _lectura_marcadores(uno, otro, n, p_uno, p_otro, veredicto) -> str:
+    base = (f"En {n} partidos jugados, «{nombre_de_autor(uno)}» le dio de media un "
+            f"{p_uno:.1%} al marcador que acabó saliendo, y «{nombre_de_autor(otro)}» "
+            f"un {p_otro:.1%}. ")
+    if veredicto == "no se distinguen":
+        return base + ("Con esta muestra la diferencia cabe en el azar"
+                       + (": hacen falta al menos 30 partidos para decir nada."
+                          if n < 30 else "."))
+    return base + f"«{nombre_de_autor(veredicto)}» sabe más de marcadores, y no por suerte."
+
+
 def comparar(almacen: Almacen, uno: str, otro: str) -> dict:
     """Dos autores, **sobre los mismos partidos**. Es la comparación que vale.
 
@@ -679,7 +890,8 @@ def comparar(almacen: Almacen, uno: str, otro: str) -> dict:
            FROM predicciones a JOIN predicciones b
              ON a.partido_id = b.partido_id AND a.mercado = b.mercado
             AND a.seleccion = b.seleccion
-          WHERE a.autor = ? AND b.autor = ? AND a.resuelto = 1 AND b.resuelto = 1""",
+          WHERE a.autor = ? AND b.autor = ? AND a.resuelto = 1 AND b.resuelto = 1
+            AND a.mercado != 'marcador_exacto'""",
         (uno, otro))
     if not filas:
         return {"casos": 0, "uno": uno, "otro": otro,
@@ -793,6 +1005,7 @@ def texto(datos: dict, ancho: int = 72) -> list[str]:
 
 __all__ = ["AUTOR_CALCULO", "AUTOR_MERCADO", "MERCADOS", "MINIMO_PARA_JUZGAR",
            "NOMBRES_DE_AUTOR", "TRAMOS", "VERSION_MODELO", "anotar", "balance",
-           "brier", "calibracion", "comparar", "log_loss", "nombre_de_autor",
+           "brier", "calibracion", "comparar", "log_loss",
+           "marcadores_frente_a_frente", "nombre_de_autor", "precios_del_mercado",
            "resolver", "tabla", "texto",
            "texto_tabla"]

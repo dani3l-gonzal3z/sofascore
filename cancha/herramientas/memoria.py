@@ -300,6 +300,36 @@ def _pronostico_partido(sesion, partido: str, ultimos: int = 10):
 
 
 @herramienta(
+    "mercados_partido",
+    "LO QUE DICEN LAS CASAS, AL LADO DE LO NUESTRO. De cada suceso —1X2, más de "
+    "2,5, marcan los dos, córners, tarjetas— la probabilidad del mercado ya sin "
+    "margen, la de nuestro pronóstico, y dónde se separan más de cinco puntos. "
+    "Trae también el MARCADOR EXACTO del mercado contra el nuestro (qué "
+    "resultados cree cada uno más probables y en cuáles discrepan) y cómo se ha "
+    "movido la cuota desde la apertura: una cuota que baja es que entra dinero "
+    "ahí. Usa estos números tal cual. Si una discrepancia es grande, lo más "
+    "probable es que el mercado sepa algo que nosotros no: dilo así.",
+    {"partido": {"type": "string", "description": "Id, URL o 'Equipo A vs Equipo B'."},
+     "refrescar": {"type": "boolean",
+                   "description": "Volver a pedir las cuotas aunque sean recientes."}},
+    ["partido"],
+)
+def _mercados_partido(sesion, partido: str, refrescar: bool = False):
+    from ..mercados import frente_al_mercado
+    from ..mercados import refrescar as refrescar_mercados
+    from ..previa import _resolver
+    from ..pronostico import pronostico
+
+    evento = _resolver(sesion.almacen, partido, sesion.cliente)
+    if evento is None:
+        return {"error": "No encuentro ese partido."}
+    if sesion.cliente is not None:
+        refrescar_mercados(sesion.cliente, sesion.almacen, evento, forzar=refrescar)
+    return frente_al_mercado(sesion.almacen, evento.id,
+                             pronostico(sesion.almacen, evento, cliente=sesion.cliente))
+
+
+@herramienta(
     "abastecer_partido",
     "TRAE Y GUARDA todo lo que hace falta para analizar un partido: los últimos "
     "de cada equipo por separado, lo que han jugado entre ellos y lo que ha "

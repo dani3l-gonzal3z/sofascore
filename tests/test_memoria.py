@@ -530,3 +530,20 @@ def test_cada_rasgo_dice_con_cuanta_muestra_se_ha_medido(almacen):
         assert "partidos suyos" in rasgo["cuanto"]
         assert "de la liga" in rasgo["cuanto"]
         assert rasgo["partidos"] >= 4
+
+
+def test_un_cruce_no_sale_de_dos_partidos_sueltos():
+    """Con un partido de cada uno, «genera muchas ocasiones y enfrente las
+    conceden» es una frase entera sacada de dos partidos: no se dice."""
+    from cancha.previa import CRUCES, _cruces
+
+    dimension = CRUCES[0][0]
+
+    def equipo(nombre, basta):
+        return {"disponible": True, "equipo": nombre, "muestra_suficiente": basta,
+                "dimensiones": {dimension: {"diferencia": 0.9}},
+                "concede_dimensiones": {dimension: {"diferencia": 0.9}}}
+
+    assert _cruces({"local": equipo("A", True), "visitante": equipo("B", True)})
+    assert _cruces({"local": equipo("A", False), "visitante": equipo("B", True)}) == []
+    assert _cruces({"local": equipo("A", True), "visitante": equipo("B", False)}) == []

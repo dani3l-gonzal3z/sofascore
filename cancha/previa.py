@@ -93,6 +93,15 @@ def _mercado(almacen: Almacen, evento: Event, cliente: SofascoreClient | None) -
     from .cuotas import extraer_1x2, favorito
     from .errors import SofascoreError
 
+    if cliente is not None:
+        # Antes: si había cuotas guardadas, se usaban para siempre. Un partido
+        # visto tres días antes llegaba al saque con la cuota de apertura.
+        from contextlib import suppress
+
+        from .mercados import refrescar
+
+        with suppress(SofascoreError):
+            refrescar(cliente, almacen, evento)
     guardadas = almacen.cuotas_de(evento.id)
     if guardadas:
         return {"disponible": True, "origen": "memoria", **guardadas}
@@ -187,6 +196,11 @@ def _cruces(equipos: dict) -> list[dict]:
     for atacante, defensor in (("local", "visitante"), ("visitante", "local")):
         uno, otro = equipos.get(atacante), equipos.get(defensor)
         if not (uno and otro and uno.get("disponible") and otro.get("disponible")):
+            continue
+        # Y con muestra para decirlo, en los dos lados. Sin esto, con un partido
+        # guardado de cada equipo salía una frase entera —«genera muchas
+        # ocasiones y enfrente las conceden»— sacada de dos partidos sueltos.
+        if uno.get("muestra_suficiente") is False or otro.get("muestra_suficiente") is False:
             continue
         for dimension, clave_concedida, lectura in CRUCES:
             propio = (uno.get("dimensiones") or {}).get(dimension) or {}

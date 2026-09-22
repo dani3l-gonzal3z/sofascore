@@ -268,15 +268,23 @@ lo que sí hay.
 Al teclear `/` sale además la lista nativa de Telegram con las órdenes y lo que
 hace cada una, porque el bot se la dice al arrancar (`setMyCommands`).
 
+### Canales: el boletín de cada día
+
+Con `canal_gratis` y `canal_premium` puestos en Ajustes → Telegram, la guardia
+publica cada noche el boletín de cada nivel en su canal, con su historial. El bot
+tiene que ser administrador de los dos. Ver [Los picks](picks.md).
+
 ### `/resumen`: el día en un mensaje
 
 Para abrirlo por la mañana y no tener que preguntar tres veces. Trae, en este
 orden:
 
-1. **Lo de ayer**, ya puntuado. Primero a propósito: empezar el día viendo si lo
-   de ayer salió es más honesto que empezar prometiendo lo de hoy.
-2. **Qué se juega**, con tus competiciones y en tu hora.
-3. **Los patrones que se cumplen**, recortado a lo que se lee de un vistazo.
+1. **Lo de ayer**: los picks de ayer con su resultado y las unidades del día.
+   Primero a propósito: empezar el día viendo si lo de ayer salió es más honesto
+   que empezar prometiendo lo de hoy.
+2. **El pick de hoy**, el apuntado, que es el que cuenta.
+3. **Qué se juega**, con tus competiciones y en tu hora.
+4. **Los patrones que se cumplen**, recortado a lo que se lee de un vistazo.
 
 Si algo de eso falla, el resumen sale con lo demás: un trozo roto no se lleva por
 delante el mensaje.
@@ -293,6 +301,9 @@ va a hacer y pone el «escribiendo…» de Telegram.
 | Orden | Qué |
 | --- | --- |
 | `/menu` | El menú de botones. También sale con cualquier orden que no exista |
+| `/pick` | El pick del día, con su cuota ([Los picks](picks.md)) |
+| `/picks` | Todos los que pasan la regla hoy |
+| `/historial` | Cómo han ido los picks: rendimiento con su intervalo, peor racha y CLV |
 | `/resumen` | El día en un mensaje: lo de ayer, lo de hoy y los patrones |
 | `/hoy` | Qué se juega hoy, por competición y **en tu hora** |
 | `/hoy laliga` | Una competición entera |

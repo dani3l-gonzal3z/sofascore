@@ -152,8 +152,13 @@ def preparar_dia(cliente: SofascoreClient, almacen: Almacen, fecha: str | None =
                  abastecer_partidos: int = ABASTECER_POR_DEFECTO,
                  maximo_peticiones: int = 0,
                  carpeta_briefings: str = "datos/briefings",
-                 diario: Diario | None = None) -> dict:
+                 diario: Diario | None = None,
+                 publicar: Callable[[dict, dict], Any] | None = None) -> dict:
     """Todo lo que hace falta para que mañana esté listo. Se puede repetir.
+
+    ``publicar`` recibe los picks del día y el historial de cada nivel cuando ya
+    están apuntados; es como el bot los manda a sus canales sin que la guardia
+    sepa nada de Telegram.
 
     El tope de peticiones se reparte entre las cuatro fases y se comprueba
     entre partido y partido, así que cortar por la mitad no rompe nada: lo
@@ -236,6 +241,32 @@ def preparar_dia(cliente: SofascoreClient, almacen: Almacen, fecha: str | None =
         decir.error(f"El registro ha fallado: {exc}")
         resumen["registro"] = {"error": str(exc)}
 
+    # 4b. Los picks: resolver los de antes, elegir los de mañana con la regla y
+    #     apuntarlos **con el precio de ahora**. Que el precio quede apuntado
+    #     antes del saque es lo que hace que el historial se pueda comprobar.
+    decir.titulo("Picks")
+    try:
+        from .picks import apuntar, del_dia, historial
+        from .picks import resolver as resolver_picks
+
+        resueltos = resolver_picks(almacen)
+        del_dia_ = del_dia(almacen, cliente, fecha=dia, grupos=grupos)
+        apuntados = apuntar(almacen, del_dia_)
+        historiales = {nivel: historial(almacen, nivel) for nivel in ("gratis", "premium")}
+        resumen["picks"] = {"gratis": len(del_dia_["gratis"]),
+                            "premium": len(del_dia_["premium"]),
+                            **apuntados, **resueltos}
+        decir(f"{len(del_dia_['premium'])} picks para el {dia} "
+              f"({'ninguno pasa la regla' if not del_dia_['premium'] else 'apuntados'}); "
+              f"{resueltos['resueltos']} resueltos de días anteriores.")
+        if publicar:
+            publicados = publicar(del_dia_, historiales) or []
+            if publicados:
+                decir(f"Publicados en: {', '.join(publicados)}.")
+    except (SofascoreError, OSError, KeyError, ValueError) as exc:
+        decir.error(f"Los picks han fallado: {exc}")
+        resumen["picks"] = {"error": str(exc)}
+
     # 5. Casi seguro, calibrado, para que abrirlo mañana sea instantáneo.
     decir.titulo("Casi seguro")
     try:
@@ -295,7 +326,8 @@ def vigilar(cliente: SofascoreClient, almacen: Almacen, a_las: str = HORA_POR_DE
             registro: str | Path | None = REGISTRO_POR_DEFECTO,
             ahora: bool = False, vueltas: int = 0,
             en_pantalla: bool = True, dormir=time.sleep,
-            releer: Callable[[], dict] | None = None) -> dict:
+            releer: Callable[[], dict] | None = None,
+            publicar: Callable[[dict, dict], Any] | None = None) -> dict:
     """Se queda esperando y prepara el día siguiente cada noche.
 
     ``vueltas`` limita cuántas hace y luego sale; ``0`` es para siempre.
@@ -338,7 +370,8 @@ def vigilar(cliente: SofascoreClient, almacen: Almacen, a_las: str = HORA_POR_DE
                     cliente, almacen, fecha=fecha, grupos=grupos, ultimos=ultimos,
                     abastecer_partidos=abastecer_partidos,
                     maximo_peticiones=maximo_peticiones,
-                    carpeta_briefings=carpeta_briefings, diario=decir))
+                    carpeta_briefings=carpeta_briefings, diario=decir,
+                    publicar=publicar))
                 if vueltas and len(hechas) >= vueltas:
                     break
     except KeyboardInterrupt:

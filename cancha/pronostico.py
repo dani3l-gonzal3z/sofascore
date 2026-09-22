@@ -280,6 +280,11 @@ def _desde_la_matriz(rejilla: list[list[float]]) -> dict:
                 "visitante": round(visitante / total, 4)},
         "marcadores": [{"marcador": m, "probabilidad": round(p / total, 4)}
                        for m, p in marcadores[:8]],
+        # La distribución entera, para compararla con el mercado de marcador
+        # exacto. Lo de por debajo del uno por mil se deja fuera: son resultados
+        # como el 7-3 y solo engordan el registro.
+        "todos_los_marcadores": {m: round(p / total, 5) for m, p in marcadores
+                                 if p / total >= 0.001},
         "mas_de": mas_de,
         "ambos_marcan": round(ambos / total, 4),
     }
