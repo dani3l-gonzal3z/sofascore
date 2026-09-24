@@ -1,0 +1,591 @@
+"""Cómo juega un equipo, cómo está un jugador, cómo pita un árbitro.
+
+Un dato suelto no dice nada. «42% de posesión» no significa lo mismo en una
+liga que promedia el 50% que en una que promedia el 46%, y «tres partidos sin
+marcar» no es igual para un delantero que tira ocho veces por partido que para
+uno que no tira.
+
+Por eso todo lo de aquí sale de la **memoria** (:mod:`cancha.almacen`) y todo
+va **comparado con su liga**. Es lo que no se podía hacer pidiendo un partido
+cada vez.
+
+Las claves de estadística son las que devuelve la API de verdad, cogidas de una
+ejecución real y no de lo que uno se imagina que habrá.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from .almacen import Almacen
+
+#: Las dimensiones con las que se describe a un equipo, y de qué salen.
+#: Cada una es (clave de la API, cómo se lee **alta**, cómo se lee **baja**).
+#:
+#: Las dos lecturas están escritas a mano porque la de abajo no es la de arriba
+#: con un «no» delante. Eso era lo que hacía antes y salían cosas como «no su
+#: portero trabaja», que no es castellano ni dice nada.
+DIMENSIONES: dict[str, tuple[str, str, str]] = {
+    "posesion": ("ballPossession", "tiene el balón", "le dejan el balón al rival"),
+    "tiros": ("totalShotsOnGoal", "tira mucho", "tira poco"),
+    "xg": ("expectedGoals", "genera peligro", "genera poco peligro"),
+    "ocasiones_claras": ("bigChanceCreated", "llega a ocasiones claras",
+                         "no llega a ocasiones claras"),
+    "pases": ("passes", "toca mucho el balón", "toca poco el balón"),
+    "pases_largos": ("accurateLongBalls", "juega en largo", "no juega en largo"),
+    "centros": ("accurateCross", "ataca por fuera", "no ataca por fuera"),
+    "corners": ("cornerKicks", "vive del córner", "saca pocos córners"),
+    "entradas_ultimo_tercio": ("finalThirdEntries", "llega arriba con frecuencia",
+                               "le cuesta llegar arriba"),
+    "toques_en_area": ("touchesInOppBox", "se mete en el área",
+                       "se queda fuera del área"),
+    "recuperaciones": ("ballRecovery", "recupera mucho", "recupera poco"),
+    "entradas": ("totalTackle", "entra fuerte", "entra poco"),
+    "intercepciones": ("interceptionWon", "corta líneas de pase",
+                       "no corta líneas de pase"),
+    "despejes": ("totalClearance", "despeja mucho", "despeja poco"),
+    "faltas": ("fouls", "hace faltas", "hace pocas faltas"),
+    "amarillas": ("yellowCards", "ve tarjetas", "ve pocas tarjetas"),
+    "kilometros": ("kilometersCovered", "corre", "corre poco"),
+    "sprints": ("numberOfSprints", "aprieta", "no aprieta"),
+    "paradas": ("goalkeeperSaves", "su portero trabaja", "su portero no trabaja"),
+}
+
+#: A partir de qué distancia sobre la media de la liga una diferencia es
+#: digna de mención. En proporción, no en valor absoluto.
+UMBRAL_RASGO = 0.18
+#: Con menos partidos que esto **no se dice cómo juega un equipo**. Con uno,
+#: cualquier cosa que hiciera ese día sale como si fuera su manera de ser: un
+#: 4-0 con dos córners a favor daba «+187% genera peligro, vive del córner», y
+#: eso no es un retrato, es el partido del sábado. Los números en bruto sí se
+#: devuelven —son ciertos—, pero marcados como muestra corta.
+MINIMO_PARA_RASGOS = 4
+#: Y lo mismo por el otro lado: una media de liga hecha con cuatro partidos no
+#: es la media de la liga. Sin esto, el porcentaje se compara contra nada.
+MINIMO_EN_LA_LIGA = 8
+
+
+def _aviso_de_muestra(suyos: int, en_liga: int, hay_media: bool) -> str | None:
+    """Por qué no se puede decir cómo juega un equipo, si es que no se puede.
+
+    En palabras y con los números delante, porque «no hay muestra» a secas no
+    dice si falta barrer la liga o el equipo, que llevan a cosas distintas.
+    """
+    if not hay_media:
+        return ("Sin media de liga con la que comparar: los números están solos. "
+                "Barre más partidos de esa competición.")
+    if suyos < MINIMO_PARA_RASGOS:
+        return (f"Solo hay {suyos} "
+                f"partido{'s' if suyos != 1 else ''} suyo{'s' if suyos != 1 else ''} "
+                f"guardado{'s' if suyos != 1 else ''}: con eso no se puede decir cómo "
+                f"juega, así que no se dice. Hacen falta {MINIMO_PARA_RASGOS}. "
+                "Tráelos con: cancha equipo <nombre> --abastecer")
+    if en_liga < MINIMO_EN_LA_LIGA:
+        return (f"Su liga solo tiene {en_liga} partidos guardados: la media contra "
+                f"la que se compara no es todavía la de la liga. Hacen falta "
+                f"{MINIMO_EN_LA_LIGA}. Barre esa competición.")
+    return None
+
+
+def _medias(filas: list[dict], equipo_id: int | None = None,
+            excluir: int | None = None) -> dict[str, float]:
+    """Media por clave de estadística, desde la perspectiva de un equipo.
+
+    Cada fila de la base trae el valor del local y el del visitante; según de
+    quién se pregunte, se coge uno u otro. Con ``equipo_id=None`` se promedian
+    los dos lados, que es como se saca la media de una liga.
+
+    ``excluir`` deja fuera los valores de un equipo al calcular esa media de
+    liga: comparar a alguien contra una media que le incluye a él suaviza
+    justo lo que se quiere ver. En una liga de veinte equipos el efecto es
+    pequeño, pero es el cálculo correcto.
+    """
+    sumas: dict[str, list[float]] = {}
+    for fila in filas:
+        clave = fila["clave"]
+        if equipo_id is None:
+            for lado, dueño in (("local", "local_id"), ("visitante", "visitante_id")):
+                if excluir is not None and fila.get(dueño) == excluir:
+                    continue
+                if fila.get(lado) is not None:
+                    sumas.setdefault(clave, []).append(fila[lado])
+            continue
+        es_local = fila.get("local_id") == equipo_id
+        valor = fila.get("local") if es_local else fila.get("visitante")
+        if valor is not None:
+            sumas.setdefault(clave, []).append(valor)
+    return {c: sum(v) / len(v) for c, v in sumas.items() if v}
+
+
+def _concedidas(filas: list[dict], equipo_id: int) -> dict[str, float]:
+    """Lo mismo, pero lo que le hacen: la mitad defensiva del retrato."""
+    sumas: dict[str, list[float]] = {}
+    for fila in filas:
+        es_local = fila.get("local_id") == equipo_id
+        valor = fila.get("visitante") if es_local else fila.get("local")
+        if valor is not None:
+            sumas.setdefault(fila["clave"], []).append(valor)
+    return {c: sum(v) / len(v) for c, v in sumas.items() if v}
+
+
+def medias_de_liga(almacen: Almacen, liga_id: int, temporada_id: int | None = None,
+                   excluir_equipo: int | None = None) -> dict:
+    """La media de cada estadística en una competición.
+
+    Es la vara de medir: sin ella, los números de un equipo son solo números.
+    Con ``excluir_equipo`` se mide contra **el resto**, que es lo que hay que
+    hacer para no comparar a alguien contra una media en la que él pesa.
+    """
+    sql = "SELECT id FROM partidos WHERE liga_id = ? AND estado = 'finished'"
+    parametros: tuple = (liga_id,)
+    if temporada_id:
+        sql += " AND temporada_id = ?"
+        parametros += (temporada_id,)
+    ids = [f["id"] for f in almacen.consulta(sql, parametros)]
+    if not ids:
+        return {"partidos": 0, "medias": {}}
+    filas = almacen.estadisticas_de_partidos(ids)
+    return {"partidos": len(ids), "medias": _medias(filas, excluir=excluir_equipo)}
+
+
+def estilo_de_equipo(
+    almacen: Almacen,
+    equipo_id: int,
+    ultimos: int = 6,
+    comparar_con_liga: bool = True,
+) -> dict:
+    """Cómo juega un equipo, según sus últimos partidos guardados.
+
+    Devuelve los números, su distancia con la media de la liga y una lectura en
+    palabras: los rasgos en los que se sale de lo normal, que es lo único que
+    de verdad describe a un equipo.
+    """
+    partidos = almacen.partidos_de_equipo(equipo_id, ultimos=ultimos)
+    if not partidos:
+        return {"disponible": False,
+                "nota": "No hay partidos guardados de ese equipo. Haz un barrido antes."}
+
+    ids = [p["id"] for p in partidos]
+    filas = almacen.estadisticas_de_partidos(ids)
+    propias = _medias(filas, equipo_id)
+    rivales = _concedidas(filas, equipo_id)
+
+    liga_id = partidos[0].get("liga_id")
+    referencia = (
+        medias_de_liga(almacen, liga_id, excluir_equipo=equipo_id)
+        if (comparar_con_liga and liga_id) else {}
+    )
+    medias_liga = referencia.get("medias", {})
+
+    # ¿Hay con qué retratarlo? Las dos muestras tienen que dar: la suya y la de
+    # la liga contra la que se le compara.
+    suyos = len(partidos)
+    en_liga = referencia.get("partidos", 0)
+    basta = suyos >= MINIMO_PARA_RASGOS and en_liga >= MINIMO_EN_LA_LIGA
+
+    dimensiones = {}
+    rasgos = []
+    for nombre, (clave, alta, baja) in DIMENSIONES.items():
+        valor = propias.get(clave)
+        if valor is None:
+            continue
+        media = medias_liga.get(clave)
+        bloque: dict[str, Any] = {"clave": clave, "valor": round(valor, 2),
+                                  "partidos": suyos}
+        if media:
+            diferencia = (valor - media) / media
+            bloque["media_liga"] = round(media, 2)
+            bloque["diferencia"] = round(diferencia, 3)
+            bloque["partidos_liga"] = en_liga
+            bloque["muestra_corta"] = not basta
+            if basta and abs(diferencia) >= UMBRAL_RASGO:
+                rasgos.append({
+                    "rasgo": alta if diferencia > 0 else baja,
+                    "dimension": nombre,
+                    "diferencia": round(diferencia, 3),
+                    "partidos": suyos,
+                    "cuanto": f"{diferencia:+.0%} sobre la media de su liga "
+                              f"({suyos} partidos suyos, {en_liga} de la liga)",
+                })
+        dimensiones[nombre] = bloque
+
+    rasgos.sort(key=lambda r: -abs(r["diferencia"]))
+
+    # La mitad defensiva del retrato, medida con la misma vara. Hace falta
+    # entera: para decir que a alguien le entran los centros no basta con
+    # saber que el rival los tira, hay que haber mirado lo que le entra.
+    concede_dimensiones = {}
+    for nombre, (clave, _alta, _baja) in DIMENSIONES.items():
+        valor = rivales.get(clave)
+        if valor is None:
+            continue
+        bloque: dict[str, Any] = {"clave": clave, "valor": round(valor, 2)}
+        media = medias_liga.get(clave)
+        if media:
+            bloque["media_liga"] = round(media, 2)
+            bloque["diferencia"] = round((valor - media) / media, 3)
+        concede_dimensiones[nombre] = bloque
+
+    resultados = _resultados(partidos, equipo_id)
+
+    return {
+        "disponible": True,
+        "equipo_id": equipo_id,
+        "equipo": _nombre_equipo(partidos[0], equipo_id),
+        "partidos_mirados": len(partidos),
+        "desde": partidos[-1]["fecha"],
+        "hasta": partidos[0]["fecha"],
+        "liga": partidos[0].get("liga"),
+        "partidos_en_la_media_de_liga": referencia.get("partidos", 0),
+        "resultados": resultados,
+        "dimensiones": dimensiones,
+        "lo_que_le_distingue": rasgos[:6],
+        "concede": {
+            "xg": round(rivales.get("expectedGoals", 0), 2),
+            "tiros": round(rivales.get("totalShotsOnGoal", 0), 1),
+            "ocasiones_claras": round(rivales.get("bigChanceCreated", 0), 1),
+        },
+        "concede_dimensiones": concede_dimensiones,
+        "muestra_suficiente": basta,
+        "aviso": _aviso_de_muestra(suyos, en_liga, bool(medias_liga)),
+    }
+
+
+#: A partir de qué cambio relativo entre dos tramos se dice que algo ha
+#: cambiado. Más exigente que el rasgo, porque compara dos muestras cortas.
+UMBRAL_CAMBIO = 0.20
+
+
+def evolucion_de_estilo(
+    almacen: Almacen,
+    equipo_id: int,
+    ultimos: int = 5,
+    anteriores: int = 10,
+) -> dict:
+    """Cómo está jugando un equipo **ahora** comparado con cómo jugaba antes.
+
+    El estilo dice cómo juega; esto dice si ha cambiado. Se cogen sus últimos
+    ``ultimos`` partidos y los ``anteriores`` de antes de esos, y se comparan
+    dimensión a dimensión. Un equipo que ha pasado de tener el balón a
+    esperar atrás sale aquí antes de que lo diga nadie.
+
+    Con muestras tan cortas, un cambio del 20 % es la vara mínima para
+    mencionarlo, y aun así se dice cuántos partidos hay a cada lado.
+    """
+    partidos = almacen.partidos_de_equipo(equipo_id, ultimos=ultimos + anteriores)
+    if len(partidos) < 4:
+        return {"disponible": False,
+                "nota": "Hacen falta al menos cuatro partidos guardados para ver una evolución."}
+    recientes, previos = partidos[:ultimos], partidos[ultimos:]
+    if len(previos) < 2:
+        return {"disponible": False,
+                "nota": f"Solo hay {len(partidos)} partidos: no hay un 'antes' con el "
+                        "que comparar."}
+
+    def retrato(lista: list[dict]) -> dict:
+        ids = [p["id"] for p in lista]
+        filas = almacen.estadisticas_de_partidos(ids)
+        propias = _medias(filas, equipo_id)
+        concedidas = _concedidas(filas, equipo_id)
+        formaciones: dict[str, int] = {}
+        for partido in lista:
+            dibujo = (partido.get("formacion_local") if partido["local_id"] == equipo_id
+                      else partido.get("formacion_visitante"))
+            if dibujo:
+                formaciones[dibujo] = formaciones.get(dibujo, 0) + 1
+        resultados = _resultados(lista, equipo_id)
+        jugados = resultados["ganados"] + resultados["empatados"] + resultados["perdidos"]
+        puntos = 3 * resultados["ganados"] + resultados["empatados"]
+        return {
+            "partidos": len(lista),
+            "desde": lista[-1]["fecha"],
+            "hasta": lista[0]["fecha"],
+            "propias": propias,
+            "concedidas": concedidas,
+            "formacion": max(formaciones, key=formaciones.get) if formaciones else None,
+            "formaciones": formaciones,
+            "puntos_por_partido": round(puntos / jugados, 2) if jugados else None,
+            "racha": resultados["racha"],
+        }
+
+    ahora, antes = retrato(recientes), retrato(previos)
+
+    cambios = []
+    dimensiones = {}
+    for nombre, (clave, alta, _baja) in DIMENSIONES.items():
+        reciente, previo = ahora["propias"].get(clave), antes["propias"].get(clave)
+        if reciente is None or previo is None:
+            continue
+        cambio = (reciente - previo) / previo if previo else None
+        dimensiones[nombre] = {"ahora": round(reciente, 2), "antes": round(previo, 2),
+                               "cambio": None if cambio is None else round(cambio, 3)}
+        if cambio is not None and abs(cambio) >= UMBRAL_CAMBIO:
+            cambios.append({
+                "dimension": nombre,
+                # Aquí se usa siempre la lectura alta: lo que cambia es el «más»
+                # o el «menos» del final, no la dimensión.
+                "lectura": f"ahora {alta} {'más' if cambio > 0 else 'menos'}",
+                "cambio": f"{cambio:+.0%}",
+                "ahora": round(reciente, 2),
+                "antes": round(previo, 2),
+            })
+    cambios.sort(key=lambda c: -abs(float(c["cambio"].rstrip("%").replace("+", ""))))
+
+    concede = {}
+    for etiqueta, clave in (("xg", "expectedGoals"), ("tiros", "totalShotsOnGoal")):
+        reciente, previo = ahora["concedidas"].get(clave), antes["concedidas"].get(clave)
+        if reciente is not None and previo is not None:
+            concede[etiqueta] = {
+                "ahora": round(reciente, 2), "antes": round(previo, 2),
+                "cambio": round((reciente - previo) / previo, 3) if previo else None,
+            }
+
+    return {
+        "disponible": True,
+        "equipo_id": equipo_id,
+        "equipo": _nombre_equipo(partidos[0], equipo_id),
+        "ahora": {k: v for k, v in ahora.items() if k not in ("propias", "concedidas")},
+        "antes": {k: v for k, v in antes.items() if k not in ("propias", "concedidas")},
+        "dimensiones": dimensiones,
+        "lo_que_ha_cambiado": cambios[:6],
+        "concede": concede,
+        "cambio_de_dibujo": (ahora["formacion"] != antes["formacion"]
+                             if ahora["formacion"] and antes["formacion"] else None),
+        "como_leerlo": (
+            f"Los últimos {ahora['partidos']} partidos frente a los {antes['partidos']} de "
+            f"antes. Con muestras así, solo se menciona un cambio del {UMBRAL_CAMBIO:.0%} o "
+            "más, y aun así puede ser el calendario: mira contra quién fueron."
+        ),
+    }
+
+
+def _nombre_equipo(partido: dict, equipo_id: int) -> str:
+    return partido["local"] if partido["local_id"] == equipo_id else partido["visitante"]
+
+
+def _resultados(partidos: list[dict], equipo_id: int) -> dict:
+    """Ganados, empatados y perdidos, con los goles a favor y en contra."""
+    ganados = empatados = perdidos = favor = contra = 0
+    racha = []
+    for partido in partidos:
+        es_local = partido["local_id"] == equipo_id
+        mios = partido["goles_local"] if es_local else partido["goles_visitante"]
+        suyos = partido["goles_visitante"] if es_local else partido["goles_local"]
+        if mios is None or suyos is None:
+            continue
+        favor += mios
+        contra += suyos
+        if mios > suyos:
+            ganados += 1
+            racha.append("G")
+        elif mios == suyos:
+            empatados += 1
+            racha.append("E")
+        else:
+            perdidos += 1
+            racha.append("P")
+    return {
+        "ganados": ganados, "empatados": empatados, "perdidos": perdidos,
+        "goles_favor": favor, "goles_contra": contra,
+        # Del más reciente al más antiguo, como se lee una racha.
+        "racha": "".join(racha),
+    }
+
+
+# ------------------------------------------------------------------- jugadores
+
+#: Qué se mira de un jugador y cómo se llama en los datos que guarda la API
+#: dentro de las alineaciones.
+METRICAS_JUGADOR = {
+    "minutos": "minutesPlayed",
+    "goles": "goals",
+    "asistencias": "goalAssist",
+    "tiros": "totalShots",
+    "tiros_a_puerta": "onTargetScoringAttempt",
+    "xg": "expectedGoals",
+    "xa": "expectedAssists",
+    "pases_clave": "keyPass",
+    "regates": "wonContest",
+    "duelos_ganados": "duelWon",
+    "perdidas": "possessionLostCtrl",
+    "toques": "touches",
+}
+
+
+def forma_de_jugador(almacen: Almacen, jugador_id: int, ultimas: int = 6) -> dict:
+    """Cómo está un jugador, y qué rachas lleva.
+
+    Lo interesante no es la media, es lo que se sale de ella: cuántos partidos
+    lleva sin marcar, sin tirar entre palos o sin jugar. Eso es lo que un
+    análisis quiere saber y lo que no se ve mirando un partido suelto.
+    """
+    import json
+
+    actuaciones = almacen.actuaciones_de_jugador(jugador_id, ultimas=ultimas)
+    if not actuaciones:
+        return {"disponible": False,
+                "nota": "No hay partidos guardados de ese jugador."}
+
+    partidos = []
+    for fila in actuaciones:
+        datos = {}
+        with_datos = fila.get("datos")
+        if with_datos:
+            try:
+                datos = json.loads(with_datos)
+            except (ValueError, TypeError):
+                datos = {}
+        partidos.append({
+            "fecha": fila["fecha"],
+            "partido": f"{fila['local']} - {fila['visitante']}",
+            "titular": bool(fila["titular"]),
+            "minutos": fila["minutos"] or 0,
+            "rating": fila["rating"],
+            **{nombre: datos.get(clave, 0) for nombre, clave in METRICAS_JUGADOR.items()
+               if nombre != "minutos"},
+        })
+
+    jugados = [p for p in partidos if p["minutos"]]
+    medias = {}
+    for nombre in METRICAS_JUGADOR:
+        if nombre == "minutos":
+            continue
+        valores = [p.get(nombre) or 0 for p in jugados]
+        if valores:
+            medias[nombre] = round(sum(valores) / len(valores), 2)
+
+    notas = [p["rating"] for p in jugados if p["rating"]]
+    return {
+        "disponible": True,
+        "jugador_id": jugador_id,
+        "jugador": actuaciones[0]["jugador"],
+        "partidos_mirados": len(partidos),
+        "titularidades": sum(1 for p in partidos if p["titular"]),
+        "minutos_totales": sum(p["minutos"] for p in partidos),
+        "rating_medio": round(sum(notas) / len(notas), 2) if notas else None,
+        "por_partido": medias,
+        "rachas": rachas(partidos),
+        "partido_a_partido": partidos,
+    }
+
+
+def rachas(partidos: list[dict]) -> list[dict]:
+    """Cuántos partidos seguidos lleva sin que le pase algo.
+
+    Se cuenta desde el más reciente hacia atrás y solo entre los que jugó: no
+    tiene sentido decir que lleva cinco partidos sin marcar si en tres de ellos
+    no salió del banquillo.
+    """
+    jugados = [p for p in partidos if p["minutos"]]
+    if not jugados:
+        return []
+
+    def sin(metrica: str, etiqueta: str, minimo: int = 2) -> dict | None:
+        cuenta = 0
+        for partido in jugados:
+            if (partido.get(metrica) or 0) > 0:
+                break
+            cuenta += 1
+        if cuenta >= minimo:
+            return {
+                "racha": f"{cuenta} partidos {etiqueta}",
+                "metrica": metrica,
+                "partidos": cuenta,
+                "desde": jugados[cuenta - 1]["fecha"],
+            }
+        return None
+
+    salida = []
+    for metrica, etiqueta in (
+        ("goles", "sin marcar"),
+        ("tiros_a_puerta", "sin tirar entre palos"),
+        ("tiros", "sin rematar"),
+        ("asistencias", "sin asistir"),
+        ("pases_clave", "sin dar un pase clave"),
+    ):
+        encontrada = sin(metrica, etiqueta)
+        if encontrada:
+            salida.append(encontrada)
+
+    # Y lo contrario: en cuántos seguidos sí ha marcado o asistido.
+    for metrica, etiqueta in (("goles", "marcando"), ("asistencias", "asistiendo")):
+        cuenta = 0
+        for partido in jugados:
+            if (partido.get(metrica) or 0) > 0:
+                cuenta += 1
+            else:
+                break
+        if cuenta >= 2:
+            salida.append({"racha": f"{cuenta} partidos {etiqueta}", "metrica": metrica,
+                           "partidos": cuenta, "desde": jugados[cuenta - 1]["fecha"]})
+
+    # Suplencias seguidas: dice tanto como lo que hace en el campo.
+    banquillo = 0
+    for partido in partidos:
+        if partido["titular"]:
+            break
+        banquillo += 1
+    if banquillo >= 2:
+        salida.append({"racha": f"{banquillo} partidos sin ser titular",
+                       "metrica": "titular", "partidos": banquillo,
+                       "desde": partidos[banquillo - 1]["fecha"]})
+    return salida
+
+
+# --------------------------------------------------------------------- árbitros
+
+def perfil_de_arbitro(almacen: Almacen, nombre: str, ultimos: int = 20) -> dict:
+    """Cómo pita alguien, según los partidos suyos que haya guardados.
+
+    Sale de contar sus partidos en la base, no de un endpoint: Sofascore no
+    publica uno, y ninguna de las librerías que hablan con su API lo usa.
+    Cuantos más partidos barridos, más fiable.
+    """
+    partidos = almacen.partidos_de_arbitro(nombre, ultimos=ultimos)
+    if not partidos:
+        return {"disponible": False,
+                "nota": f"No hay partidos guardados de '{nombre}'. Barre más y vuelve."}
+
+    ids = [p["id"] for p in partidos]
+    filas = almacen.estadisticas_de_partidos(
+        ids, claves=["yellowCards", "redCards", "fouls"])
+    medias = _medias(filas)
+
+    incidencias = almacen.consulta(
+        f"""SELECT tipo, clase, local, COUNT(*) AS n FROM incidencias
+            WHERE partido_id IN ({','.join('?' * len(ids))})
+            GROUP BY tipo, clase, local""", tuple(ids))
+    penaltis = sum(f["n"] for f in incidencias
+                   if (f["clase"] or "").lower().startswith("penalty"))
+    amarillas_local = sum(f["n"] for f in incidencias
+                          if f["tipo"] == "card" and f["local"] == 1)
+    amarillas_visitante = sum(f["n"] for f in incidencias
+                              if f["tipo"] == "card" and f["local"] == 0)
+
+    victorias_local = sum(1 for p in partidos
+                          if (p["goles_local"] or 0) > (p["goles_visitante"] or 0))
+    return {
+        "disponible": True,
+        "arbitro": nombre,
+        "partidos_mirados": len(partidos),
+        "por_partido": {
+            "amarillas": round(medias.get("yellowCards", 0), 2),
+            "rojas": round(medias.get("redCards", 0), 2),
+            "faltas": round(medias.get("fouls", 0), 1),
+            "penaltis": round(penaltis / len(partidos), 2),
+        },
+        "reparto_de_tarjetas": {
+            "al_local": amarillas_local,
+            "al_visitante": amarillas_visitante,
+        },
+        "victorias_locales": f"{victorias_local}/{len(partidos)}",
+        "aviso": ("Con menos de diez partidos esto es una anécdota, no un patrón."
+                  if len(partidos) < 10 else None),
+    }
+
+
+__all__ = [
+    "estilo_de_equipo", "evolucion_de_estilo", "forma_de_jugador", "rachas",
+    "perfil_de_arbitro", "medias_de_liga", "DIMENSIONES", "METRICAS_JUGADOR",
+    "MINIMO_EN_LA_LIGA", "MINIMO_PARA_RASGOS", "UMBRAL_RASGO", "UMBRAL_CAMBIO",
+]

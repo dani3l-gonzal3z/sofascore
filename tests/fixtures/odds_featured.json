@@ -1,0 +1,18 @@
+{
+  "featured": {
+    "default": {
+      "sourceId": 1,
+      "structureType": 1,
+      "marketId": 1,
+      "marketName": "Full time",
+      "isLive": false,
+      "suspended": false,
+      "id": 1935071,
+      "choices": [
+        {"initialFractionalValue": "23/10", "fractionalValue": "9/4", "sourceId": 1, "name": "1", "winning": false, "change": -1},
+        {"initialFractionalValue": "13/5", "fractionalValue": "13/5", "sourceId": 1, "name": "X", "winning": false, "change": 0},
+        {"initialFractionalValue": "6/5", "fractionalValue": "4/5", "sourceId": 1, "name": "2", "winning": true, "change": -1}
+      ]
+    }
+  }
+}

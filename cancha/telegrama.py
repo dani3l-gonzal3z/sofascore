@@ -1,0 +1,1363 @@
+"""Un bot de Telegram: preguntarle desde la calle, con el ordenador en casa.
+
+El QR resuelve el móvil en la misma wifi. Esto resuelve el resto: el ordenador
+se queda encendido en casa haciendo el trabajo, y tú preguntas desde donde
+estés sin abrir un puerto ni contratar nada. Telegram hace de puente, y el
+puente lo abre tu ordenador hacia fuera —no hay nada que apuntar a tu casa.
+
+Sin dependencias: la API de Telegram es HTTP con JSON y ``urllib`` sobra. Se
+usa *long polling*, que es pedirle a Telegram «avísame cuando haya algo» y
+quedarse esperando hasta veinticinco segundos. Ni webhooks ni IP pública.
+
+**Quién puede hablarle.** Un bot es público: cualquiera que dé con su nombre
+puede escribirle. Por eso hace falta una lista de chats permitidos y, si no la
+hay, el bot **no contesta nada**: responde a quien escriba diciéndole su
+identificador de chat para que lo pongas en la lista, y ahí se queda. Un bot
+sin lista que conteste a cualquiera es un agujero por el que se ve tu memoria
+entera.
+
+    cancha telegram --token 123:ABC --chat 987654321
+    cancha telegram --token 123:ABC            # dice quién te escribe y no contesta
+
+**El token y la lista se pueden cambiar sin reiniciar.** El bot mira los
+ajustes en cada vuelta, así que ponerle el token desde la pestaña Ajustes
+—desde el móvil, sin tocar el ordenador— hace que empiece a escuchar él solo
+en veinticinco segundos. Arrancar sin token y no volver a mirar era peor que un
+error: escribías al bot y no pasaba nada, sin una línea que lo explicara.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Callable
+from contextlib import suppress
+from dataclasses import dataclass, field
+from typing import Any
+
+from .errors import SofascoreError
+from .sesion import Sesion
+from .tls import SIN_MONTAR
+
+API = "https://api.telegram.org"
+#: Telegram corta los mensajes en 4096 caracteres. Se parte un poco antes para
+#: dejar sitio al aviso de continuación.
+LIMITE = 3900
+#: Cuánto espera cada consulta antes de volver vacía. Cuanto más alto, menos
+#: peticiones; veinticinco segundos es el equilibrio que recomienda Telegram.
+ESPERA = 25
+#: Cuánto se espera entre vuelta y vuelta cuando todavía no hay token. No se
+#: le puede preguntar nada a Telegram sin token, pero sí mirar si ya lo hay.
+ESPERA_SIN_TOKEN = 5
+#: Cuántos remitentes sin permiso se recuerdan. Normalmente es uno —tú— pero
+#: caben unos pocos por si te equivocas de cuenta.
+RECORDAR_VISTOS = 5
+#: Dónde quedan apuntados, en la memoria, para que los ajustes los ofrezcan.
+NOTA_VISTOS = "telegram_vistos"
+
+
+
+class TelegramNoDisponible(SofascoreError):
+    """Telegram no contesta, o el token no vale."""
+
+
+def _pedir_http(url: str, cuerpo: dict | None = None, timeout: float = 60.0,
+                contexto: Any = None) -> Any:
+    detalle = ""
+    datos = json.dumps(cuerpo).encode("utf-8") if cuerpo is not None else None
+    peticion = urllib.request.Request(
+        url, data=datos, method="POST" if datos is not None else "GET",
+        headers={"Content-Type": "application/json"})
+    try:
+        respuesta = urllib.request.urlopen(  # noqa: S310
+            peticion, timeout=timeout, context=contexto)
+    except urllib.error.HTTPError as exc:
+        with suppress(Exception):  # el cuerpo es un extra; puede no haberlo
+            detalle = exc.read().decode("utf-8", "replace")[:300]
+        if exc.code == 401:
+            raise TelegramNoDisponible(
+                "Telegram dice que el token no vale. Pídele uno a @BotFather en "
+                "Telegram: /newbot, y te da algo como 123456:AA....") from exc
+        if exc.code == 409:
+            # Telegram solo deja un oyente por token. Da un 409 y el bot se
+            # queda mudo sin más explicación, que es exactamente lo que parece
+            # «no funciona»: casi siempre hay dos cancha abiertos.
+            raise TelegramNoDisponible(
+                "Hay otro programa escuchando con este mismo token, y Telegram "
+                "solo deja uno. Cierra el otro cancha (o el otro `cancha "
+                "telegram`) y este empezará a contestar.") from exc
+        raise TelegramNoDisponible(f"Telegram ha contestado {exc.code}: {detalle}") from exc
+    except OSError as exc:
+        from .tls import es_de_certificado, explicar
+
+        # El error de certificado se explica aquí porque es el sitio donde se
+        # lee. «No llego a Telegram: [SSL: CERTIFICATE_VERIFY_FAILED]» no dice
+        # nada de lo que de verdad pasa, que es que algo en medio está
+        # abriendo tu HTTPS.
+        if es_de_certificado(exc):
+            raise TelegramNoDisponible(
+                f"No llego a Telegram. {explicar('api.telegram.org')}") from exc
+        raise TelegramNoDisponible(f"No llego a Telegram: {exc}") from exc
+    with respuesta:
+        return json.loads(respuesta.read().decode("utf-8"))
+
+
+def _escapar(texto: str) -> str:
+    """Lo que hay que hacerle a un nombre de equipo antes de meterlo en HTML.
+
+    Telegram entiende un HTML pequeñito, y un «&» o un «<» sueltos le tumban el
+    mensaje entero con un 400. Los nombres vienen de la API —«Brighton & Hove
+    Albion»—, así que no son de fiar.
+    """
+    return (str(texto).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _sin_etiquetas(texto: str) -> str:
+    """El mismo texto en plano, para cuando Telegram rechaza el HTML."""
+    import re
+
+    limpio = re.sub(r"</?(b|i|u|s|code|pre)>", "", texto)
+    return (limpio.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&"))
+
+
+def _trozos(texto: str, limite: int = LIMITE) -> list[str]:
+    """Parte un texto largo por saltos de línea, sin cortar palabras a lo bruto."""
+    if len(texto) <= limite:
+        return [texto]
+    salida, actual = [], ""
+    for linea in texto.splitlines(keepends=True):
+        while len(linea) > limite:            # una línea sola más larga que el tope
+            salida.append(linea[:limite])
+            linea = linea[limite:]
+        if len(actual) + len(linea) > limite:
+            salida.append(actual)
+            actual = linea
+        else:
+            actual += linea
+    if actual:
+        salida.append(actual)
+    return salida
+
+
+#: El menú, en filas de dos. Cada botón **es una orden escrita**: lo que lleva
+#: dentro se mete por el mismo sitio que si lo hubieras teclado. Eso es a
+#: propósito y es lo que impide que el menú y las órdenes se separen con el
+#: tiempo: no hay dos caminos que mantener, hay uno.
+MENU = (
+    (("pick", "🎯 El pick de hoy"), ("resumen", "☕ Resumen del día")),
+    (("hoy", "⚽ Hoy"), ("directo", "🔴 En directo")),
+    (("manana", "📅 Mañana"), ("historial", "📈 Historial de picks")),
+    (("ligas", "🏆 Por competición"), ("seguro", "🛡 Casi seguro")),
+    (("resultados", "📊 Cómo acierto"), ("clasificacion", "🥇 Clasificación")),
+    (("agentes", "🧠 Mis agentes"), ("memoria", "📚 La memoria")),
+    (("ayuda", "❓ Todo lo que sé hacer"),),
+)
+
+#: Lo que se le dice a Telegram para que salga la lista al teclear «/». Sin esto
+#: hay que acordarse de las órdenes, que es justo lo que no queremos.
+COMANDOS = (
+    ("menu", "El menú de botones"),
+    ("pick", "El pick del día, con su cuota"),
+    ("picks", "Todos los que pasan la regla hoy"),
+    ("historial", "Cómo han ido los picks: rendimiento, intervalo y CLV"),
+    ("resumen", "El día en un mensaje: agenda, patrones y lo de ayer"),
+    ("hoy", "Qué se juega hoy"),
+    ("directo", "Lo que se está jugando ahora"),
+    ("manana", "Los partidos de mañana"),
+    ("seguro", "Los patrones que se cumplen hoy, con su número"),
+    ("pronostico", "Marcador, córners y tarjetas: /pronostico Girona vs Osasuna"),
+    ("previa", "Cómo llegan los dos: /previa Girona vs Osasuna"),
+    ("dictamen", "El expediente entero a un modelo grande"),
+    ("agentes", "Tus analistas, cada uno con su estilo"),
+    ("agente", "Que uno lo analice: /agente el-esceptico Girona vs Osasuna"),
+    ("clasificacion", "Quién acierta más: ellos, el cálculo y el mercado"),
+    ("resultados", "Cómo va acertando el cálculo"),
+    ("equipo", "Cómo juega un equipo: /equipo Girona"),
+    ("jugador", "Forma y rachas: /jugador Vinicius"),
+    ("memoria", "Qué hay guardado"),
+    ("ayuda", "Todo lo que sé hacer"),
+)
+
+#: Las órdenes que tardan de verdad —hablan con un modelo— y por las que hay que
+#: avisar antes de ponerse. Sin esto escribes /dictamen y el bot se queda mudo
+#: tres minutos, que es indistinguible de estar roto.
+LENTAS = {"pick": "Miro los partidos de hoy contra el mercado.",
+          "picks": "Miro los partidos de hoy contra el mercado.",
+          "dictamen": "Monto el expediente y se lo mando al modelo. Tarda un rato.",
+          "agente": "Lo pongo a mirar el partido. Va a pedir datos por su cuenta, "
+                    "así que esto tarda.",
+          "analista": "Déjame mirarlo."}
+
+
+def teclado(filas) -> dict:
+    """Un teclado de botones para colgar de un mensaje.
+
+    ``filas`` son grupos de ``(dato, etiqueta)``. El dato es lo que vuelve cuando
+    alguien lo toca, y Telegram lo limita a 64 bytes: lo que no quepa se recorta
+    aquí, porque si se pasa, Telegram rechaza **el mensaje entero** y te quedas
+    sin respuesta sin saber por qué.
+    """
+    return {"inline_keyboard": [
+        [{"text": etiqueta, "callback_data": ("o:" + dato).encode("utf-8")[:64]
+          .decode("utf-8", "ignore")} for dato, etiqueta in fila]
+        for fila in filas if fila]}
+
+
+#: El botón que lleva todo lo demás: desde cualquier respuesta, de vuelta al menú.
+VOLVER = teclado(((("menu", "⬅️ Menú"),),))
+
+
+def _menu_de_ligas(bot) -> dict:
+    """Un botón por competición seguida, para no tener que escribir el nombre."""
+    ligas = list(bot.grupos)
+    if not ligas:
+        return VOLVER
+    filas = [tuple((f"hoy {liga}", liga.replace("-", " ").title())
+                   for liga in ligas[n:n + 2]) for n in range(0, len(ligas), 2)]
+    return teclado([*filas, (("menu", "⬅️ Menú"),)])
+
+
+@dataclass
+class Bot:
+    """El bot: escucha, entiende cuatro órdenes y contesta con datos."""
+
+    token: str = ""
+    #: Quién puede hablarle. Vacío significa que no contesta a nadie.
+    permitidos: tuple[int, ...] = ()
+    sesion: Sesion | None = None
+    modelo: str = ""
+    #: Clave de la nube de Ollama, si la hay. Vacía = el modelo de casa.
+    api_key: str = ""
+    carpeta_briefings: str = "datos/briefings"
+    #: Devuelve los ajustes de ahora mismo. Se consulta en cada vuelta, y es
+    #: lo que hace que poner el token desde el móvil valga para algo sin
+    #: reiniciar nada. Ver ``refrescar``.
+    releer: Callable[[], dict] | None = field(default=None, repr=False)
+    #: Dónde se publican los picks de cada día. Ver `publicar_picks`.
+    canal_gratis: str = ""
+    canal_premium: str = ""
+    #: Las competiciones que se siguen. Sin esto, «qué se juega hoy» traía el
+    #: fútbol entero del planeta y «en directo» acababa en Perú sub-15.
+    grupos: tuple[str, ...] = ()
+    #: Certificados propios, para cuando algo abre tu HTTPS por el camino
+    #: (antivirus, proxy de empresa, VPN). Ver :mod:`cancha.tls`.
+    ca_bundle: str = ""
+    #: No comprobar con quién se habla. Último recurso.
+    sin_verificar: bool = False
+    #: El token viene de la línea de comandos o del entorno, así que los
+    #: ajustes no lo tocan. Sin esto, un ``--token`` se lo comería el primer
+    #: ``releer`` que devolviese los ajustes de fábrica, que van vacíos.
+    token_fijo: bool = False
+    #: Cómo se habla con Telegram. Se sustituye para probar sin red.
+    pedir: Callable[[str, dict | None], Any] = field(default=None, repr=False)
+    _propia: bool = field(default=False, repr=False)
+    _desde: int = field(default=0, repr=False)
+    _parando: bool = field(default=False, repr=False)
+    _callado: bool = field(default=False, repr=False)
+    _ultimo_error: str = field(default="", repr=False)
+    _escuchando: bool = field(default=False, repr=False)
+    _ordenes_dichas: bool = field(default=False, repr=False)
+    _contexto: Any = field(default=SIN_MONTAR, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.pedir is None:
+            self.pedir = lambda metodo, cuerpo=None: _pedir_http(
+                f"{API}/bot{self.token}/{metodo}", cuerpo,
+                timeout=ESPERA + 15 if metodo == "getUpdates" else 60,
+                contexto=self._tls())
+        if self.sesion is None:
+            self.sesion = Sesion()
+            self._propia = True
+
+    # --- hablar ---
+
+    def _tls(self):
+        """El contexto TLS, montado una vez y rehecho si cambian los ajustes."""
+        if self._contexto is SIN_MONTAR:
+            from .tls import contexto
+
+            self._contexto = contexto(self.ca_bundle, self.sin_verificar)
+        return self._contexto
+
+    def comprobar(self) -> dict:
+        """Quién soy, según Telegram. Lo primero que hay que poder responder."""
+        datos = self.pedir("getMe", None)
+        if not datos.get("ok"):
+            raise TelegramNoDisponible(f"Telegram dice: {datos}")
+        yo = datos["result"]
+        return {"disponible": True, "nombre": yo.get("first_name"),
+                "usuario": yo.get("username"),
+                "enlace": f"https://t.me/{yo.get('username')}" if yo.get("username") else None,
+                "permitidos": list(self.permitidos)}
+
+    def _presentarse(self) -> str:
+        """Quién soy y dónde escribirme, en una línea. Para el token recién puesto."""
+        try:
+            quien = self.comprobar()
+        except (TelegramNoDisponible, OSError) as exc:
+            return f"token puesto, pero Telegram dice: {exc}"
+        donde = f" · escríbele en {quien['enlace']}" if quien.get("enlace") else ""
+        if not self.permitidos:
+            return (f"«{quien['nombre']}» escuchando{donde}. Todavía no contesta a "
+                    "nadie: escríbele y te dirá tu identificador de chat.")
+        return f"«{quien['nombre']}» escuchando{donde}."
+
+    def enviar(self, chat: int, texto: str, botones: dict | None = None) -> None:
+        """Manda el texto, partido si hace falta, con negritas y botones si los lleva.
+
+        Solo se pide HTML cuando el texto trae etiquetas puestas por nosotros.
+        Y si Telegram lo rechaza —un nombre raro, una etiqueta a medias—, se
+        manda en plano en vez de perder el mensaje: el contenido importa más
+        que las negritas.
+        """
+        con_formato = "<b>" in texto or "<i>" in texto
+        trozos = _trozos(texto)
+        for numero, trozo in enumerate(trozos, 1):
+            cuerpo = {"chat_id": chat, "text": trozo, "disable_web_page_preview": True}
+            if con_formato:
+                cuerpo["parse_mode"] = "HTML"
+            # Los botones van en el **último** trozo. Si fueran en todos, un
+            # mensaje partido en cuatro dejaría cuatro teclados en la pantalla.
+            if botones and numero == len(trozos):
+                cuerpo["reply_markup"] = botones
+            try:
+                self.pedir("sendMessage", cuerpo)
+            except TelegramNoDisponible:
+                if not con_formato:
+                    raise
+                plano = {"chat_id": chat, "text": _sin_etiquetas(trozo),
+                         "disable_web_page_preview": True}
+                if botones and numero == len(trozos):
+                    plano["reply_markup"] = botones
+                self.pedir("sendMessage", plano)
+
+    # --- escuchar ---
+
+    def una_tanda(self) -> list[dict]:
+        """Pide los mensajes nuevos y los contesta. Devuelve lo que ha atendido."""
+        datos = self.pedir("getUpdates", {"offset": self._desde, "timeout": ESPERA})
+        if not datos.get("ok"):
+            raise TelegramNoDisponible(f"Telegram dice: {datos}")
+        atendidos = []
+        for actualizacion in datos.get("result") or []:
+            self._desde = max(self._desde, actualizacion.get("update_id", 0) + 1)
+            toque = actualizacion.get("callback_query")
+            if toque:
+                atendido = self._atender_boton(toque)
+                if atendido:
+                    atendidos.append(atendido)
+                continue
+            mensaje = actualizacion.get("message") or actualizacion.get("edited_message")
+            if not mensaje:
+                continue
+            datos_chat = mensaje.get("chat") or {}
+            chat = datos_chat.get("id")
+            texto = (mensaje.get("text") or "").strip()
+            if chat is None or not texto:
+                continue
+            quien = " ".join(x for x in (
+                (mensaje.get("from") or {}).get("first_name"),
+                (mensaje.get("from") or {}).get("last_name"),
+            ) if x) or datos_chat.get("title") or ""
+            atendidos.append({"chat": chat, "texto": texto, "quien": quien})
+            self.atender(chat, texto, quien)
+        return atendidos
+
+    def _atender_boton(self, toque: dict) -> dict | None:
+        """Alguien ha tocado un botón del menú.
+
+        Lo primero es contestarle a Telegram (``answerCallbackQuery``), porque si
+        no el botón se queda con el reloj girando aunque la respuesta ya haya
+        llegado. Y se hace **antes** de trabajar: una orden lenta tardaría
+        minutos, y el reloj se agota a los pocos segundos.
+
+        Lo que lleva el botón dentro se mete por el mismo sitio que un mensaje
+        escrito, así que un botón y teclear la orden son literalmente lo mismo.
+        """
+        datos = str(toque.get("data") or "")
+        chat = ((toque.get("message") or {}).get("chat") or {}).get("id")
+        with suppress(TelegramNoDisponible):
+            self.pedir("answerCallbackQuery", {"callback_query_id": toque.get("id")})
+        if chat is None or not datos.startswith("o:"):
+            return None
+        orden = datos[2:].strip()
+        if not orden:
+            return None
+        quien = " ".join(x for x in ((toque.get("from") or {}).get("first_name"),
+                                     (toque.get("from") or {}).get("last_name"))
+                         if x) or ""
+        self.atender(chat, "/" + orden, quien)
+        return {"chat": chat, "texto": "/" + orden, "quien": quien, "boton": True}
+
+    def publicar_picks(self, dia: dict, historiales: dict | None = None) -> list[str]:
+        """Publica el boletín de cada nivel en su canal. Devuelve lo publicado.
+
+        Cada nivel en su canal y con su propio historial: son dos productos, y el
+        del premium no puede presumir de lo que acertó el gratis ni al revés. Un
+        canal que falla no impide publicar en el otro.
+        """
+        from .picks import boletin
+
+        publicados = []
+        for nivel, canal in (("gratis", self.canal_gratis),
+                             ("premium", self.canal_premium)):
+            if not canal or not self.token:
+                continue
+            try:
+                self.enviar(canal, boletin(dia, nivel, (historiales or {}).get(nivel)))
+                publicados.append(nivel)
+            except TelegramNoDisponible:
+                continue
+        return publicados
+
+    def presentar_ordenes(self) -> bool:
+        """Le dice a Telegram la lista de órdenes, para que salga al teclear «/».
+
+        Es una llamada y se hace una vez por arranque. Si falla no importa: son
+        comodidad, no funcionalidad, y el bot contesta igual.
+        """
+        if self._ordenes_dichas or not self.token:
+            return False
+        self._ordenes_dichas = True
+        with suppress(TelegramNoDisponible, OSError):
+            self.pedir("setMyCommands", {"commands": [
+                {"command": nombre, "description": que}
+                for nombre, que in COMANDOS]})
+            return True
+        return False
+
+    def escuchar(self, tandas: int = 0, avisar: Callable[[str], None] | None = None,
+                 dormir: Callable[[float], None] = time.sleep) -> int:
+        """Se queda escuchando. ``tandas`` limita cuántas vueltas da (0 = siempre).
+
+        Cada vuelta empieza mirando los ajustes (``refrescar``), así que el bot
+        se puede quedar aquí sin token —esperando a que lo pongas— y arrancar
+        solo cuando aparezca. Eso es a propósito: la alternativa es no arrancar
+        el hilo, y entonces poner el token no sirve de nada hasta reiniciar.
+        """
+        decir = avisar or (lambda _t: None)
+        vueltas = 0
+        try:
+            while True:
+                try:
+                    self._una_vuelta(decir, dormir)
+                except KeyboardInterrupt:
+                    raise
+                except Exception as exc:  # noqa: BLE001
+                    # Nada tumba este hilo. Vive en segundo plano dentro de
+                    # `cancha arrancar`, así que morirse aquí es quedarse mudo
+                    # sin que nadie se entere: exactamente el fallo que
+                    # estamos arreglando, pero por otro camino.
+                    self._fallo(decir, f"{type(exc).__name__}: {exc}")
+                    dormir(10)
+                vueltas += 1
+                if tandas and vueltas >= tandas:
+                    break
+                if self._parando:
+                    break
+        except KeyboardInterrupt:
+            decir("Bot detenido.")
+        return vueltas
+
+    def _una_vuelta(self, decir: Callable[[str], None],
+                    dormir: Callable[[float], None]) -> None:
+        """Una vuelta del bucle: ponerse al día y atender lo que haya llegado."""
+        for cambio in self.refrescar():
+            decir(f"telegram: {cambio}")
+        if not self.token:
+            self._escuchando = False
+            if not self._callado:
+                decir("telegram: esperando un token. Ponlo en Ajustes y "
+                      "empiezo a escuchar solo.")
+                self._callado = True
+            dormir(ESPERA_SIN_TOKEN)
+            return
+        if self._callado:
+            self._callado = False
+            decir("telegram: " + self._presentarse())
+        if self.presentar_ordenes():
+            decir(f"telegram: {len(COMANDOS)} órdenes puestas en el menú de Telegram.")
+        self._escuchando = True
+        try:
+            for atendido in self.una_tanda():
+                decir(f"[{atendido['chat']}] {atendido['texto'][:60]}")
+        except TelegramNoDisponible as exc:
+            self._fallo(decir, str(exc))
+            dormir(10)
+        else:
+            self._ultimo_error = ""
+
+    def _fallo(self, decir: Callable[[str], None], dicho: str) -> None:
+        """Apunta un fallo y lo cuenta **una** vez.
+
+        Un token caducado daría seis líneas por minuto y taparía todo lo demás
+        en la consola; y el último fallo se queda guardado para poder verlo
+        desde la pestaña Ajustes, que es donde se va a mirar.
+        """
+        self._escuchando = False
+        if dicho != self._ultimo_error:
+            decir(f"✗ ERROR Telegram: {dicho}")
+            self._ultimo_error = dicho
+
+    # --- entender ---
+
+    def atender(self, chat: int, texto: str, quien: str = "") -> str:
+        """Contesta a un mensaje. Devuelve lo enviado, para poder probarlo."""
+        if not self.permitidos:
+            self.apuntar_visto(chat, quien)
+            respuesta = (
+                "Este bot no tiene lista de permitidos, así que no contesta a nadie.\n\n"
+                f"Tu identificador de chat es: {chat}\n\n"
+                "Ponlo en la interfaz, en Memoria → Ajustes → «chats permitidos»: "
+                "ahí sale con tu nombre al lado para meterlo de un toque, y no hace "
+                "falta reiniciar nada. O arráncalo así:\n"
+                f"    cancha telegram --token ... --chat {chat}")
+            self.enviar(chat, respuesta)
+            return respuesta
+        if chat not in self.permitidos:
+            # A un desconocido no se le cuenta nada, ni siquiera qué es esto.
+            # Pero se apunta, porque casi siempre eres tú desde otra cuenta.
+            self.apuntar_visto(chat, quien)
+            self.enviar(chat, "No tengo nada para ti.")
+            return "No tengo nada para ti."
+
+        # Las órdenes que hablan con un modelo tardan minutos. Sin decir nada
+        # antes, el bot se queda mudo y eso es indistinguible de estar roto: es
+        # exactamente la queja que arreglamos una vez ya.
+        aviso = LENTAS.get(self._orden_de(texto))
+        if aviso:
+            with suppress(TelegramNoDisponible):
+                self.pedir("sendChatAction", {"chat_id": chat, "action": "typing"})
+                self.enviar(chat, "⏳ " + aviso)
+
+        try:
+            respuesta = self.responder(texto)
+        except SofascoreError as exc:
+            respuesta = f"✗ {exc}"
+        except Exception as exc:  # noqa: BLE001 - el bot no se cae por una pregunta
+            respuesta = f"✗ {type(exc).__name__}: {exc}"
+        self.enviar(chat, respuesta, self.botones_de(texto))
+        return respuesta
+
+    def _orden_de(self, texto: str) -> str:
+        """La orden de un mensaje, o «analista» si no lleva ninguna."""
+        if not texto.startswith("/"):
+            return "analista"
+        return texto[1:].partition(" ")[0].lower().split("@")[0]
+
+    def botones_de(self, texto: str) -> dict:
+        """Qué botones acompañan a la respuesta de este mensaje.
+
+        La idea del apartado: **nunca dejar a nadie en un callejón**. El menú
+        entero cuando lo pides, los de las competiciones cuando estás eligiendo
+        una, y en todo lo demás la vuelta al menú, que es lo que convierte esto en
+        algo que se puede usar sin acordarse de ninguna orden.
+        """
+        orden = self._orden_de(texto)
+        if orden not in ORDENES and texto.startswith("/"):
+            return teclado(MENU)
+        if orden in ("menu", "menú", "start", "ayuda", "help"):
+            return teclado(MENU)
+        if orden == "ligas":
+            return _menu_de_ligas(self)
+        return VOLVER
+
+    def responder(self, texto: str) -> str:
+        """De un mensaje a una respuesta en texto. Aquí no se habla con Telegram."""
+        orden, _, resto = texto.partition(" ")
+        era_orden = orden.startswith("/")
+        orden = orden.lower().lstrip("/").split("@")[0]
+        resto = resto.strip()
+        manejador = ORDENES.get(orden)
+        if manejador:
+            return manejador(self, resto)
+        # Una barra con algo que no conozco no se le manda al modelo: quien
+        # escribe «/» está buscando una orden, así que se le enseñan las que hay.
+        # Eso es también lo que hace que abrir el bot y teclear cualquier cosa
+        # sirva para empezar, en vez de tener que acordarse de la palabra exacta.
+        if era_orden:
+            return _no_la_conozco(self, orden)
+        # Texto normal, sin barra: es una pregunta para el analista.
+        return _analista(self, texto)
+
+    def refrescar(self) -> list[str]:
+        """Se pone al día con los ajustes. Devuelve qué ha cambiado, en palabras.
+
+        Un bot que no hace esto obliga a reiniciar el programa para cambiar el
+        token o la lista de permitidos, y eso —lo hemos visto— se parece
+        demasiado a que el bot esté roto: escribes al bot, el bot no está
+        escuchando porque arrancó sin token, y nadie te lo dice.
+
+        Se consulta en cada vuelta del bucle, así que un cambio tarda como
+        mucho una espera larga (veinticinco segundos) en notarse.
+        """
+        if self.releer is None:
+            return []
+        try:
+            frescos = self.releer() or {}
+        except Exception:  # noqa: BLE001 - unos ajustes ilegibles no paran el bot
+            return []
+        cambios = []
+        suyo = frescos.get("telegram") or {}
+        if not self.token_fijo:
+            token = str(suyo.get("token") or "")
+            if token != self.token:
+                cambios.append("token puesto" if token else "token quitado; me callo")
+                self.token = token
+                # Un token nuevo se presenta en la vuelta siguiente (quién es el
+                # bot y dónde escribirle); uno borrado, al contrario, dice que
+                # se queda esperando. Las dos cosas las hace `escuchar`.
+                self._callado = bool(token)
+        permitidos = _numeros(suyo.get("chats") or ())
+        if permitidos != self.permitidos:
+            cambios.append("contesta a " + (", ".join(str(c) for c in permitidos)
+                                            if permitidos else "nadie"))
+            self.permitidos = permitidos
+        modelo = str(frescos.get("modelo") or "")
+        if modelo and modelo != self.modelo:
+            cambios.append(f"modelo {modelo}")
+            self.modelo = modelo
+        clave = str(frescos.get("ollama_api_key") or "")
+        if clave != self.api_key:
+            cambios.append("clave de la nube puesta" if clave else "clave de la nube quitada")
+            self.api_key = clave
+        ligas = tuple(str(x).strip() for x in (frescos.get("ligas") or ()) if str(x).strip())
+        if ligas != self.grupos:
+            cambios.append("ligas: " + (", ".join(ligas) if ligas else "las de por defecto"))
+            self.grupos = ligas
+        for nivel in ("gratis", "premium"):
+            canal = str(suyo.get(f"canal_{nivel}") or "").strip()
+            if canal != getattr(self, f"canal_{nivel}"):
+                cambios.append(f"canal {nivel}: {canal or 'ninguno'}")
+                setattr(self, f"canal_{nivel}", canal)
+        red = frescos.get("red") or {}
+        bundle = str(red.get("ca_bundle") or "")
+        flojo = bool(red.get("sin_verificar"))
+        if (bundle, flojo) != (self.ca_bundle, self.sin_verificar):
+            cambios.append("certificados: " + (
+                "sin comprobar con quién hablo (⚠)" if flojo
+                else f"los de {bundle}" if bundle else "los del sistema"))
+            self.ca_bundle, self.sin_verificar = bundle, flojo
+            self._contexto = SIN_MONTAR  # se rehace en la petición siguiente
+        return cambios
+
+    def estado(self) -> dict:
+        """Si de verdad está escuchando, para poder mirarlo desde la interfaz.
+
+        Es la respuesta a «le escribo al bot y no hace nada»: en vez de tener
+        que buscarlo en la consola del ordenador, se ve desde el móvil.
+        """
+        return {
+            "token_puesto": bool(self.token),
+            "escuchando": self._escuchando,
+            "permitidos": list(self.permitidos),
+            "ultimo_error": self._ultimo_error,
+        }
+
+    def parar(self) -> None:
+        """Que salga del bucle en cuanto termine la vuelta que esté haciendo.
+
+        No se deshace: un bot al que se le ha dicho que pare no vuelve a
+        escuchar. Lo contrario —que ``escuchar`` lo rearmara— deja pasar sin
+        ruido el caso de pararlo antes de arrancarlo, que es un bucle infinito.
+        """
+        self._parando = True
+
+    def apuntar_visto(self, chat: int, quien: str = "") -> None:
+        """Deja constancia de quién ha escrito sin estar en la lista.
+
+        Es lo que convierte «pon tu identificador de chat» —un número que nadie
+        se sabe— en un botón en los ajustes. El bot ya te lo contesta por
+        Telegram, pero entonces tienes que copiarlo a mano de una aplicación a
+        otra; así aparece solo en la pestaña Ajustes.
+
+        Si la memoria no está o falla, no pasa nada: esto es una comodidad, no
+        puede tumbar la respuesta a un mensaje.
+        """
+        try:
+            almacen = self.sesion.almacen
+            vistos = [v for v in json.loads(almacen.nota(NOTA_VISTOS) or "[]")
+                      if isinstance(v, dict) and v.get("chat") != chat]
+            vistos.insert(0, {"chat": chat, "quien": quien})
+            almacen.anotar(NOTA_VISTOS,
+                           json.dumps(vistos[:RECORDAR_VISTOS], ensure_ascii=False))
+        except Exception:  # noqa: BLE001 - una comodidad no tumba una respuesta
+            pass
+
+    def close(self) -> None:
+        if self._propia and self.sesion:
+            self.sesion.close()
+
+
+def _numeros(crudos) -> tuple[int, ...]:
+    """Identificadores de chat, vengan como números o como texto."""
+    salida = []
+    for crudo in crudos or ():
+        try:
+            salida.append(int(str(crudo).strip()))
+        except (TypeError, ValueError):
+            continue
+    return tuple(salida)
+
+
+def vistos(almacen) -> list[dict]:
+    """Quién ha escrito al bot sin estar en la lista de permitidos."""
+    try:
+        guardados = json.loads(almacen.nota(NOTA_VISTOS) or "[]")
+    except (ValueError, TypeError):
+        return []
+    return [v for v in guardados if isinstance(v, dict) and v.get("chat")]
+
+
+# ------------------------------------------------------------------ órdenes
+
+def _ayuda(bot: Bot, _resto: str) -> str:
+    ligas = ", ".join(bot.grupos) if bot.grupos else "las de por defecto"
+    return (
+        "<b>Lo que sé hacer</b>\n\n"
+        "<b>El día</b>\n"
+        "/hoy — qué se juega hoy, por competición\n"
+        "/hoy laliga — una competición entera\n"
+        "/hoy 2026-09-22 — otro día\n"
+        "/manana — los de mañana\n"
+        "/directo — lo que se juega ahora (/directo laliga)\n\n"
+        "<b>Un partido</b>\n"
+        "/pronostico Girona vs Osasuna — marcador, córners y tarjetas, calculados\n"
+        "/previa Girona vs Osasuna — cómo llegan y dónde se hacen daño\n"
+        "/dictamen Girona vs Osasuna — el expediente entero a un modelo\n"
+        "/seguro — los patrones que se cumplen hoy, con su número\n\n"
+        "<b>Quién es quién</b>\n"
+        "/equipo Girona — cómo juega, comparado con su liga\n"
+        "/jugador Vinicius — forma y rachas\n"
+        "/memoria — qué hay guardado y cuándo fue la última guardia\n"
+        "/resultados — cómo voy acertando: calibración, Brier y contra el mercado\n\n"
+        "<b>Los agentes</b>\n"
+        "/agentes — los analistas que tienes, cada uno con su estilo\n"
+        "/agente el-esceptico Girona vs Osasuna — que uno lo analice\n"
+        "/clasificacion — quién acierta más: ellos, el cálculo y el mercado\n\n"
+        f"<i>Sigo estas competiciones: {_escapar(ligas)}. Se cambian en la "
+        "interfaz, en Ajustes.</i>\n"
+        "<i>Cualquier otra cosa se la paso al analista, si lo tienes arrancado.</i>")
+
+
+#: Cuántas competiciones se listan enteras antes de resumir. Un día normal son
+#: veinticinco ligas y cien partidos: eso en el móvil no se lee, se scrollea.
+LIGAS_ENTERAS = 6
+#: Y cuántos partidos de cada una.
+PARTIDOS_POR_LIGA = 8
+
+
+def _menu(_bot: Bot, _resto: str = "") -> str:
+    """El menú. Es lo que sale al abrir el bot.
+
+    Los botones los cuelga `Bot.botones_de`; aquí solo va el texto que los
+    acompaña, porque esto es la parte que se puede probar sin Telegram delante.
+    """
+    return ("¿Qué quieres ver?\n\n"
+            "<i>Toca un botón, o escribe la orden. Y para un partido concreto, "
+            "escríbelo tal cual: «Girona vs Osasuna».</i>")
+
+
+def _no_la_conozco(bot: Bot, orden: str) -> str:
+    """Una barra con algo que no existe. No es un error: es la puerta de entrada.
+
+    Abres el bot por la mañana, escribes lo primero que se te ocurre y tienes
+    delante todo lo que puedes mirar, sin acordarte de nada.
+    """
+    return (f"No conozco <code>/{_escapar(orden)}</code>, pero mira lo que sí "
+            "puedo:\n\n" + _menu(bot))
+
+
+def _ligas(bot: Bot, _resto: str = "") -> str:
+    """Las competiciones que se siguen, cada una con su botón."""
+    if not bot.grupos:
+        return ("No estoy siguiendo ninguna competición en concreto, así que /hoy "
+                "trae lo que haya.\n\nSe eligen en la interfaz, en Ajustes.")
+    return ("🏆 <b>Por competición</b>\n\n"
+            f"Sigo estas {len(bot.grupos)}. Toca una para ver sus partidos de hoy.")
+
+
+def _resumen(bot: Bot, resto: str) -> str:
+    """El día en un mensaje: cómo salió lo de ayer, el pick, la agenda y los patrones.
+
+    En ese orden a propósito. Empezar el día viendo si lo de ayer salió es más
+    honesto que empezar prometiendo lo de hoy, y es lo que hace creíble el resto.
+    Si un trozo falla, el resumen sale con los demás.
+    """
+    from datetime import date, datetime, timedelta, timezone
+
+    from .picks import apuntados
+    from .picks import resolver as resolver_picks
+    from .registro import resolver
+
+    fecha = resto.strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    partes = []
+
+    with suppress(Exception):
+        resolver(bot.sesion.almacen)
+        resolver_picks(bot.sesion.almacen)
+
+    # 1. Lo de ayer, ya puntuado.
+    with suppress(Exception):
+        ayer = (date.fromisoformat(fecha) - timedelta(days=1)).isoformat()
+        suyos = apuntados(bot.sesion.almacen, ayer)
+        if suyos and suyos["premium"]:
+            lineas = ["✅ <b>Lo de ayer</b>"]
+            unidades = 0.0
+            for pick in suyos["premium"]:
+                if not pick.get("resuelto"):
+                    estado = "pendiente"
+                else:
+                    estado = "acertado" if pick["acerto"] else "fallado"
+                    unidades += pick["beneficio"] or 0
+                lineas.append(f"{_escapar(pick.get('partido') or '')}: "
+                              f"{_escapar(pick['suceso'])} a {pick['cuota']} — {estado}")
+            lineas.append(f"<b>{unidades:+.2f} unidades</b>")
+            partes.append("\n".join(lineas))
+
+    # 2. El pick de hoy: el apuntado, que es el que cuenta.
+    with suppress(Exception):
+        hoy = apuntados(bot.sesion.almacen, fecha)
+        if hoy and hoy["gratis"]:
+            pick = hoy["gratis"][0]
+            partes.append(f"🎯 <b>El pick de hoy</b>\n{_escapar(pick.get('partido') or '')}: "
+                          f"{_escapar(pick['suceso'])} a <b>{pick['cuota']}</b> "
+                          f"({pick['casa']}) · valor {pick['valor']:+.0%}"
+                          + (f"\n<i>y {len(hoy['premium']) - 1} más en /picks</i>"
+                             if len(hoy["premium"]) > 1 else ""))
+        elif hoy:
+            partes.append("🎯 Hoy nada pasa la regla: no hay pick.")
+        else:
+            partes.append("🎯 La guardia todavía no ha apuntado los picks de hoy. "
+                          "/pick los calcula ahora.")
+
+    # 3. Qué se juega.
+    agenda = _hoy(bot, fecha).strip()
+    if agenda:
+        partes.append(agenda)
+
+    # 4. Y lo que se repite hoy, recortado: el resumen no es el /seguro entero.
+    with suppress(Exception):
+        patrones = _seguro(bot, fecha).strip()
+        if patrones:
+            partes.append("\n".join(patrones.splitlines()[:14]))
+
+    if not partes:
+        return ("No tengo nada del día todavía. Si la guardia no ha pasado esta "
+                "noche, prueba /hoy para traerlo ahora.")
+    return ("☕ <b>El día</b>\n\n" + "\n\n".join(partes)
+            + "\n\n<i>Para entrar en un partido, escríbelo: «Girona vs Osasuna». "
+            "/historial dice cómo van los picks.</i>")
+
+def _hoy(bot: Bot, resto: str, dias: int = 0) -> str:
+    """Qué se juega, en las ligas que sigues y a la hora de tu reloj.
+
+    Antes volcaba las veinticinco competiciones del día una detrás de otra
+    —cien partidos, con la hora en UTC y sin decirlo—. Ahora manda la fecha o el
+    nombre de una liga: con liga, esa liga entera.
+    """
+    from datetime import datetime, timedelta
+
+    fecha, liga = _fecha_y_liga(resto, dias)
+    datos = _herramienta(bot, "agenda_del_dia", _con_grupos(bot, {"fecha": fecha}))
+    por_liga = datos.get("por_competicion") or {}
+    del datetime, timedelta
+    if not por_liga:
+        return (f"No hay partidos el {fecha} en las competiciones que sigues.\n"
+                "Las eliges en Ajustes → Ligas que sigues.")
+    if liga:
+        elegidas = {k: v for k, v in por_liga.items() if _parecido(liga, k)}
+        if not elegidas:
+            return (f"No encuentro «{liga}» entre las {len(por_liga)} competiciones "
+                    f"que juegan el {fecha}:\n" + "\n".join(f"  {k}" for k in por_liga))
+        por_liga, enteras = elegidas, len(elegidas)
+    else:
+        enteras = LIGAS_ENTERAS
+    zona = datos.get("zona") or "hora local"
+    cabeza = [f"⚽ <b>{_escapar(fecha)}</b> · {datos.get('total', 0)} partidos en "
+              f"{datos.get('competiciones', len(por_liga))} competiciones",
+              f"<i>Horas en {_escapar(zona)}</i>", ""]
+    cuerpo: list[str] = []
+    # Por importancia, no por número de partidos: ordenar por cantidad abría con
+    # diez de la MLS a las dos y media de la mañana y dejaba el Atlético - Real
+    # Madrid en tercer lugar.
+    from .ligas import relevancia
+
+    ordenadas = sorted(por_liga.items(), key=lambda x: (relevancia(x[0]), x[0]))
+    for lista in por_liga.values():
+        lista.sort(key=lambda p: p.get("hora_utc") or "99:99")
+    for nombre, lista in ordenadas[:enteras]:
+        cuerpo.append(f"<b>{_escapar(nombre)}</b>")
+        for partido in lista[:PARTIDOS_POR_LIGA]:
+            hora = partido.get("hora") or partido.get("hora_utc") or " ?  "
+            cuerpo.append(f"  {hora}  {_escapar(partido['partido'])}")
+        if len(lista) > PARTIDOS_POR_LIGA:
+            cuerpo.append(f"  <i>y {len(lista) - PARTIDOS_POR_LIGA} más</i>")
+        cuerpo.append("")
+    resto_ligas = ordenadas[enteras:]
+    if resto_ligas:
+        cuerpo.append("<b>También se juega en</b>")
+        for nombre, lista in resto_ligas:
+            cuerpo.append(f"  {_escapar(nombre)} ({len(lista)})")
+        cuerpo.append("")
+        cuerpo.append("<i>Para ver una entera: /hoy y el nombre "
+                      "(/hoy laliga, /hoy champions).</i>")
+    return "\n".join(cabeza + cuerpo).strip()
+
+
+def _fecha_y_liga(resto: str, dias: int) -> tuple[str, str]:
+    """Del texto de la orden a (fecha, liga). Acepta cualquiera de los dos."""
+    from datetime import datetime, timedelta
+
+    dicho = (resto or "").strip()
+    fecha = ""
+    if len(dicho) >= 10 and dicho[:4].isdigit() and dicho[4] == "-":
+        fecha, dicho = dicho[:10], dicho[10:].strip()
+    return (fecha or (datetime.now() + timedelta(days=dias)).strftime("%Y-%m-%d"), dicho)
+
+
+def _parecido(buscado: str, nombre: str) -> bool:
+    """¿Se refiere «premier» a «England Premier League»? Sin acentos ni mayúsculas."""
+    from .resolve import normalizar
+
+    return normalizar(buscado) in normalizar(nombre)
+
+
+def _con_grupos(bot: Bot, argumentos: dict) -> dict:
+    """Añade las ligas que sigue el bot, si las sigue."""
+    if bot.grupos:
+        argumentos["grupos"] = ",".join(bot.grupos)
+    return argumentos
+
+
+def _manana(bot: Bot, resto: str) -> str:
+    return _hoy(bot, resto, dias=1)
+
+
+#: Cuántos partidos en directo se enseñan de una vez.
+EN_DIRECTO = 15
+
+
+def _directo(bot: Bot, resto: str) -> str:
+    """Lo que se está jugando **en tus competiciones**.
+
+    Sin filtrar, el directo trae el fútbol entero del planeta: en una consulta
+    real salieron Perú sub-15, juveniles gallegos y la segunda femenina alemana
+    mezclados con LaLiga. Aquí se pide con las ligas que se siguen.
+    """
+    argumentos = {"limite": 60, "grupos": ",".join(bot.grupos) if bot.grupos else "*"}
+    if resto.strip():
+        argumentos["liga"] = resto.strip()
+    datos = _herramienta(bot, "partidos", argumentos)
+    partidos = datos.get("partidos") or []
+    if not partidos:
+        de_todo = datos.get("de_todo_el_mundo") or 0
+        if de_todo:
+            return (f"En tus competiciones no se juega nada ahora mismo.\n"
+                    f"(Hay {de_todo} partidos en el mundo, pero son de ligas que no "
+                    "sigues. Se eligen en Ajustes → Ligas que sigues.)")
+        return "Ahora mismo no se juega nada."
+    por_liga: dict[str, list] = {}
+    for partido in partidos:
+        por_liga.setdefault(partido.get("competicion") or "?", []).append(partido)
+    lineas = [f"🔴 <b>En juego</b> · {len(partidos)} partidos", ""]
+    enseñados = 0
+    for liga in sorted(por_liga):
+        if enseñados >= EN_DIRECTO:
+            break
+        lineas.append(f"<b>{_escapar(liga)}</b>")
+        for partido in por_liga[liga]:
+            if enseñados >= EN_DIRECTO:
+                break
+            estado = partido.get("estado") or ""
+            lineas.append(f"  {_escapar(partido['partido'])}"
+                          + (f"  <i>{_escapar(estado)}</i>" if estado else ""))
+            enseñados += 1
+        lineas.append("")
+    if len(partidos) > enseñados:
+        lineas.append(f"<i>y {len(partidos) - enseñados} más. Para una liga: "
+                      "/directo laliga</i>")
+    return "\n".join(lineas).strip()
+
+
+#: Partidos que se enseñan de cada patrón: los que más se separan del mercado.
+POR_PATRON = 5
+
+
+def _seguro(bot: Bot, resto: str) -> str:
+    """Los patrones que se cumplen hoy, uno por patrón.
+
+    Antes salía una ficha por partido, y como un patrón se mide una sola vez
+    sobre todo el historial, eran sesenta fichas con la misma frecuencia, los
+    mismos casos y el mismo suelo. Lo único que cambiaba era el equipo.
+    """
+    from .seguro import avisos
+
+    datos = avisos(bot.sesion.almacen, bot.sesion.cliente, fecha=resto or None,
+                   grupos=list(bot.grupos) or None)
+    if not datos["avisos"]:
+        return ("Hoy no se cumple nada que aguante el recuento.\n"
+                f"Calibrado con {datos['calibrado_con']} partidos guardados. "
+                "Cuantos más barras, más cosas pueden salir aquí.")
+    lineas = [f"🎯 <b>Casi seguro</b> · {_escapar(datos['fecha'])}",
+              f"<i>Calibrado con {datos['calibrado_con']} partidos de tu memoria</i>", ""]
+    for grupo in datos.get("por_patron") or []:
+        fuera = (grupo.get("fuera_de_muestra") or {}).get("veredicto") or ""
+        marca = {"aguanta": " · aguanta fuera de muestra",
+                 "se cae": " · ⚠ SE CAE fuera de muestra"}.get(fuera, "")
+        lineas.append(f"<b>{grupo['suelo']:.0%}  {_escapar(grupo['titulo'])}</b>")
+        lineas.append(f"      {_escapar(grupo['dice'])}")
+        lineas.append(f"      {grupo['frecuencia']:.0%} en {grupo['casos']} casos"
+                      f" ({grupo['elevacion']:+.0%} sobre su referencia){marca}")
+        lineas.append(f"      <i>Se cumple en {grupo['cuantos_partidos']} partidos "
+                      "de hoy; estos son los que más se separan del precio:</i>")
+        for partido in grupo["partidos"][:POR_PATRON]:
+            hora = partido.get("hora") or partido.get("hora_utc") or ""
+            quien = partido["sujeto"] if partido["sujeto"] != "el partido" else ""
+            precio = ("sin cuotas" if partido["mercado"] is None else
+                      f"mercado {partido['mercado']:.0%} ({partido['mercado_de']}), "
+                      f"{partido['diferencia']:+.0%}")
+            lineas.append(f"      {hora} {_escapar(partido['partido'])}")
+            lineas.append(f"           {_escapar(quien)} · {precio}" if quien
+                          else f"           {precio}")
+        lineas.append("")
+    lineas.append("<i>Ninguna de estas es una apuesta segura: son frecuencias "
+                  "contadas sobre tu memoria. La frecuencia y el suelo son del "
+                  "patrón —los mismos en todos sus partidos—; lo que cambia es el "
+                  "precio de hoy.</i>")
+    return "\n".join(lineas)
+
+
+def _previa(bot: Bot, resto: str) -> str:
+    if not resto:
+        return "Dime qué partido: /previa Girona vs Osasuna"
+    from .previa import previa, texto
+
+    datos = previa(bot.sesion.almacen, resto, cliente=bot.sesion.cliente)
+    return "\n".join(texto(datos))
+
+
+def _pronostico(bot: Bot, resto: str) -> str:
+    if not resto:
+        return "Dime qué partido: /pronostico Girona vs Osasuna"
+    from .pronostico import pronostico
+    from .pronostico import texto as texto_pronostico
+
+    datos = pronostico(bot.sesion.almacen, resto, cliente=bot.sesion.cliente)
+    return "🔮 " + "\n".join(texto_pronostico(datos, ancho=48))
+
+
+def _dictamen(bot: Bot, resto: str) -> str:
+    """El expediente entero a un modelo, y su lectura. Lo más caro que hace."""
+    if not resto:
+        return "Dime qué partido: /dictamen Girona vs Osasuna"
+    from .analista import Analista, OllamaNoDisponible
+    from .expediente import a_texto, expediente
+
+    otro = resto.lower().endswith(" otro")
+    if otro:
+        resto = resto[: -len(" otro")].strip()
+
+    datos = expediente(bot.sesion.almacen, resto, cliente=bot.sesion.cliente,
+                       crudo="todo" if bot.api_key else "tabla")
+    if not datos.get("disponible"):
+        return datos.get("nota", "No hay expediente de ese partido.")
+    partido_id = datos["partido"]["id"]
+
+    # Si ya hay uno guardado de hoy, se enseña ese: cuesta dinero y tiempo, y
+    # pedir otro es una decisión, no algo que pase por volver a escribir.
+    guardados = bot.sesion.almacen.dictamenes_de(partido_id, limite=1)
+    if guardados and not otro:
+        guardado = guardados[0]
+        return (f"🧠 <b>{_escapar(datos['partido']['local'])} - "
+                f"{_escapar(datos['partido']['visitante'])}</b>\n"
+                f"<i>{_escapar(guardado['hecho_el'])} · "
+                f"{_escapar(guardado['modelo'] or '?')}</i>\n\n"
+                + _escapar(guardado["respuesta"] or "")
+                + "\n\n<i>Guardado. Para pedir otro: /dictamen "
+                + _escapar(resto) + " otro</i>")
+
+    documento = a_texto(datos)
+    extra = {"modelo": bot.modelo} if bot.modelo else {}
+    if bot.api_key:
+        extra["api_key"] = bot.api_key
+    try:
+        salida = Analista(sesion=bot.sesion, **extra).dictaminar(documento)
+    except (OllamaNoDisponible, OSError) as exc:
+        return f"No he podido pedir el dictamen: {exc}"
+    bot.sesion.almacen.guardar_dictamen(
+        partido_id, salida.get("respuesta") or "", modelo=salida.get("modelo") or "",
+        expediente=documento, en_la_nube=bool(bot.api_key),
+        tokens=salida.get("tokens"))
+    cabeza = (f"🧠 <b>{_escapar(datos['partido']['local'])} - "
+              f"{_escapar(datos['partido']['visitante'])}</b>\n"
+              f"<i>{_escapar(salida['modelo'])} · "
+              f"{datos['tamano']['tokens_aprox']} tokens de expediente · "
+              "guardado con el partido</i>\n\n")
+    return cabeza + _escapar(salida["respuesta"] or "El modelo no ha dicho nada.")
+
+
+def _equipo(bot: Bot, resto: str) -> str:
+    if not resto:
+        return "Dime qué equipo: /equipo Girona"
+    datos = _herramienta(bot, "estilo_de_equipo", {"equipo": resto})
+    if not datos.get("disponible"):
+        return datos.get("nota") or "No tengo nada de ese equipo guardado."
+    r = datos["resultados"]
+    cuantos = datos["partidos_mirados"]
+    lineas = [f"<b>{_escapar(datos['equipo'])}</b> — {_escapar(datos['liga'] or '')}",
+              f"{cuantos} partido{'s' if cuantos != 1 else ''} guardado"
+              f"{'s' if cuantos != 1 else ''}: {r['racha']}, "
+              f"{r['goles_favor']}-{r['goles_contra']} en goles", ""]
+    rasgos = datos.get("lo_que_le_distingue") or []
+    for rasgo in rasgos:
+        lineas.append(f"  · {_escapar(rasgo['rasgo'])} "
+                      f"({rasgo['diferencia']:+.0%} sobre su liga)")
+    if rasgos:
+        lineas.append("")
+        lineas.append(f"<i>Medido sobre {cuantos} partidos suyos contra la media de "
+                      f"{datos.get('partidos_en_la_media_de_liga', 0)} de su liga.</i>")
+    elif datos.get("aviso"):
+        # Y esto es lo importante: con un partido no se dice cómo juega nadie.
+        # Antes salía «genera peligro (+187%)» de un 2-0 y parecía un retrato.
+        lineas.append(f"<i>{_escapar(datos['aviso'])}</i>")
+    else:
+        lineas.append("No se sale de la media de su liga en nada llamativo.")
+    return "\n".join(lineas)
+
+
+def _jugador(bot: Bot, resto: str) -> str:
+    if not resto:
+        return "Dime qué jugador: /jugador Vinicius"
+    datos = _herramienta(bot, "forma_de_jugador", {"jugador": resto})
+    if not datos.get("disponible"):
+        return datos.get("nota") or "No tengo nada de ese jugador guardado."
+    pp = datos.get("por_partido") or {}
+    lineas = [f"{datos['jugador']}",
+              f"{datos['partidos_mirados']} partidos · nota {datos.get('rating_medio')}",
+              f"Por partido: {pp.get('goles')} goles, {pp.get('tiros')} tiros, "
+              f"{pp.get('xg')} xG", ""]
+    for racha in datos.get("rachas") or []:
+        lineas.append(f"  · {racha['racha']}")
+    return "\n".join(lineas)
+
+
+def _resultados(bot: Bot, resto: str) -> str:
+    """Cómo va acertando. Lo que hace que un pronóstico se pueda creer o no."""
+    from .registro import balance, resolver, texto
+
+    if resto.strip().lower() in ("resolver", "actualizar"):
+        hechas = resolver(bot.sesion.almacen)
+        return (f"{hechas['resueltas']} predicciones resueltas, "
+                f"{hechas['sin_jugar_todavia']} esperando a que se juegue el partido.")
+    datos = balance(bot.sesion.almacen)
+    lineas = texto(datos)
+    if not datos.get("casos"):
+        return "\n".join(lineas)
+    return ("📊 <b>Cómo voy acertando</b>\n\n" + _escapar("\n".join(lineas))
+            + "\n\n<i>" + _escapar(datos["lo_que_no_dice"]) + "</i>")
+
+
+def _los_picks(bot: Bot, fecha: str) -> dict:
+    """Los de ese día: los apuntados si los hay, y si no, calculados ahora."""
+    from .picks import apuntados, del_dia
+
+    return (apuntados(bot.sesion.almacen, fecha)
+            or del_dia(bot.sesion.almacen, bot.sesion.cliente, fecha=fecha,
+                       grupos=list(bot.grupos) or None))
+
+
+def _pick(bot: Bot, resto: str, nivel: str = "gratis") -> str:
+    """El pick del día. O los de ese día, si se da una fecha."""
+    from datetime import datetime, timezone
+
+    from .picks import boletin, historial
+
+    fecha = resto.strip() or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    dia = _los_picks(bot, fecha)
+    texto = boletin(dia, nivel, historial(bot.sesion.almacen, nivel))
+    if not dia.get("apuntado") and dia[nivel]:
+        texto += ("\n\n<i>Calculado ahora, con las cuotas de ahora: todavía no está "
+                  "apuntado, así que no cuenta para el historial.</i>")
+    if not dia[nivel] and dia.get("casi"):
+        cerca = dia["casi"][0]
+        texto += (f"\n\nLo más cerca: {_escapar(cerca['partido'])}, "
+                  f"{_escapar(cerca['suceso'])} a {cerca['cuota']} — no pasa por "
+                  f"{_escapar(', '.join(cerca['por_que_no']))}.")
+    return texto
+
+
+def _picks(bot: Bot, resto: str) -> str:
+    return _pick(bot, resto, nivel="premium")
+
+
+def _historial(bot: Bot, _resto: str) -> str:
+    """Cómo han ido los picks, en cada nivel: lo que se le enseña a un cliente."""
+    from .picks import historial
+
+    partes = []
+    for nivel in ("gratis", "premium"):
+        h = historial(bot.sesion.almacen, nivel)
+        if not h.get("picks"):
+            partes.append(f"<b>{nivel.capitalize()}</b>: {h.get('nota')}")
+            continue
+        partes.append(
+            f"<b>{nivel.capitalize()}</b> · {h['picks']} picks · {h['aciertos']} "
+            f"acertados ({h['acierto']:.0%}) · cuota media {h['cuota_media']}\n"
+            f"{h['unidades']:+.2f} unidades · rendimiento {h['rendimiento']:+.1%}"
+            + (f" (entre {h['intervalo'][0]:+.1%} y {h['intervalo'][1]:+.1%})"
+               if h.get("intervalo") else "")
+            + f"\npeor racha {h['peor_racha']:+.2f}"
+            + (f" · gana al cierre en el {h['gana_al_cierre']:.0%}"
+               if h.get("gana_al_cierre") is not None else "")
+            + f"\n<i>{_escapar(h['lectura'])}</i>")
+    return "📈 <b>Historial de picks</b>\n\n" + "\n\n".join(partes)
+
+
+def _agentes(bot: Bot, _resto: str) -> str:
+    """Los agentes analistas que hay, para poder llamar a uno por su nombre."""
+    from .agentes import cargar, huella
+
+    agentes = cargar()
+    if not agentes:
+        return ("No tienes agentes. Se crean en la interfaz, en la pestaña Agentes, "
+                "y lo único imprescindible es escribirle a cada uno su estilo.")
+    lineas = ["🧠 <b>Tus agentes</b>", ""]
+    for clave, agente in sorted(agentes.items()):
+        cuantas = (f"{len(agente.herramientas)} herramientas"
+                   if agente.herramientas else "todas las herramientas")
+        lineas.append(f"<b>{_escapar(agente.nombre)}</b> — <code>{_escapar(clave)}</code>"
+                      + ("" if agente.activo else " (apagado)"))
+        lineas.append(f"<i>{_escapar(agente.instrucciones[:180])}"
+                      + ("…" if len(agente.instrucciones) > 180 else "") + "</i>")
+        lineas.append(f"{agente.vueltas} vueltas · crudo: {agente.crudo} · {cuantas} "
+                      f"· [{huella(agente)}]")
+        lineas.append("")
+    lineas.append("Ponlo a analizar con: /agente &lt;nombre&gt; Girona vs Osasuna")
+    lineas.append("Y mira quién acierta con /clasificacion")
+    return "\n".join(lineas)
+
+
+def _agente(bot: Bot, resto: str) -> str:
+    """Un agente analizando un partido, desde el móvil. Es la orden más cara."""
+    from .agentes import cargar, correr
+    from .analista import OllamaNoDisponible
+
+    partes = resto.strip().split(None, 1)
+    if len(partes) < 2:
+        return ("Dime cuál y de qué partido:\n"
+                "/agente el-esceptico Girona vs Osasuna\n\n"
+                "Los que tienes, con /agentes.")
+    clave, consulta = partes[0], partes[1]
+    agentes = cargar()
+    agente = agentes.get(clave)
+    if agente is None:
+        return (f"No tengo ningún agente «{_escapar(clave)}».\n"
+                "Los que hay: " + _escapar(", ".join(sorted(agentes)) or "ninguno"))
+    try:
+        salida = correr(bot.sesion.almacen, bot.sesion.cliente, agente, consulta,
+                        modelo_por_defecto=bot.modelo)
+    except (OllamaNoDisponible, OSError) as exc:
+        return _sin_analista(bot, exc)
+    if not salida.get("disponible"):
+        return salida.get("nota", "No he podido con ese partido.")
+
+    cabeza = (f"🧠 <b>{_escapar(salida['nombre'])}</b> sobre "
+              f"{_escapar(salida['partido'])}\n")
+    cuerpo = _escapar(salida.get("respuesta") or "")
+    if salida["sin_numeros"]:
+        cola = ("\n\n<i>No ha terminado dando probabilidades, así que esto se guarda "
+                "y se lee pero no puntúa: no se puede comparar con nadie.</i>")
+    else:
+        cola = (f"\n\n<i>{salida['apuntadas']} predicciones apuntadas a su nombre. "
+                "Cuando se juegue el partido se resuelven solas.</i>")
+    return cabeza + "\n" + cuerpo + cola
+
+
+def _clasificacion(bot: Bot, _resto: str) -> str:
+    """Quién acierta más: los agentes, el cálculo y el mercado, en la misma tabla."""
+    from .registro import tabla, texto_tabla
+
+    datos = tabla(bot.sesion.almacen)
+    cuerpo = "\n".join(texto_tabla(datos))
+    return ("📊 <b>Clasificación</b>\n\n<pre>" + _escapar(cuerpo) + "</pre>\n\n<i>"
+            + _escapar(datos["como_leerlo"]) + "</i>")
+
+
+def _memoria(bot: Bot, _resto: str) -> str:
+    datos = bot.sesion.almacen.resumen()
+    lineas = [
+        f"📚 {datos['partidos']} partidos ({datos['con_estadisticas']} con estadísticas)",
+        f"Del {datos['desde']} al {datos['hasta']}",
+        f"{datos['actuaciones']} actuaciones · {datos['tiros']} tiros",
+        f"Último barrido: {datos['ultimo_barrido'] or 'nunca'}",
+    ]
+    guardia = bot.sesion.almacen.nota("ultima_guardia")
+    if guardia:
+        lineas.append(f"Última guardia: {guardia} "
+                      f"(preparó el {bot.sesion.almacen.nota('ultima_guardia_fecha')})")
+    return "\n".join(lineas)
+
+
+def _analista(bot: Bot, texto: str) -> str:
+    """Lo que no es una orden se lo pasamos al modelo local, si lo hay."""
+    from .analista import Analista, OllamaNoDisponible
+
+    # Solo se pasa `modelo` si hay uno: mandar None machacaría el de por
+    # defecto del dataclass y el analista se quedaría sin modelo que pedir.
+    extra = {"modelo": bot.modelo} if bot.modelo else {}
+    if bot.api_key:
+        extra["api_key"] = bot.api_key
+    try:
+        salida = Analista(sesion=bot.sesion, **extra).preguntar(texto)
+    except (OllamaNoDisponible, OSError) as exc:
+        return _sin_analista(bot, exc)
+    return salida.get("respuesta") or "El modelo no ha dicho nada."
+
+
+def _sin_analista(bot: Bot, exc: Exception) -> str:
+    """Por qué no hay analista, y qué escribir para tenerlo.
+
+    El caso que salió en cuanto se usó: «Ollama ha contestado 404: model
+    'hermes3' not found». Ollama estaba arrancado y el modelo sin descargar, y
+    lo que hacía falta era una línea que decir en el terminal.
+    """
+    dicho = str(exc)
+    if "not found" in dicho and bot.modelo:
+        return (f"Ollama está funcionando, pero no tiene el modelo «{bot.modelo}».\n\n"
+                f"En el ordenador:\n    ollama pull {bot.modelo}\n\n"
+                "Tarda un rato (unos 5 GB) y luego esto ya va. O elige otro en "
+                "Ajustes → Analista, que ahí salen los que sí tienes.\n\n"
+                "Mientras, las órdenes funcionan igual: /ayuda las lista.")
+    return (f"No tengo analista: {dicho}\n\n"
+            "Las órdenes no lo necesitan: /ayuda las lista.")
+
+
+ORDENES: dict[str, Callable[[Bot, str], str]] = {
+    "ayuda": _ayuda, "start": _menu, "help": _ayuda,
+    "menu": _menu, "menú": _menu, "ligas": _ligas, "competiciones": _ligas,
+    "resumen": _resumen, "briefing": _resumen,
+    "hoy": _hoy, "manana": _manana, "mañana": _manana,
+    "directo": _directo, "live": _directo,
+    "seguro": _seguro, "previa": _previa, "pronostico": _pronostico,
+    "dictamen": _dictamen,
+    "pronóstico": _pronostico,
+    "equipo": _equipo, "jugador": _jugador, "memoria": _memoria,
+    "resultados": _resultados, "acierto": _resultados,
+    "agentes": _agentes, "agente": _agente,
+    "pick": _pick, "picks": _picks, "historial": _historial,
+    "clasificacion": _clasificacion, "clasificación": _clasificacion,
+}
+
+
+def _herramienta(bot: Bot, nombre: str, argumentos: dict) -> dict:
+    from .herramientas import ejecutar
+
+    return ejecutar(nombre, argumentos, sesion=bot.sesion, max_chars=200_000)
+
+
+__all__ = ["API", "COMANDOS", "LENTAS", "MENU", "NOTA_VISTOS", "ORDENES",
+           "VOLVER", "Bot", "TelegramNoDisponible", "teclado", "vistos"]

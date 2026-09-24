@@ -1,0 +1,22 @@
+{
+ "player": {
+  "id": 831993,
+  "name": "Vinicius Junior",
+  "shortName": "Vinicius Jr.",
+  "slug": "vinicius-junior",
+  "position": "F",
+  "jerseyNumber": "7",
+  "height": 176,
+  "preferredFoot": "Right",
+  "team": {
+   "id": 2829,
+   "name": "Real Madrid"
+  },
+  "country": {
+   "name": "Brazil",
+   "alpha2": "BR"
+  },
+  "dateOfBirthTimestamp": 869788800,
+  "proposedMarketValue": 200000000
+ }
+}

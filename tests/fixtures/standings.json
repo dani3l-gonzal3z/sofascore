@@ -1,0 +1,40 @@
+{
+ "standings": [
+  {
+   "tournament": {
+    "name": "LaLiga"
+   },
+   "type": "total",
+   "rows": [
+    {
+     "position": 1,
+     "team": {
+      "id": 2817,
+      "name": "Barcelona"
+     },
+     "points": 30,
+     "matches": 12,
+     "wins": 10,
+     "draws": 0,
+     "losses": 2,
+     "scoresFor": 40,
+     "scoresAgainst": 12
+    },
+    {
+     "position": 2,
+     "team": {
+      "id": 2829,
+      "name": "Real Madrid"
+     },
+     "points": 24,
+     "matches": 12,
+     "wins": 7,
+     "draws": 3,
+     "losses": 2,
+     "scoresFor": 25,
+     "scoresAgainst": 15
+    }
+   ]
+  }
+ ]
+}

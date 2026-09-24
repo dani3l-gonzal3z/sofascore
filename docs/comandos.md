@@ -1,0 +1,113 @@
+# La línea de comandos
+
+```bash
+cancha match <consulta> [opciones]     # informe completo de un partido
+cancha team "Real Madrid"              # plantilla, calendario, forma, traspasos
+cancha player "Vinicius Junior"        # ficha, atributos, temporadas
+cancha league laliga                   # clasificación, jornadas, goleadores
+cancha live [--league laliga]          # lo que se está jugando ahora mismo
+cancha today [--date AAAA-MM-DD]       # todos los partidos de un día
+cancha leagues [filtro]                # ligas conocidas con su id
+cancha search <consulta>               # partidos candidatos
+cancha sections [--kind team]          # catálogo de secciones
+cancha cookie [--save]                 # saca tu cookie de lo copiado del navegador
+cancha login [partido]                 # comprueba tus credenciales Plus
+cancha raw /event/11352550/statistics  # cualquier ruta de la API, tal cual
+cancha grabar <partido>                   # guarda respuestas reales para los tests
+cancha analisis <partido>                 # las cuentas hechas: puntos esperados, xG
+cancha fuentes                         # qué fuentes hay además de Sofascore
+cancha contexto <partido>              # el partido visto por todas a la vez
+cancha tools [--json]                  # las herramientas que ve una IA
+cancha mcp                             # servidor MCP para una IA local
+cancha doctor                          # qué transporte usa y si la API contesta
+cancha listo [--sin-red]               # cada pieza probada de verdad, y qué arreglar
+cancha cache [--clear]                 # estado de la caché
+                                       # (los dos también en la interfaz, en Memoria)
+```
+
+Los que necesitan [memoria](memoria.md) —hay que hacer un barrido antes—:
+
+```bash
+cancha barrido [--grupos grandes]      # trae los partidos del día y el historial
+cancha memoria                         # qué hay guardado
+cancha agenda [--date AAAA-MM-DD]      # qué se juega en las ligas que importan
+cancha estilo "Girona"                 # cómo juega un equipo, contra su liga
+cancha forma "Vinicius"                # cómo está y qué rachas lleva
+cancha arbitro "César Soto Grado"      # cómo pita, según sus partidos guardados
+cancha previa "Girona vs Osasuna"      # todo lo que se sabe antes de jugarse
+cancha sistema "Getafe"                # con qué plantea: dibujo, presión, posesión
+cancha contra "Vinicius" [--eje linea] # cómo rinde según lo que le pongan delante
+cancha duelo "Vinicius" "Getafe"       # el jugador contra el sistema de ese rival
+cancha contra "Vinicius" --desglose    # ¿es el sistema o el contexto?
+cancha estilo "Girona" --evolucion     # si ha cambiado su forma de jugar
+cancha briefing [--barrer]             # el documento de la mañana, uno por día
+cancha cuotas                          # quién era favorito, para lo barrido sin cuotas
+```
+
+La interfaz y las otras fuentes:
+
+```bash
+cancha web [--lan] [--abrir] [--clave X]   # la página, instalable como app
+cancha pronostico "A vs B" [--abastecer]  # marcador, córners y tarjetas
+cancha arrancar                        # todo junto: web + guardia + bot
+cancha ajustes [clave=valor ...]       # la hora, las ligas, el modelo
+cancha ajustes --ligas                 # qué ligas se pueden elegir
+cancha guardia [--ahora] [--una-vez]   # prepara el día siguiente cada noche
+cancha telegram --token X --chat N     # el bot, para preguntar desde fuera
+cancha noticias laliga [--equipo X]        # titulares de ESPN
+cancha fuentes                             # qué fuentes y qué librerías hay
+cancha ligas [--descubrir] [--faltan]      # el catálogo de competiciones
+cancha seguro [--calibrar]                 # lo que casi siempre pasa, medido
+cancha analista "…" [--modelo hermes3]     # pregunta y un modelo local lo busca
+cancha dictamen "Girona vs Osasuna"        # el expediente entero a un modelo, que ate cabos
+cancha dictamen "…" --solo-expediente      # solo el documento: qué se le manda
+cancha dictamen "…" --api-key ...          # con un modelo grande de la nube de Ollama
+cancha dictamen "…" --crudo tabla          # menos estadísticas en crudo, para un modelo pequeño
+cancha dictamen "…" --guardados            # los que ya dijo, sin pedir otro
+cancha doctor --tls                        # ¿hay un antivirus o un proxy abriendo tu HTTPS?
+cancha historia --plan                     # qué costaría traerse años de partidos
+cancha historia --anos 3 --max 5000        # y traerlos, a tandas
+cancha backtest                            # el pasado con lo que se sabía entonces
+cancha backtest --ultimo                   # el último guardado, sin rehacerlo
+cancha retrospectiva "Betis vs Sevilla"    # lo que dijimos antes, frente a lo que pasó
+
+cancha resultados                          # el registro: calibración, Brier y CLV
+cancha resultados --mercado 1x2 --desde 2026-08-01
+
+cancha agentes                             # tus analistas, cada uno con su estilo
+cancha agentes --crear el-escrupuloso      # el esqueleto de uno nuevo
+cancha agente el-esceptico "Girona vs Osasuna"
+cancha agente el-esceptico "Girona vs Osasuna" --solo-expediente
+cancha agente el-esceptico "Girona vs Osasuna" --director gpt-oss:120b-cloud
+cancha agente el-esceptico "Girona vs Osasuna" --techo 40000
+cancha clasificacion                       # quién acierta más, contra el mercado
+cancha clasificacion --comparar el-esceptico calculo
+```
+
+Opciones más usadas de `match`:
+
+| Opción | Para qué |
+| --- | --- |
+| `--date AAAA-MM-DD` | Desempatar entre varios cruces |
+| `--all` | Pedir todas las secciones del catálogo |
+| `--sections statistics,shotmap` | Solo las que te interesan |
+| `--no-plus` | Ni intentar las de pago |
+| `--json p.json` `--markdown p.md` `--csv carpeta/` | Guardar el resultado |
+| `--print statistics` | Volcar una sola sección por pantalla |
+| `--stdout-json` | El informe entero en JSON, listo para `jq` |
+| `--offline` / `--no-cache` | Solo caché / ignorar caché |
+| `--parallel N` | Secciones a la vez (`1` las pide de una en una) |
+| `--transport curl` | Forzar transporte (`auto`, `curl`, `httpx`, `urllib`) |
+| `--debug` | Contadores de peticiones y ajustes en uso |
+
+`--debug`, `--offline`, `--no-cache`, `--parallel` y `--transport` valen en
+**todos** los comandos, no solo en `match`.
+
+```bash
+cancha match 11352550 --all --json partido.json --csv datos/
+cancha match 11352550 --print statistics --quiet | jq '.[0].groups'
+```
+
+---
+
+[← Volver al índice](../README.md)

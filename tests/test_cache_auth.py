@@ -3,10 +3,10 @@
 import json
 import time
 
-from sofascore.auth import Credentials, _cookies_desde_fichero
-from sofascore.cache import DiskCache, MemoryCache, NullCache, build_cache
-from sofascore.config import Settings
-from sofascore.ratelimit import RateLimiter
+from cancha.auth import Credentials, _cookies_desde_fichero
+from cancha.cache import DiskCache, MemoryCache, NullCache, build_cache
+from cancha.config import Settings
+from cancha.ratelimit import RateLimiter
 
 
 def test_cache_en_disco_guarda_y_recupera(tmp_path):
