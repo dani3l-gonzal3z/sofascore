@@ -151,3 +151,37 @@ def test_al_ejecutar_una_herramienta_si_se_coge_el_cerrojo(monkeypatch):
     Analista(modelo="x", pedir=lambda r, c=None: guion.pop(0),
              cerrojo=cerrojo).preguntar("hola")
     assert cogido == [True]
+
+
+def test_en_un_partido_ya_jugado_la_ficha_trae_lo_que_se_dijo_antes(servidor):  # noqa: F811
+    """Sin esto, a «¿en qué fallamos?» contestaba con el pronóstico de ahora, ya
+    calculado con el resultado dentro de la memoria."""
+    from cancha.charla import SUGERIDAS_DESPUES
+
+    almacen = servidor.sesion.almacen
+    fila = almacen.consulta("SELECT * FROM partidos WHERE id = ?", (EVENT_ID,))[0]
+    assert fila["goles_local"] is not None, "el partido de prueba está jugado"
+    for lado, prob in (("local", 0.51), ("empate", 0.27), ("visitante", 0.22)):
+        almacen._conexion.execute(
+            """INSERT INTO predicciones (partido_id, fecha, autor, mercado, seleccion,
+                                         probabilidad) VALUES (?, ?, 'calculo', '1x2', ?, ?)""",
+            (EVENT_ID, fila["fecha"], lado, prob))
+    almacen._conexion.commit()
+
+    texto = sistema(almacen, servidor.sesion.cliente, str(EVENT_ID))["sistema"]
+    assert "YA SE JUGÓ" in texto and "retrospectiva_partido" in texto
+    assert "1X2: pasó" in texto and "el cálculo" in texto
+
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/charla", {"partido": str(EVENT_ID)})
+    assert cuerpo["sugeridas"] == list(SUGERIDAS_DESPUES)
+
+
+def test_en_un_partido_por_jugar_no_se_habla_de_resultado(servidor):  # noqa: F811
+    almacen = servidor.sesion.almacen
+    almacen._conexion.execute("UPDATE partidos SET estado = 'notstarted' WHERE id = ?",
+                              (EVENT_ID,))
+    almacen._conexion.commit()
+    texto = sistema(almacen, servidor.sesion.cliente, str(EVENT_ID))["sistema"]
+    assert "YA SE JUGÓ" not in texto
+    _, _, cuerpo = _pedir(servidor, "POST", "/api/charla", {"partido": str(EVENT_ID)})
+    assert cuerpo["sugeridas"] == list(SUGERIDAS)

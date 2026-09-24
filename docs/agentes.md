@@ -64,7 +64,7 @@ En la pestaña **Agentes → Quiénes son**, o a mano en `datos/agentes.json`:
 | `techo_tokens` | Tope de tokens de entrada para toda la ejecución. 0 = sin tope |
 | `vueltas` | Cuántas veces puede parar a pedir datos. Cada una es una llamada al modelo, así que esto es el presupuesto |
 | `crudo` | Con cuánto detalle arranca su expediente: `todo`, `tabla` o `no` |
-| `herramientas` | A cuáles de las 46 llega. Vacío = a todas |
+| `herramientas` | A cuáles de las 47 llega. Vacío = a todas |
 | `temperatura` | Cuánto se le deja improvisar |
 
 El nombre corto tiene que ser minúsculas, números y guiones, **sin tildes**. No

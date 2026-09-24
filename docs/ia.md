@@ -1,12 +1,12 @@
 # Para una IA local
 
 El framework trae una capa de herramientas pensada para que un modelo analice
-partidos por su cuenta: 46 funciones con su esquema JSON, descripciones
+partidos por su cuenta: 47 funciones con su esquema JSON, descripciones
 escritas para que el modelo sepa cuándo usar cada una, y respuestas ya
 aplanadas y **recortadas** para que no le revienten el contexto.
 
 ```bash
-cancha tools          # las 42, con sus parámetros
+cancha tools          # las 47, con sus parámetros
 cancha tools --json   # los esquemas completos
 cancha mcp            # arranca el servidor MCP
 cancha analista "…"   # o directamente: un modelo local con las herramientas
@@ -95,7 +95,11 @@ tirando del hilo:
 9. Para el repaso de la mañana, **`briefing_del_dia`** lo junta todo en una
    llamada, y `noticias` pone el contexto que los números no traen (lesiones,
    destituciones). `evolucion_de_equipo` dice si un equipo ha cambiado.
-10. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
+10. Para un partido ya jugado, **`retrospectiva_partido`**: lo que dijo el
+   briefing antes, lo apuntado en el registro y, suceso a suceso, cuánta
+   probabilidad le dio cada uno —nosotros, el mercado, cada agente— a lo que
+   pasó. Ver [Un partido ya jugado](retrospectiva.md).
+11. Si algo no lo cubre ninguna, `seccion_partido` le da cualquier sección del
    catálogo en crudo, `historial_de_liga` trae temporadas enteras desde 1993 y
    `datos_externos` abre FBref, Transfermarkt o Capology si sus librerías están
    instaladas. Y `catalogo` le dice qué nombres son válidos.

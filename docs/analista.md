@@ -99,7 +99,7 @@ pip install "cancha[langchain]"
 ```python
 from cancha.agentes.langchain import agente, herramientas
 
-herramientas()          # 46 StructuredTool, para tu propio agente
+herramientas()          # 47 StructuredTool, para tu propio agente
 agente(modelo="hermes3").invoke({"messages": [("user", "¿qué hay hoy?")]})
 ```
 

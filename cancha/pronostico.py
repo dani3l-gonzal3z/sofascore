@@ -145,8 +145,15 @@ class Fuerza:
                 "medido_en": self.fuente}
 
 
-def _medias_de_goles(almacen: Almacen, liga_id: int | None) -> dict:
-    """Lo que se marca en esa liga, en casa y fuera. La vara de medir."""
+def _medias_de_goles(almacen: Almacen, liga_id: int | None,
+                     antes_de: str | None = None) -> dict:
+    """Lo que se marca en esa liga, en casa y fuera. La vara de medir.
+
+    Con ``antes_de``, solo lo jugado antes. Para un partido de mañana no cambia
+    nada, pero para rehacer un pronóstico del pasado es la diferencia entre medir
+    y hacer trampa: sin el corte, la media de la liga incluía el propio partido
+    que se estaba pronosticando y todos los que vinieron después.
+    """
     sql = ("SELECT AVG(goles_local) AS local, AVG(goles_visitante) AS visitante, "
            "COUNT(*) AS n FROM partidos WHERE estado = 'finished' "
            "AND goles_local IS NOT NULL")
@@ -154,6 +161,9 @@ def _medias_de_goles(almacen: Almacen, liga_id: int | None) -> dict:
     if liga_id:
         sql += " AND liga_id = ?"
         parametros = (liga_id,)
+    if antes_de:
+        sql += " AND fecha < ?"
+        parametros += (antes_de,)
     fila = almacen.consulta(sql, parametros)[0]
     if not fila["n"]:
         return {"partidos": 0}
@@ -232,7 +242,9 @@ def fuerza_de(almacen: Almacen, equipo_id: int, nombre: str, liga: dict,
                   fuente=fuente)
 
 
-def _media_xg_liga(almacen: Almacen, liga_id: int | None) -> float | None:
+def _media_xg_liga(almacen: Almacen, liga_id: int | None,
+                   antes_de: str | None = None) -> float | None:
+    """El xG medio por equipo en esa liga. Con el mismo corte por fecha."""
     sql = ("SELECT AVG(e.local) AS l, AVG(e.visitante) AS v, COUNT(*) AS n "
            "FROM estadisticas e JOIN partidos p ON p.id = e.partido_id "
            "WHERE e.clave = 'expectedGoals' AND e.periodo = 'ALL' "
@@ -241,6 +253,9 @@ def _media_xg_liga(almacen: Almacen, liga_id: int | None) -> float | None:
     if liga_id:
         sql += " AND p.liga_id = ?"
         parametros = (liga_id,)
+    if antes_de:
+        sql += " AND p.fecha < ?"
+        parametros += (antes_de,)
     fila = almacen.consulta(sql, parametros)[0]
     if not fila["n"] or fila["l"] is None:
         return None
@@ -346,14 +361,14 @@ def pronostico(almacen: Almacen, partido, cliente=None, ultimos: int = 10) -> di
         return {"disponible": False,
                 "nota": "No encuentro ese partido ni en la memoria ni en la API."}
 
-    liga = _medias_de_goles(almacen, evento.unique_tournament_id)
+    antes_de = evento.date or None
+    liga = _medias_de_goles(almacen, evento.unique_tournament_id, antes_de)
     if not liga.get("partidos"):
         return {"disponible": False,
                 "nota": "No tengo partidos guardados de esa competición. "
                         "Abastece el partido primero: te trae su contexto entero."}
 
-    media_xg = _media_xg_liga(almacen, evento.unique_tournament_id)
-    antes_de = evento.date or None
+    media_xg = _media_xg_liga(almacen, evento.unique_tournament_id, antes_de)
     fuerzas = {}
     for lado, equipo in (("local", evento.home), ("visitante", evento.away)):
         if not equipo.id:

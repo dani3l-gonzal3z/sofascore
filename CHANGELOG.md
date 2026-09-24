@@ -4,6 +4,80 @@ Lo que ha ido pasando, de lo nuevo a lo viejo. Las versiones siguen
 [versionado semántico](https://semver.org/lang/es/), con la salvedad de que
 hasta el 1.0 la API puede moverse.
 
+## 0.20.0
+
+Saber si esto vale algo antes de esperar seis meses, y comprobar de una vez todo
+lo que no se ha podido probar contra lo de verdad. El backtest rehace cada
+pronóstico del pasado con lo que se sabía entonces; los picks ya no se deciden
+con el modelo a secas sino con lo que el backtest haya validado; cada partido ya
+jugado enseña lo que se dijo antes frente a lo que pasó; y `cancha listo` prueba
+cada pieza, una a una, y dice qué arreglar.
+
+### Arreglos
+
+- **El pronóstico miraba el futuro.** Las medias de goles y de xG de la liga se
+  calculaban con **todos** los partidos guardados, también los jugados después
+  del que se pronosticaba. En el día a día casi no se nota; en un backtest es
+  hacer trampa: el pronóstico de agosto «sabía» cómo iba a ir la temporada.
+  Ahora se cortan en la fecha del partido. Hay un test que mete cien partidos
+  7-6 después y comprueba que el pronóstico no se mueve.
+
+- **Las cuotas de antes de la 0.19 no contaban.** Las que estaban en la tabla
+  vieja de 1X2 no pasaban a la nueva, así que toda la memoria anterior quedaba
+  sin mercado para el registro y el backtest. Ahora se copian al abrir la base,
+  una vez, con su margen calculado.
+
+- **Los picks elegían los errores del modelo.** Se decidían con la
+  probabilidad del modelo a secas, y casi toda la distancia entre un modelo y el
+  mercado es error del modelo: elegir donde más se separan es apostar a sus
+  errores más grandes. Ver *regla-2* abajo.
+
+- **En un partido de ayer, el chat hablaba del pronóstico como si faltase por
+  jugarse**, y a «¿en qué fallamos?» contestaba con el pronóstico de ahora —ya
+  calculado con el resultado dentro de la memoria—, no con el que se apuntó
+  antes. Ahora la ficha lleva el resultado y lo que se dijo antes, y las
+  preguntas sugeridas son otras.
+
+### Nuevo
+
+- **`cancha backtest`** (y en Seguro → Picks). Rehace cada pronóstico sin mirar
+  el futuro y contesta tres preguntas: si el modelo sabe algo que el mercado no
+  (mezclando los dos en logit, con el peso elegido en la primera mitad y medido
+  en la segunda), si la regla de picks habría ganado a la cuota de cierre, y
+  quién acierta más en marcador exacto. Con la calibración del 1X2 y, suceso a
+  suceso, el Brier nuestro contra el del mercado. Ver
+  [El backtest](docs/backtest.md).
+
+- **Picks con la regla-2.** Se decide con la mezcla del modelo y el mercado con
+  el peso que haya validado el backtest. Si el backtest dice que el modelo no
+  aporta, el peso es cero y **no hay picks**. Sin backtest, el modelo a secas y
+  cada pick marcado *sin validar*.
+
+- **Un partido ya jugado: lo que dijimos, frente a lo que pasó.** Arriba en la
+  página del partido, con `cancha retrospectiva` y como herramienta
+  (`retrospectiva_partido`, la 47). Junta el briefing de su día, el registro, los
+  picks y el primer dictamen **hecho antes del saque**, y de cada suceso dice
+  cuánta probabilidad le dio cada uno a lo que pasó. Ver
+  [Un partido ya jugado](docs/retrospectiva.md).
+
+- **`cancha listo`** (y en Memoria → ¿Está todo listo?). Cada pieza probada de
+  verdad, en orden: la memoria, Sofascore, **qué mercados trae de verdad** un
+  partido de hoy y si trae marcador exacto, el recorrido de temporadas del que
+  depende `historia`, Ollama y **si el modelo sabe pedir una herramienta**, la
+  nube, Telegram y si el bot es administrador de cada canal, Betfair, The Odds
+  API, la guardia y el backtest. Lo no configurado sale como tal, no como roto.
+  En la web va en segundo plano y no bloquea la memoria mientras el modelo
+  piensa.
+
+### Lo que no se ha podido comprobar
+
+Igual que en la 0.19: nada de esto se ha probado contra Sofascore, Ollama,
+Telegram, Betfair ni The Odds API de verdad, porque desde donde se ha escrito no
+se llega a ninguno. Está probado con respuestas fabricadas y con una liga
+inventada en la que se sabe la verdad. `cancha listo` existe precisamente para
+encontrar de una vez lo que no cuadre, y **el backtest no se ha corrido todavía
+sobre datos reales**: es lo primero que hay que hacer con la historia traída.
+
 ## 0.19.0
 
 Todos los mercados con su historia, el marcador exacto contra el nuestro, una

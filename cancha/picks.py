@@ -38,7 +38,9 @@ from typing import Any
 #: la apunta. Mezclar en un historial los picks de dos reglas es mezclar dos
 #: productos.
 REGLA = {
-    "version": "regla-1",
+    #: regla-2: la probabilidad ya no es la del modelo a secas, sino su mezcla con
+    #: el mercado con el peso que haya validado el backtest (ver `mezclar`).
+    "version": "regla-2",
     #: Entre estas cuotas. Por debajo de 1,50 el margen de la casa se come casi
     #: toda la ventaja posible; por encima de 3,50 la varianza es tanta que un
     #: historial de cien picks no dice nada.
@@ -91,6 +93,34 @@ SUCESOS = (
 NO_APOSTABLES = ("betfair-exchange",)
 
 
+def mezcla_guardada(almacen) -> dict | None:
+    """Lo que dijo el último backtest sobre cuánto pesa nuestro modelo, si lo hay."""
+    import json
+
+    crudo = almacen.nota("mezcla")
+    return json.loads(crudo) if crudo else None
+
+
+def mezclar(nuestra: float, mercado: float, peso: float | None) -> float:
+    """La probabilidad que se usa para decidir: el mercado con un poco de lo nuestro.
+
+    Por qué no la nuestra a secas: casi toda la distancia entre un modelo y el
+    mercado es **error del modelo**, no información. Elegir picks con el modelo
+    solo es elegir sus errores más grandes y apostar a ellos. El backtest mide
+    cuánto de lo nuestro mejora al mercado en partidos que no ha visto, y ese es
+    el peso que se usa. Sin backtest (``None``), el modelo a secas y se avisa;
+    con un backtest que dice que no aporta, el peso es cero: la probabilidad es la
+    del mercado, el valor nunca es positivo, y no hay picks. Es incómodo y es lo
+    honesto.
+    """
+    if peso is None:
+        return nuestra
+    n = min(max(nuestra, 1e-4), 1 - 1e-4)
+    m = min(max(mercado, 1e-4), 1 - 1e-4)
+    logit = peso * math.log(n / (1 - n)) + (1 - peso) * math.log(m / (1 - m))
+    return 1 / (1 + math.exp(-logit))
+
+
 def _nuestra(pronostico: dict, donde: tuple) -> float | None:
     bloque, clave, complemento = donde
     goles = pronostico.get("goles") or {}
@@ -108,7 +138,8 @@ def _nuestra(pronostico: dict, donde: tuple) -> float | None:
     return 1 - valor if complemento else valor
 
 
-def candidatos(almacen, partido_id: int, pronostico: dict, regla: dict = REGLA) -> list[dict]:
+def candidatos(almacen, partido_id: int, pronostico: dict, regla: dict = REGLA,
+               peso: float | None = None) -> list[dict]:
     """Todos los sucesos de un partido, con su valor y si pasan la regla o por qué no.
 
     Se devuelven también los que no pasan, con el motivo: para el que quiera
@@ -131,6 +162,8 @@ def candidatos(almacen, partido_id: int, pronostico: dict, regla: dict = REGLA) 
         apostables = [f for f in suyas if f["casa"] not in NO_APOSTABLES] or suyas
         mejor = max(apostables, key=lambda f: f["cuota"])
         cuota = mejor["cuota"]
+        del_modelo = nuestra
+        nuestra = mezclar(del_modelo, referencia["prob"] or 0.5, peso)
         valor = nuestra * cuota - 1
         separacion = nuestra - (referencia["prob"] or 0)
         motivos = []
@@ -149,6 +182,7 @@ def candidatos(almacen, partido_id: int, pronostico: dict, regla: dict = REGLA) 
             "partido_id": partido_id, "suceso": etiqueta,
             "mercado": en_registro[0], "seleccion": en_registro[1],
             "prob_nuestra": round(nuestra, 4),
+            "prob_modelo": round(del_modelo, 4),
             "prob_mercado": round(referencia["prob"] or 0, 4),
             "cuota": cuota, "casa": mejor["casa"],
             "valor": round(valor, 4), "separacion": round(separacion, 4),
@@ -169,12 +203,14 @@ def del_dia(almacen, cliente, fecha: str | None = None,
     from .pronostico import pronostico
 
     dia = fecha or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    mezcla = mezcla_guardada(almacen)
+    peso = mezcla["peso"] if mezcla else None
     elegidos, casi = [], []
     for evento in agenda(cliente, dia, grupos):
         if evento.is_finished:
             continue
         datos = pronostico(almacen, evento, cliente=cliente)
-        suyos = candidatos(almacen, evento.id, datos, regla)
+        suyos = candidatos(almacen, evento.id, datos, regla, peso=peso)
         for c in suyos:
             c["partido"] = f"{evento.home.name} - {evento.away.name}"
             c["competicion"] = evento.tournament
@@ -184,13 +220,20 @@ def del_dia(almacen, cliente, fecha: str | None = None,
         casi += [c for c in suyos if not c["pasa"]][:1]
     elegidos.sort(key=lambda c: -c["valor"])
     casi.sort(key=lambda c: -c["valor"])
+    if mezcla and mezcla.get("peso") == 0:
+        nota = ("El último backtest dice que el modelo no sabe nada que el mercado no "
+                "sepa, así que no hay picks: la probabilidad que se usa es la del "
+                "mercado, y contra el mercado nunca hay valor.")
+    elif not elegidos:
+        nota = ("Hoy nada pasa la regla. No hay pick: un día sin pick no es un fallo, "
+                "es lo que hace creíble el día que sí lo hay.")
+    else:
+        nota = ""
     return {
         "fecha": dia, "regla": regla["version"],
         "gratis": elegidos[:1], "premium": elegidos,
-        "casi": casi[:5],
-        "nota": ("" if elegidos else
-                 "Hoy nada pasa la regla. No hay pick: un día sin pick no es un fallo, "
-                 "es lo que hace creíble el día que sí lo hay."),
+        "casi": casi[:5], "nota": nota,
+        "validada": bool(mezcla), "peso": peso,
     }
 
 
@@ -391,6 +434,9 @@ def boletin(dia: dict, nivel: str, historial_nivel: dict | None = None) -> str:
             f"   Nosotros {pick['prob_nuestra']:.0%} · mercado {pick['prob_mercado']:.0%}"
             f" · valor {pick['valor']:+.0%}",
             ""]
+    if lista and not dia.get("validada", True):
+        lineas += ["<i>Regla todavía sin validar con un backtest: estos números son del "
+                   "modelo a secas.</i>", ""]
     if historial_nivel and historial_nivel.get("picks"):
         h = historial_nivel
         lineas += [f"<i>Historial: {h['picks']} picks, {h['aciertos']} acertados, "
@@ -409,5 +455,5 @@ def _escapar(texto: Any) -> str:
 
 
 __all__ = ["MINIMO_PARA_VENDER", "REGLA", "SUCESOS", "apuntados", "apuntar",
-           "boletin",
+           "boletin", "mezcla_guardada", "mezclar",
            "candidatos", "del_dia", "historial", "resolver"]

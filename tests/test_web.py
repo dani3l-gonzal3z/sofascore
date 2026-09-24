@@ -1050,3 +1050,57 @@ def test_cada_boton_de_seguro_lleva_a_un_modo_que_la_vista_acepta():
     modos = set(re.findall(r'"([a-z]+)"', aceptados.group(1))) | {"hoy"}
     assert destinos <= modos, f"botones que llevan a ninguna parte: {destinos - modos}"
     assert {"acierto", "picks"} <= destinos
+
+
+# ------------------------------------------------------------ listo y backtest
+
+def test_listo_se_comprueba_en_segundo_plano_y_sin_bloquear_la_memoria(servidor,
+                                                                       monkeypatch):
+    """Probar el modelo de casa tarda un minuto: la página no puede congelarse.
+
+    El cerrojo de la memoria se coge solo para lo que la lee, nunca mientras se
+    espera a Ollama.
+    """
+    import cancha.listo as listo
+
+    visto = {}
+
+    def ollama_lento(ajustes):
+        libre = {}
+        otro = threading.Thread(target=lambda: libre.update(
+            ok=servidor.cerrojo.acquire(timeout=1) and (servidor.cerrojo.release() or True)))
+        otro.start()
+        otro.join(2)
+        visto["memoria_libre"] = libre.get("ok")
+        return [listo._pieza("Ollama (en tu máquina)", listo.MAL, "No contesta.", "Arráncalo.")]
+
+    monkeypatch.setattr(listo, "sofascore", lambda cliente, almacen: [])
+    monkeypatch.setattr(listo, "ollama", ollama_lento)
+    monkeypatch.setattr(listo, "telegram", lambda ajustes: [])
+    monkeypatch.setattr(listo, "casas", lambda ajustes, tls=None: [])
+    monkeypatch.setattr(listo, "nube", lambda ajustes, tls=None: [])
+
+    estado, _, cuerpo = _pedir(servidor, "POST", "/api/listo", {})
+    assert estado == 200 and "en_marcha" in cuerpo
+    servidor.esperar_tarea("listo", 10)
+    _, _, cuerpo = _pedir(servidor, "GET", "/api/tarea/listo")
+    resumen = cuerpo["resumen"]
+    assert visto["memoria_libre"] is True
+    assert resumen["listo"] is False and resumen["malas"] == 1
+    assert [p["nombre"] for p in resumen["piezas"]][0] == "Memoria"
+    assert any("Ollama" in linea for linea in cuerpo["lineas"]), "se cuenta según sale"
+
+
+def test_el_backtest_desde_la_pagina(servidor):
+    """Sin partidos con cuotas no hay muestra, y los picks se quedan sin peso."""
+    _, _, antes = _pedir(servidor, "POST", "/api/backtest", {})
+    assert antes["ultimo"] is None and antes["mezcla"] is None
+
+    _pedir(servidor, "POST", "/api/backtest/lanzar", {})
+    servidor.esperar_tarea("backtest", 20)
+    _, _, tarea = _pedir(servidor, "GET", "/api/tarea/backtest")
+    assert tarea["resumen"]["veredicto"] == "sin muestra", tarea
+
+    _, _, despues = _pedir(servidor, "POST", "/api/backtest", {})
+    assert despues["mezcla"]["peso"] == 0.0
+    assert despues["ultimo"]["aporta"]["veredicto"] == "sin muestra"

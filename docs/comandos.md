@@ -20,6 +20,7 @@ cancha contexto <partido>              # el partido visto por todas a la vez
 cancha tools [--json]                  # las herramientas que ve una IA
 cancha mcp                             # servidor MCP para una IA local
 cancha doctor                          # qué transporte usa y si la API contesta
+cancha listo [--sin-red]               # cada pieza probada de verdad, y qué arreglar
 cancha cache [--clear]                 # estado de la caché
                                        # (los dos también en la interfaz, en Memoria)
 ```
@@ -66,6 +67,9 @@ cancha dictamen "…" --guardados            # los que ya dijo, sin pedir otro
 cancha doctor --tls                        # ¿hay un antivirus o un proxy abriendo tu HTTPS?
 cancha historia --plan                     # qué costaría traerse años de partidos
 cancha historia --anos 3 --max 5000        # y traerlos, a tandas
+cancha backtest                            # el pasado con lo que se sabía entonces
+cancha backtest --ultimo                   # el último guardado, sin rehacerlo
+cancha retrospectiva "Betis vs Sevilla"    # lo que dijimos antes, frente a lo que pasó
 
 cancha resultados                          # el registro: calibración, Brier y CLV
 cancha resultados --mercado 1x2 --desde 2026-08-01

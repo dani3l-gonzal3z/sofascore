@@ -330,6 +330,31 @@ def _mercados_partido(sesion, partido: str, refrescar: bool = False):
 
 
 @herramienta(
+    "retrospectiva_partido",
+    "UN PARTIDO YA JUGADO: LO QUE SE DIJO ANTES FRENTE A LO QUE PASÓ. Trae lo "
+    "que dijo el briefing de su día (nuestro 1X2, los marcadores, dónde "
+    "discrepábamos del mercado, el pick), lo que se apuntó en el registro y, "
+    "suceso a suceso, cuánta probabilidad le dio cada uno —nosotros, el "
+    "mercado, cada agente— a lo que pasó de verdad. También el primer dictamen "
+    "del analista, solo si se hizo antes del saque. Úsala cuando pregunten qué "
+    "se dijo de un partido, en qué se falló o quién estuvo más cerca. Un "
+    "partido suelto no dice si el modelo es bueno: recuérdalo.",
+    {"partido": {"type": "string", "description": "Id, URL o 'Equipo A vs Equipo B'."}},
+    ["partido"],
+)
+def _retrospectiva_partido(sesion, partido: str):
+    from ..previa import _resolver
+    from ..retrospectiva import retrospectiva, texto
+
+    evento = _resolver(sesion.almacen, partido, sesion.cliente)
+    if evento is None:
+        return {"error": "No encuentro ese partido."}
+    datos = retrospectiva(sesion.almacen, evento.id)
+    datos["texto"] = "\n".join(texto(datos))
+    return datos
+
+
+@herramienta(
     "abastecer_partido",
     "TRAE Y GUARDA todo lo que hace falta para analizar un partido: los últimos "
     "de cada equipo por separado, lo que han jugado entre ellos y lo que ha "

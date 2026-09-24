@@ -108,7 +108,49 @@ def ficha(almacen, cliente, evento) -> str:
                 f"{m['seleccion']} {m['apertura']}→{m['ahora']}" for m in movidos))
     elif mercado:
         lineas.append(f"Mercado: {mercado.get('nota')}")
+    lineas += _ya_jugado(almacen, evento)
     return "\n".join(lineas)
+
+
+def _ya_jugado(almacen, evento) -> list[str]:
+    """Si el partido ya se jugó, el resultado y lo que se dijo antes.
+
+    Sin esto, en un partido de ayer el modelo hablaba del pronóstico como si
+    faltase por jugarse, y a la pregunta «¿en qué fallamos?» contestaba con el
+    pronóstico de ahora —calculado ya con el resultado dentro de la memoria—, no
+    con el que se apuntó antes.
+    """
+    from .registro import nombre_de_autor
+    from .retrospectiva import retrospectiva
+
+    try:
+        r = retrospectiva(almacen, evento.id)
+    except Exception:  # noqa: BLE001 - la ficha no se cae por un bloque
+        return []
+    if not r.get("jugado"):
+        return []
+    lineas = ["", f"YA SE JUGÓ: acabó {r['marcador']}. Lo de arriba está calculado ahora, "
+              "con lo que se sabe hoy; lo que se dijo ANTES está aquí debajo, y es con "
+              "lo que hay que comparar. Para más detalle, `retrospectiva_partido`."]
+    for suceso in r.get("sucesos") or []:
+        quienes = ", ".join(f"{nombre_de_autor(a)} {v:.0%}"
+                            for a, v in suceso["autores"].items() if v is not None)
+        lineas.append(f"  {suceso['suceso']}: pasó {suceso['paso']}; a eso le dieron "
+                      f"{quienes or 'nada: nadie lo tenía apuntado'}")
+    if not r.get("sucesos"):
+        lineas.append("  No se apuntó nada antes del partido.")
+    return lineas
+
+
+def sugeridas(almacen, partido_id: int | None) -> list[str]:
+    """Las preguntas para empezar, distintas si el partido ya se jugó."""
+    if partido_id:
+        filas = almacen.consulta("SELECT goles_local, estado FROM partidos WHERE id = ?",
+                                 (partido_id,))
+        if filas and filas[0]["goles_local"] is not None and (
+                filas[0]["estado"] or "").lower() in ("finished", "ended", "ft"):
+            return list(SUGERIDAS_DESPUES)
+    return list(SUGERIDAS)
 
 
 def sistema(almacen, cliente, partido, profundidad: str = "ficha") -> dict:
@@ -151,4 +193,15 @@ SUGERIDAS = (
 )
 
 
-__all__ = ["DENTRO_DEL_PARTIDO", "SUGERIDAS", "ficha", "sistema"]
+#: Y para un partido ya jugado: lo que interesa ahí es qué se dijo y qué pasó.
+SUGERIDAS_DESPUES = (
+    "¿Qué dijimos antes del partido y en qué nos equivocamos?",
+    "¿Quién estuvo más cerca, nosotros o el mercado?",
+    "¿Ganó el que mereció, mirando el xG?",
+    "¿Qué se veía venir en los datos de antes y no supimos leer?",
+    "¿Quién decidió el partido?",
+)
+
+
+__all__ = ["DENTRO_DEL_PARTIDO", "SUGERIDAS", "SUGERIDAS_DESPUES", "ficha", "sistema",
+           "sugeridas"]

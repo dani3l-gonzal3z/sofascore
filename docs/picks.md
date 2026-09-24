@@ -39,9 +39,28 @@ En la interfaz, **Seguro → Picks** y la portada de **Hoy**. En el bot, `/pick`
 La cuota del pick es **la mejor que se puede apostar**. El precio medio de
 Betfair sirve para saber qué cree el mercado, pero no se puede apostar a él.
 
-La regla lleva versión (`regla-1`) y cada pick la apunta. Cambiar la regla es
-cambiar de producto, y mezclar en un historial los picks de dos reglas es
+La regla lleva versión (ahora `regla-2`) y cada pick la apunta. Cambiar la regla
+es cambiar de producto, y mezclar en un historial los picks de dos reglas es
 mezclar dos productos.
+
+### Con qué probabilidad se decide (regla-2)
+
+En la regla-1 «nuestra probabilidad» era la del modelo a secas. Eso tiene un
+problema serio: casi toda la distancia entre un modelo y el mercado es **error
+del modelo**, así que elegir los picks donde más se separan es elegir sus
+errores más grandes y apostar a ellos.
+
+En la regla-2 se decide con **la mezcla del modelo con el mercado**, con el peso
+que haya validado el [backtest](backtest.md) en partidos que no usó para
+elegirlo:
+
+| Lo que dijo el último backtest | Con qué se decide |
+| --- | --- |
+| Nunca se ha hecho | El modelo a secas, y cada pick sale marcado **sin validar** |
+| **aporta**, con un peso *p* | La mezcla en logit: *p* de lo nuestro y 1 − *p* del mercado |
+| no aporta, no se distingue o sin muestra | Peso 0: la del mercado, así que **no hay picks** |
+
+Un día sin picks porque el modelo no aporta es incómodo, y es lo único honesto.
 
 ## Los dos niveles
 

@@ -206,14 +206,15 @@ class Servidor:
 
     def charla(self, partido: str) -> dict:
         """Lo que ya se ha hablado de un partido, para seguir donde se dejó."""
-        from ..charla import SUGERIDAS
+        from ..charla import sugeridas
         from ..previa import _resolver
 
         with self.cerrojo:
             evento = _resolver(self.sesion.almacen, partido, self.sesion.cliente)
             if evento is None:
                 return {"error": "No encuentro ese partido."}
-            return {"partido_id": evento.id, "sugeridas": list(SUGERIDAS),
+            return {"partido_id": evento.id,
+                    "sugeridas": sugeridas(self.sesion.almacen, evento.id),
                     "mensajes": self.sesion.almacen.charla_de(evento.id)}
 
     def borrar_charla(self, partido: str) -> dict:
@@ -423,6 +424,50 @@ class Servidor:
             return dia
 
         return self._lanzar("picks", trabajo)
+
+    # --- backtest ---
+
+    def backtest(self) -> dict:
+        """El último backtest guardado y el peso que están usando los picks."""
+        from ..backtest import ultimo
+        from ..picks import mezcla_guardada
+
+        with self.cerrojo:
+            return {"ultimo": ultimo(self.sesion.almacen),
+                    "mezcla": mezcla_guardada(self.sesion.almacen)}
+
+    def lanzar_backtest(self, desde: str | None = None, hasta: str | None = None) -> dict:
+        """Rehacer los pronósticos del pasado, en segundo plano: son miles."""
+        from ..backtest import backtest, guardar_mezcla
+
+        def trabajo(decir, puede_seguir):
+            with self.cerrojo:
+                datos = backtest(self.sesion.almacen, desde=desde, hasta=hasta,
+                                 avisar=decir, puede_seguir=puede_seguir)
+                mezcla = guardar_mezcla(self.sesion.almacen, datos)
+            decir(f"Guardado: los picks usarán un peso de {mezcla['peso']:.0%}.")
+            return {"hecho": True, "veredicto": (datos.get("aporta") or {}).get("veredicto")}
+
+        return self._lanzar("backtest", trabajo)
+
+    # --- ¿está todo listo? ---
+
+    def lanzar_listo(self) -> dict:
+        """`cancha listo` desde la página: cada pieza probada de verdad.
+
+        En segundo plano porque probar si el modelo sabe pedir herramientas es
+        hacerle pensar, y un modelo de casa tarda lo suyo.
+        """
+        from ..ajustes import cargar
+        from ..listo import comprobar, linea
+
+        def trabajo(decir, _puede_seguir):
+            return comprobar(self.sesion.almacen, self.sesion.cliente,
+                             cargar(self.ruta_ajustes),
+                             avisar=lambda pieza: decir(linea(pieza)),
+                             cerrojo=self.cerrojo)
+
+        return self._lanzar("listo", trabajo)
 
     # --- agentes ---
 
@@ -1032,6 +1077,13 @@ class Manejador(BaseHTTPRequestHandler):
         if ruta == "/api/picks/calcular":
             return self._json(self.app.lanzar_picks(cuerpo.get("fecha") or None,
                                                     bool(cuerpo.get("apuntar"))))
+        if ruta == "/api/backtest":
+            return self._json(self.app.backtest())
+        if ruta == "/api/backtest/lanzar":
+            return self._json(self.app.lanzar_backtest(cuerpo.get("desde") or None,
+                                                       cuerpo.get("hasta") or None))
+        if ruta == "/api/listo":
+            return self._json(self.app.lanzar_listo())
         if ruta == "/api/cache":
             return self._json(self.app.limpiar_cache())
         if ruta == "/api/ligas":

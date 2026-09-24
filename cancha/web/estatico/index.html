@@ -1431,6 +1431,8 @@ async function pintarPartido(raiz, consulta) {
       el("a", { href: `#/buscar/equipo/${encodeURIComponent(p.away.name)}` }, p.away.name + " →"),
       p.referee ? el("span", { class: "gris" }, "árbitro " + p.referee) : null)));
 
+  raiz.append(await tarjetaRetrospectiva(consulta));
+
   const CLAVES = new Map([["ballPossession", "Posesión"], ["expectedGoals", "xG"],
     ["totalShotsOnGoal", "Tiros"], ["shotsOnGoal", "A puerta"], ["bigChanceCreated", "Ocasiones claras"],
     ["cornerKicks", "Córners"], ["passes", "Pases"], ["fouls", "Faltas"], ["yellowCards", "Amarillas"]]);
@@ -1761,6 +1763,48 @@ function tarjetaMercado(consulta) {
     poner(cuerpo, pintar(await api.h("mercados_partido", { partido: String(consulta) })));
     return [cuerpo, el("div", { class: "fila" }, refrescar)];
   }));
+}
+
+/* Un partido ya jugado: lo que se dijo antes —el briefing de su día, el
+   registro, el pick, el analista si habló antes del saque— frente a lo que pasó.
+   Cada uno se mide por cuánta probabilidad le dio a lo que pasó, no por
+   «acertó / falló». En un partido por jugar no sale nada. */
+async function tarjetaRetrospectiva(consulta) {
+  const r = await api.h("retrospectiva_partido", { partido: consulta });
+  if (!r || r.error || !r.disponible || (!r.jugado)) return document.createTextNode("");
+  const NOMBRE = { calculo: "nosotros", mercado: "el mercado" };
+  const partes = [];
+  const b = r.briefing;
+  if (b) {
+    const pr = b.pronostico || {}, m = b.mercado;
+    partes.push(el("div", { class: "bloque" },
+      el("b", {}, `Lo que dijo el briefing del ${b.del_dia}`),
+      pr.disponible ? el("p", { class: "peq" }, `Nosotros ${pc(pr["1x2"].local)} · ${pc(pr["1x2"].empate)} · `
+        + `${pc(pr["1x2"].visitante)}` + ((pr.marcadores || []).length
+          ? " · marcadores " + pr.marcadores.slice(0, 3).map((x) => `${x.marcador} (${pc(x.probabilidad)})`).join(", ") : ""))
+        : el("p", { class: "peq gris" }, `Sin pronóstico: ${pr.nota || "sin muestra"}`),
+      m ? el("p", { class: "peq gris" }, `Mercado ${pc(m.local)} · ${pc(m.empate)} · ${pc(m.visitante)}`) : null,
+      ...(b.discrepancias || []).filter((d) => d.nuestra !== null && d.mercado !== null).map((d) =>
+        el("p", { class: "peq" }, `Discrepábamos en ${d.suceso}: nosotros ${pc(d.nuestra)}, mercado ${pc(d.mercado)}`)),
+      b.pick ? el("p", { class: "peq" }, "Pick: ", el("b", {}, `${b.pick.suceso} a ${b.pick.cuota}`)) : null));
+  } else {
+    partes.push(nota("No hay briefing guardado de ese día; lo de abajo sale del registro."));
+  }
+  if ((r.sucesos || []).length) partes.push(el("ul", { class: "lista peq" }, ...r.sucesos.map((x) => el("li", {},
+    el("span", { style: "flex:1 1 150px" }, el("b", {}, x.suceso), el("div", { class: "gris" }, "pasó: " + x.paso)),
+    el("span", {}, Object.entries(x.autores).map(([a, v]) => `${NOMBRE[a] || a} ${pc(v)}`).join(" · ")),
+    x.mas_cerca ? etiqueta(x.mas_cerca, x.mas_cerca === "nosotros" ? "verde"
+      : x.mas_cerca === "el mercado" ? "roja" : "") : null))));
+  const ac = r.aciertos || {};
+  if (ac.puesto_del_marcador) partes.push(el("p", { class: "peq" },
+    `El ${r.marcador} era nuestro marcador nº ${ac.puesto_del_marcador} (${pc(ac.prob_del_marcador, 1)})`
+    + (ac.marcador_mas_probable ? ` · el más probable era ${ac.marcador_mas_probable}` : "")));
+  for (const pk of r.picks || []) partes.push(el("p", { class: "peq" }, `Pick ${pk.nivel}: ${pk.suceso} a ${pk.cuota} `,
+    !pk.resuelto ? etiqueta("pendiente") : etiqueta(pk.acerto ? "acertado" : "fallado", pk.acerto ? "verde" : "roja")));
+  if (r.dictamen) partes.push(el("details", {}, el("summary", {}, "El analista, antes del saque"),
+    el("p", { class: "peq" }, r.dictamen.resumen)));
+  partes.push(nota(r.lectura));
+  return tarjeta("Lo que dijimos antes, y lo que pasó", ...partes);
 }
 
 function tarjetaPronostico(consulta) {
@@ -2151,6 +2195,68 @@ function vigilarTarea(nombre, caja, boton, alAcabar) {
   mirar();
 }
 
+/* El backtest: rehacer cada pronóstico del pasado con lo que se sabía entonces.
+   Contesta si el modelo sabe algo que el mercado no, y si la regla habría
+   ganado. Lo que diga es lo que usan los picks: si el modelo no aporta, no hay
+   picks. */
+async function tarjetaBacktest() {
+  const d = await api.post("/api/backtest", {});
+  const caja = el("div", { class: "registro", hidden: true });
+  const lanzar = el("button", { class: "btn", onclick: async () => {
+    lanzar.disabled = true;
+    const r = await api.post("/api/backtest/lanzar", {});
+    if (fallo(r)) { lanzar.disabled = false; return; }
+    vigilarTarea("backtest", caja, lanzar, () => ir("#/seguro/picks", true));
+  } }, d.ultimo ? "Rehacerlo" : "Hacer el backtest");
+  const parar = el("button", { class: "btn fino", onclick: () =>
+    api.post("/api/tarea/parar", { nombre: "backtest" }) }, "Parar");
+  const b = d.ultimo;
+  const partes = [];
+  if (!b) {
+    partes.push(msg("Todavía no hay backtest. Sin él, los picks salen del modelo a "
+      + "secas, y casi toda la distancia entre un modelo y el mercado es error del "
+      + "modelo. Trae historia (Memoria → Traerse la historia) y hazlo.", "ojo"));
+  } else {
+    const ap = b.aporta || {};
+    const tono = ap.veredicto === "aporta" ? "bien" : ap.veredicto === "no aporta" ? "mal" : "ojo";
+    partes.push(el("p", { class: "peq gris" },
+      `${b.partidos_mirados} partidos con cuotas · ${b.desde} → ${b.hasta} · `
+      + `hecho el ${String(b.hecho_el || "").slice(0, 10)}`),
+      msg(`${(ap.veredicto || "").toUpperCase()}. ${ap.lectura || ""}`, tono));
+    if (ap.log_loss_mercado) partes.push(cifras([
+      [n2(ap.log_loss_mercado, 4), "mercado solo"],
+      [n2(ap.log_loss_mezcla, 4), `con un ${pc(ap.peso_elegido)} nuestro`],
+      [n2(ap.log_loss_modelo_solo, 4), "modelo solo"]]),
+      nota("Log loss del 1X2 en los partidos de comprobación: menos es mejor. El peso "
+        + "se eligió con la primera mitad y se mide en la segunda."));
+    const fila = (nombre, pk) => el("li", {},
+      el("span", { style: "flex:1 1 150px" }, nombre),
+      pk && pk.picks ? el("span", {}, `${pk.picks} picks · `,
+        el("b", {}, `${pk.unidades > 0 ? "+" : ""}${n2(pk.unidades)} u`),
+        ` · ${pk.rendimiento > 0 ? "+" : ""}${pc(pk.rendimiento, 1)}`) : el("span", { class: "gris" }, "ningún pick"));
+    partes.push(el("div", { class: "bloque" }, el("b", {}, "La regla, simulada a la cuota de cierre"),
+      el("ul", { class: "lista peq" }, fila("Con la regla", b.picks),
+        fila("Con el modelo a secas", b.picks_modelo_solo)),
+      nota("Si el modelo a secas pierde y la regla no da picks, es que casi toda su "
+        + "«ventaja» era error suyo. Eso es lo que la regla está para evitar.")));
+    if ((b.por_mercado || []).length) partes.push(el("details", {},
+      el("summary", {}, "Suceso a suceso, contra el mercado"),
+      el("ul", { class: "lista peq" }, ...b.por_mercado.map((m) => el("li", {},
+        el("span", { style: "flex:1 1 180px" }, m.suceso),
+        el("span", { class: "gris" }, `${m.casos} casos · ${n2(m.brier_nuestro, 4)} vs ${n2(m.brier_mercado, 4)}`),
+        etiqueta(m.gana, m.gana === "nosotros" ? "verde" : m.gana === "el mercado" ? "roja" : ""))))));
+    if ((b.calibracion || []).length) partes.push(el("details", {},
+      el("summary", {}, "Calibración: cuando dice X, ¿pasa X?"),
+      el("ul", { class: "lista peq" }, ...b.calibracion.map((c) => el("li", {},
+        el("span", { style: "flex:0 0 80px" }, c.tramo),
+        el("span", {}, `dijo ${pc(c.dijo)} → pasó `, el("b", {}, pc(c.paso))),
+        el("span", { class: "gris" }, `${c.casos} casos`))))));
+    partes.push(el("details", {}, el("summary", {}, "Lo que esto no dice"),
+      el("ul", { class: "lista peq" }, ...(b.advertencias || []).map((a) => el("li", {}, a)))));
+  }
+  return tarjeta("El backtest", ...partes, el("div", { class: "fila" }, lanzar, parar), caja);
+}
+
 /* Lo primero del día: cómo salió lo de ayer, el pick y dónde no estamos de
    acuerdo con el mercado. En ese orden: empezar viendo si lo de ayer salió es más
    honesto que empezar prometiendo lo de hoy. */
@@ -2243,6 +2349,8 @@ async function pintarPicks(raiz, fecha) {
               ? ` · gana al cierre en el ${pc(h.gana_al_cierre)}` : "")) : null,
           msg(h.lectura, h.intervalo && h.intervalo[0] > 0 ? "bien" : "ojo"))));
   }
+
+  raiz.append(await tarjetaBacktest());
 
   raiz.append(tarjeta("La regla", el("ul", { class: "lista peq" },
     el("li", {}, `Cuota entre ${r.cuota_minima} y ${r.cuota_maxima}`),
@@ -2658,6 +2766,7 @@ V.memoria = async (raiz) => {
         + "de estadística válidas. Es el mapa completo, el mismo que ve la IA."), volcado(d)];
     })));
 
+  raiz.append(tarjetaListo());
   raiz.append(tarjetaAjustes());
   raiz.append(tarjetaRed());
   raiz.append(tarjetaDiagnostico());
@@ -2793,6 +2902,43 @@ function tarjetaRed() {
   });
   cuerpo.append(espera("Mirando por dónde se llega…"));
   return tarjeta("Abrirlo en el móvil", cuerpo);
+}
+
+/* ── ¿está todo listo? ─────────────────────────────────────────────
+   Cada pieza probada de verdad —no «¿contesta?» sino «¿contesta lo que
+   creemos?»— y, de lo que falle, qué hacer. Lo primero que hay que darle el día
+   que se estrena algo. */
+function tarjetaListo() {
+  const caja = el("div", { class: "registro", hidden: true });
+  const cuerpo = el("div", { class: "bloque" });
+  const tonos = { "ok": "verde", "aviso": "", "mal": "roja", "sin configurar": "hueca" };
+  const pintar = (d) => {
+    const r = d.resumen || {};
+    if (r.error || !r.piezas) { poner(cuerpo, msg(r.error || "No ha terminado bien.", "mal")); return; }
+    caja.hidden = true;
+    poner(cuerpo,
+      msg(r.malas ? `${r.malas} cosa${r.malas === 1 ? "" : "s"} que arreglar antes de fiarse de nada.`
+        : r.avisos ? `Nada roto. ${r.avisos} aviso${r.avisos === 1 ? "" : "s"} que conviene mirar.`
+          : "Todo listo.", r.malas ? "mal" : r.avisos ? "ojo" : "bien"),
+      el("ul", { class: "lista peq" }, ...r.piezas.map((p) => el("li", {},
+        etiqueta(p.estado, tonos[p.estado] || ""),
+        el("span", { style: "flex:1 1 220px;min-width:0" }, el("b", {}, p.nombre), " — ", p.detalle,
+          p.arreglo && p.estado !== "ok" ? el("div", { class: "gris" }, "→ " + p.arreglo) : null)))));
+  };
+  const lanzar = el("button", { class: "btn", onclick: async () => {
+    lanzar.disabled = true;
+    poner(cuerpo);
+    const r = await api.post("/api/listo", {});
+    if (fallo(r)) { lanzar.disabled = false; return; }
+    vigilarTarea("listo", caja, lanzar, pintar);
+  } }, "Comprobarlo todo");
+  api.get("/api/tarea/listo").then((d) => { if (d && d.resumen) pintar(d); });
+  return tarjeta("¿Está todo listo?",
+    nota("Prueba cada pieza de verdad: la memoria, Sofascore y qué cuotas trae (y si trae "
+      + "marcador exacto), el recorrido de temporadas, si tu modelo sabe pedir herramientas, "
+      + "la nube, Telegram y sus canales, Betfair, The Odds API, la guardia y el backtest. "
+      + "Tarda un minuto: el modelo tiene que pensar."),
+    el("div", { class: "fila" }, lanzar), caja, cuerpo);
 }
 
 /* ── diagnóstico ─────────────────────────────────────────────────── */

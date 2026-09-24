@@ -135,6 +135,36 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         cliente.close()
 
 
+def cmd_listo(args: argparse.Namespace) -> int:
+    """``cancha listo``: cada pieza, probada de verdad, y qué hacer si falla."""
+    from .. import ajustes as modulo_ajustes
+    from ..almacen import Almacen
+    from ..listo import ICONOS, comprobar, texto
+
+    guardados = modulo_ajustes.cargar(getattr(args, "ajustes", None))
+    almacen = Almacen(args.db or "datos/cancha.db")
+    cliente = None if args.sin_red else comun.construir_cliente(args)
+
+    def al_vuelo(pieza: dict) -> None:
+        if not args.json:
+            imprimir(f"{ICONOS[pieza['estado']]} {pieza['nombre']}…")
+
+    try:
+        datos = comprobar(almacen, cliente, guardados, con_red=not args.sin_red,
+                          avisar=al_vuelo)
+    finally:
+        almacen.close()
+        if cliente is not None:
+            cliente.close()
+    if args.json:
+        imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+    else:
+        imprimir("")
+        for linea in texto(datos):
+            imprimir(linea)
+    return 0 if datos["listo"] else 1
+
+
 def _doctor_tls(args: argparse.Namespace) -> int:
     """``cancha doctor --tls``: quién está abriendo tu HTTPS, si es que alguien.
 
@@ -295,6 +325,19 @@ def registrar(sub, comun, informe, listado) -> None:
                                "(antivirus, proxy de empresa, VPN) y dice quién es.")
     p_doctor.add_argument("--host", help="Qué hosts probar con --tls, separados por comas.")
     p_doctor.set_defaults(func=cmd_doctor)
+
+    p_listo = sub.add_parser(
+        "listo", parents=[comun],
+        help="¿Está todo listo? Prueba cada pieza de verdad y dice qué arreglar.",
+        description="Memoria, Sofascore (y qué cuotas trae de verdad), el recorrido de "
+                    "temporadas, Ollama y si tu modelo sabe pedir herramientas, la "
+                    "nube, Telegram y sus canales, Betfair y The Odds API, la guardia "
+                    "y el backtest. Sale con 1 si algo está mal.")
+    p_listo.add_argument("--db", help="Fichero de la memoria (por defecto: datos/cancha.db).")
+    p_listo.add_argument("--sin-red", action="store_true",
+                         help="Solo lo que no sale de tu máquina: memoria, guardia, backtest.")
+    p_listo.add_argument("--json", action="store_true", help="Volcar el JSON.")
+    p_listo.set_defaults(func=cmd_listo)
 
     p_cache = sub.add_parser("cache", help="Estado de la caché.")
     p_cache.add_argument("--clear", action="store_true", help="Vacía la caché.")

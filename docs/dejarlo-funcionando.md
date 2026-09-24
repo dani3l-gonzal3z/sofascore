@@ -67,6 +67,33 @@ pedir.
 **`guardia --una-vez` la primera vez, mirándola.** Hace una vuelta entera y
 sale, así ves qué tarda y si algo falla antes de dejarlo solo toda la noche.
 
+### `cancha listo`: cada pieza, probada de verdad
+
+```powershell
+.\cancha.bat listo              # todo, con red
+.\cancha.bat listo --sin-red    # solo lo de tu máquina
+```
+
+En la interfaz, **Memoria → ¿Está todo listo?**. Prueba cada pieza en el orden en
+que dependen unas de otras y, de lo que falle, dice qué hacer:
+
+| Pieza | Qué mira de verdad |
+| --- | --- |
+| Memoria | Que el fichero esté sano y cuántos partidos hay |
+| Sofascore | La agenda de hoy |
+| Cuotas de Sofascore | Qué mercados trae **de verdad** un partido de hoy, y si entre ellos está el marcador exacto |
+| Temporadas | El recorrido del que depende `cancha historia` |
+| Ollama | Que esté, que tenga el modelo, y **que el modelo sepa pedir una herramienta** |
+| La nube, Telegram, sus canales, Betfair, The Odds API | Que la clave valga y que el bot sea administrador de cada canal |
+| Guardia y backtest | Cuándo pasó la guardia y qué peso validó el backtest |
+
+Lo de Ollama es lo más importante: un modelo que no sabe pedir herramientas
+contesta igual de bien escrito, pero **inventándose los datos**. Con él, los
+agentes, la charla de cada partido y el reparto entre dos modelos no sirven.
+
+Lo que no está configurado sale como «sin configurar», no como roto. Sale con
+código 1 si algo está mal, para poder usarlo en un script.
+
 En Windows, doble clic en **`cancha.bat`**. La primera vez se prepara el
 entorno solo (un minuto); las siguientes arranca directo. Si algo falla, la
 ventana **no se cierra**: el error se queda para poder leerlo.

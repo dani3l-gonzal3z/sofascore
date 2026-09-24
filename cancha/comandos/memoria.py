@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 
 from ..almacen import Almacen
 from ..barrido import GRUPOS, agenda, barrer, ligas_de
@@ -945,6 +946,112 @@ def cmd_picks(args: argparse.Namespace) -> int:
             cliente.close()
 
 
+def cmd_backtest(args: argparse.Namespace) -> int:
+    """Rehace los pronósticos del pasado con lo que se sabía entonces, y los mide."""
+    from ..backtest import backtest, guardar_mezcla, ultimo
+
+    almacen = _almacen(args)
+    try:
+        if args.ultimo:
+            datos = ultimo(almacen)
+            if not datos:
+                imprimir("Todavía no hay ningún backtest guardado: cancha backtest")
+                return 1
+        else:
+            datos = backtest(almacen, desde=args.desde, hasta=args.hasta,
+                             avisar=imprimir if not args.json else None)
+            if not args.no_guardar:
+                mezcla = guardar_mezcla(almacen, datos)
+                imprimir("")
+                imprimir(f"Guardado. Los picks usarán un peso de {mezcla['peso']:.0%} "
+                         "para nuestro modelo"
+                         + (" (o sea, ninguno: no hay picks)." if not mezcla["peso"]
+                            else "."))
+        if args.json:
+            imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+            return 0
+        for linea in texto_backtest(datos):
+            imprimir(linea)
+        return 0
+    finally:
+        almacen.close()
+
+
+def texto_backtest(d: dict) -> list[str]:
+    """El backtest en líneas: las tres preguntas y lo que no dice."""
+    lineas = ["", f"BACKTEST · {d.get('desde')} → {d.get('hasta')} · "
+              f"{d.get('partidos_mirados')} partidos con cuotas · {d.get('regla')}", ""]
+    ap = d.get("aporta") or {}
+    lineas += ["1. ¿Sabe el modelo algo que el mercado no sepa?"]
+    if ap.get("veredicto") == "sin muestra":
+        lineas.append(f"   {ap.get('lectura')}")
+    else:
+        lineas += [f"   Log loss del 1X2 en los {ap['medido_en']} partidos de comprobación:",
+                   f"     mercado solo {ap['log_loss_mercado']:.4f} · con un "
+                   f"{ap['peso_elegido']:.0%} nuestro {ap['log_loss_mezcla']:.4f} · "
+                   f"modelo solo {ap['log_loss_modelo_solo']:.4f}"]
+        lineas += [f"   {x}" for x in envolver(f"→ {ap['veredicto'].upper()}. "
+                                               f"{ap['lectura']}", 70)]
+    lineas += ["", "2. ¿La regla de picks habría ganado? (a la cuota de cierre)"]
+    for nombre, clave in (("con la regla", "picks"), ("modelo a secas", "picks_modelo_solo")):
+        pk = d.get(clave) or {}
+        if pk.get("picks"):
+            abajo, arriba = pk["intervalo"]
+            intervalo = (f" [{abajo:+.1%}, {arriba:+.1%}]"
+                         if math.isfinite(abajo) and math.isfinite(arriba) else "")
+            lineas.append(f"   {nombre:<15} {pk['picks']:>5} pick{'s' if pk['picks'] != 1 else ''}"
+                          f" · {pk['unidades']:+8.2f} u · {pk['rendimiento']:+.1%}{intervalo}"
+                          f" · peor racha {pk['peor_racha']:+.1f}")
+        else:
+            lineas.append(f"   {nombre:<15} ningún pick")
+    if (d.get("picks") or {}).get("lectura"):
+        lineas += [f"   {x}" for x in envolver(d["picks"]["lectura"], 70)]
+    lineas += ["", "3. Suceso a suceso, Brier nuestro contra el del mercado:"]
+    for m in d.get("por_mercado") or []:
+        lineas.append(f"   {m['suceso']:<24} {m['casos']:>5} casos · {m['brier_nuestro']:.4f} "
+                      f"vs {m['brier_mercado']:.4f} → {m['gana']}")
+    me = d.get("marcador_exacto") or {}
+    if me.get("partidos"):
+        lineas += ["", f"4. Marcador exacto ({me['partidos']} partidos): al que salió le "
+                   f"dábamos un {me['p_real_nuestra']:.1%} y el mercado un "
+                   f"{me['p_real_mercado']:.1%} → {me['gana']}"]
+    if d.get("calibracion"):
+        lineas += ["", "Calibración del 1X2 (dijo → pasó):"]
+        lineas += [f"   {c['tramo']:>8}  {c['dijo']:.0%} → {c['paso']:.0%}  "
+                   f"({c['casos']} casos)" for c in d["calibracion"]]
+    lineas += ["", "Lo que esto no dice:"]
+    for aviso in d.get("advertencias") or []:
+        lineas += [f"   · {x}" if n == 0 else f"     {x}"
+                   for n, x in enumerate(envolver(aviso, 68))]
+    return lineas
+
+
+def cmd_retrospectiva(args: argparse.Namespace) -> int:
+    """Un partido ya jugado: lo que se dijo antes, frente a lo que pasó."""
+    from ..previa import _resolver
+    from ..retrospectiva import retrospectiva
+    from ..retrospectiva import texto as texto_retro
+
+    almacen = _almacen(args)
+    cliente = comun.construir_cliente(args)
+    try:
+        evento = _resolver(almacen, args.partido, cliente)
+        if evento is None:
+            imprimir("No encuentro ese partido.")
+            return 1
+        datos = retrospectiva(almacen, evento.id,
+                              carpeta_briefings=args.briefings or None)
+        if args.json:
+            imprimir(json.dumps(datos, ensure_ascii=False, indent=2, default=str))
+        else:
+            for linea in texto_retro(datos):
+                imprimir(linea)
+        return 0 if datos.get("disponible") else 1
+    finally:
+        almacen.close()
+        cliente.close()
+
+
 def cmd_historia(args: argparse.Namespace) -> int:
     """Traerse años de partidos de golpe, en vez de seis por equipo."""
     from .. import ajustes as modulo_ajustes
@@ -1192,6 +1299,37 @@ def registrar(sub, comun_p, informe, listado) -> None:
                          help="Cómo han ido, en cada nivel.")
     p_picks.add_argument("--json", action="store_true", help="Volcar el JSON.")
     p_picks.set_defaults(func=cmd_picks)
+
+    p_backtest = sub.add_parser(
+        "backtest", parents=[comun_p, base],
+        help="Rehace los pronósticos del pasado con lo que se sabía entonces.",
+        description="Contesta tres preguntas sin mirar el futuro: si el modelo sabe algo "
+                    "que el mercado no, si la regla de picks habría ganado a la cuota de "
+                    "cierre, y quién acierta más en marcador exacto. El peso de nuestro "
+                    "modelo se elige con la primera mitad y se mide en la segunda. Lo "
+                    "que diga se guarda y es lo que usan los picks: si el modelo no "
+                    "aporta, no hay picks.",
+    )
+    p_backtest.add_argument("--desde", help="Solo partidos desde esta fecha.")
+    p_backtest.add_argument("--hasta", help="Solo partidos hasta esta fecha.")
+    p_backtest.add_argument("--ultimo", action="store_true",
+                            help="Enseñar el último guardado, sin rehacerlo.")
+    p_backtest.add_argument("--no-guardar", action="store_true",
+                            help="No cambiar el peso que usan los picks.")
+    p_backtest.add_argument("--json", action="store_true", help="Volcar el JSON.")
+    p_backtest.set_defaults(func=cmd_backtest)
+
+    p_retro = sub.add_parser(
+        "retrospectiva", parents=[comun_p, base],
+        help="Un partido ya jugado: lo que se dijo antes frente a lo que pasó.",
+        description="Junta el briefing de su día, el registro de predicciones, los "
+                    "picks y el primer dictamen hecho antes del saque, y de cada "
+                    "suceso dice cuánta probabilidad le dio cada uno a lo que pasó.")
+    p_retro.add_argument("partido", help="Id, URL o 'Equipo A vs Equipo B'.")
+    p_retro.add_argument("--briefings", help="Carpeta de los briefings "
+                                             "(por defecto: datos/briefings).")
+    p_retro.add_argument("--json", action="store_true", help="Volcar el JSON.")
+    p_retro.set_defaults(func=cmd_retrospectiva)
 
     p_historia = sub.add_parser(
         "historia", parents=[comun_p, base],

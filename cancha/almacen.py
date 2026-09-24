@@ -381,6 +381,7 @@ class Almacen:
                 "ALTER TABLE partidos ADD COLUMN sin_estadisticas INTEGER DEFAULT 0")
         self._migrar_autor_de_predicciones()
         self._indices_de_predicciones()
+        self._migrar_cuotas_viejas()
         de_dictamenes = {f["name"] for f in self.consulta("PRAGMA table_info(dictamenes)")}
         for columna, tipo in (("agente", "TEXT"), ("pasos", "TEXT"),
                               ("sin_numeros", "INTEGER DEFAULT 0"),
@@ -394,6 +395,37 @@ class Almacen:
         if "horas_antes" not in de_cuotas:
             self._conexion.execute("ALTER TABLE cuotas ADD COLUMN horas_antes REAL")
         self._conexion.commit()
+
+    def _migrar_cuotas_viejas(self) -> None:
+        """Pasa el 1X2 de la tabla vieja de cuotas a la de todos los mercados.
+
+        Todo lo que se trajo antes de que existiera `cuotas_mercado` tenía su 1X2
+        solo en `cuotas`. Sin esto, esos partidos no existirían para nada de lo
+        nuevo —el mercado de cada partido, los picks, el backtest—, que es tanto
+        como tirar la historia que ya había. Se hace una vez: lo copiado lleva la
+        misma hora de foto, y la restricción única impide duplicarlo.
+        """
+        with suppress(sqlite3.OperationalError):
+            self._conexion.execute(
+                """INSERT OR IGNORE INTO cuotas_mercado
+                   (partido_id, fuente, casa, mercado, linea, seleccion, cuota, prob,
+                    margen, visto_en, horas_antes)
+                   SELECT c.partido_id, 'sofascore', 'sofascore#1', '1x2', '',
+                          s.seleccion, s.cuota, s.prob,
+                          ROUND(1.0/c.local + 1.0/c.empate + 1.0/c.visitante - 1, 4),
+                          COALESCE(c.visto_en, '1970-01-01T00:00:00+00:00'), c.horas_antes
+                   FROM cuotas c
+                   JOIN (SELECT partido_id, 'local' AS seleccion, local AS cuota,
+                                prob_local AS prob FROM cuotas
+                         UNION ALL SELECT partido_id, 'empate', empate, prob_empate
+                         FROM cuotas
+                         UNION ALL SELECT partido_id, 'visitante', visitante,
+                                prob_visitante FROM cuotas) s
+                     ON s.partido_id = c.partido_id
+                   WHERE c.local > 1 AND c.empate > 1 AND c.visitante > 1
+                     AND NOT EXISTS (SELECT 1 FROM cuotas_mercado m
+                                     WHERE m.partido_id = c.partido_id
+                                       AND m.mercado = '1x2')""")
 
     def _indices_de_predicciones(self) -> None:
         """Los índices de `predicciones`, después de migrar y no antes.
